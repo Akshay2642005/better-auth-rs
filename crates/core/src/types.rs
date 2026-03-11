@@ -587,6 +587,23 @@ pub struct StatusMessageResponse {
     pub message: String,
 }
 
+/// Generic `{ success: bool }` response (e.g. sign-out).
+///
+/// Use for endpoints where the upstream spec defines `success` rather than `status`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SuccessResponse {
+    pub success: bool,
+}
+
+/// `{ success: bool, message: String }` response (e.g. delete-user).
+///
+/// Use for endpoints where the upstream spec defines `success` rather than `status`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SuccessMessageResponse {
+    pub success: bool,
+    pub message: String,
+}
+
 /// Health-check response for `/health`.
 #[derive(Debug, Serialize)]
 pub struct HealthCheckResponse {

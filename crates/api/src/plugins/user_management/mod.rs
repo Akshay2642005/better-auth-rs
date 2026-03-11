@@ -353,7 +353,9 @@ mod axum_impl {
 
     use axum::Json;
     use axum::extract::{Extension, Query, State};
-    use better_auth_core::{AuthError, AuthState, CurrentSession, ValidatedJson};
+    use better_auth_core::{
+        AuthError, AuthState, CurrentSession, SuccessMessageResponse, ValidatedJson,
+    };
 
     #[derive(Clone)]
     struct PluginState {
@@ -391,7 +393,7 @@ mod axum_impl {
         State(state): State<AuthState<DB>>,
         Extension(ps): Extension<Arc<PluginState>>,
         CurrentSession { user, .. }: CurrentSession<DB>,
-    ) -> Result<Json<StatusMessageResponse>, AuthError> {
+    ) -> Result<Json<SuccessMessageResponse>, AuthError> {
         if !ps.config.delete_user.enabled {
             return Err(AuthError::not_found("Not found"));
         }
@@ -404,7 +406,7 @@ mod axum_impl {
         State(state): State<AuthState<DB>>,
         Extension(ps): Extension<Arc<PluginState>>,
         Query(query): Query<TokenQuery>,
-    ) -> Result<Json<StatusMessageResponse>, AuthError> {
+    ) -> Result<Json<SuccessMessageResponse>, AuthError> {
         if !ps.config.delete_user.enabled {
             return Err(AuthError::not_found("Not found"));
         }

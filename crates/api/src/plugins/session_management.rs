@@ -11,6 +11,7 @@ use better_auth_core::{AuthError, AuthResult};
 use better_auth_core::{AuthRequest, AuthResponse, HttpMethod};
 
 use super::StatusResponse;
+use better_auth_core::SuccessResponse;
 
 /// Session management plugin for handling session operations
 pub struct SessionManagementPlugin {
@@ -95,9 +96,9 @@ impl<DB: DatabaseAdapter> AuthPlugin<DB> for SessionManagementPlugin {
 pub(crate) async fn sign_out_core<DB: DatabaseAdapter>(
     session: &DB::Session,
     ctx: &AuthContext<DB>,
-) -> AuthResult<StatusResponse> {
+) -> AuthResult<SuccessResponse> {
     ctx.database.delete_session(session.token()).await?;
-    Ok(StatusResponse { status: true })
+    Ok(SuccessResponse { success: true })
 }
 
 pub(crate) async fn list_sessions_core<DB: DatabaseAdapter>(
@@ -246,7 +247,7 @@ mod axum_impl {
     async fn handle_sign_out<DB: DatabaseAdapter>(
         State(state): State<AuthState<DB>>,
         CurrentSession { session, .. }: CurrentSession<DB>,
-    ) -> Result<([(header::HeaderName, String); 1], Json<StatusResponse>), AuthError> {
+    ) -> Result<([(header::HeaderName, String); 1], Json<SuccessResponse>), AuthError> {
         let ctx = state.to_context();
         let response = sign_out_core(&session, &ctx).await?;
         let cookie = state.clear_session_cookie();
@@ -417,8 +418,8 @@ mod tests {
         assert_eq!(response.status, 200);
 
         let body_str = String::from_utf8(response.body).unwrap();
-        let response_data: StatusResponse = serde_json::from_str(&body_str).unwrap();
-        assert!(response_data.status);
+        let response_data: SuccessResponse = serde_json::from_str(&body_str).unwrap();
+        assert!(response_data.success);
 
         let session_check = ctx.database.get_session(&session.token).await.unwrap();
         assert!(session_check.is_none());

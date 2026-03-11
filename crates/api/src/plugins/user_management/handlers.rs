@@ -7,6 +7,7 @@ use better_auth_core::{AuthContext, AuthError, AuthResult, UpdateUser};
 
 use super::types::StatusMessageResponse;
 use super::{UserInfo, UserManagementConfig};
+use better_auth_core::SuccessMessageResponse;
 
 // ---------------------------------------------------------------------------
 // Shared helpers (DRY: token creation, token verification, email sending)
@@ -221,7 +222,7 @@ pub(crate) async fn delete_user_core<DB: DatabaseAdapter>(
     user: &DB::User,
     config: &UserManagementConfig,
     ctx: &AuthContext<DB>,
-) -> AuthResult<StatusMessageResponse> {
+) -> AuthResult<SuccessMessageResponse> {
     if config.delete_user.require_verification {
         // Verification requires a valid email to send the token to.
         let email = user.email().filter(|e| !e.is_empty()).ok_or_else(|| {
@@ -253,16 +254,16 @@ pub(crate) async fn delete_user_core<DB: DatabaseAdapter>(
 
         send_email_or_log(ctx, &email, subject, &html, &text, "delete-user").await;
 
-        Ok(StatusMessageResponse {
-            status: true,
+        Ok(SuccessMessageResponse {
+            success: true,
             message: "Verification email sent. Please confirm to delete your account.".to_string(),
         })
     } else {
         // Immediate deletion (no verification required)
         perform_user_deletion(user, config, ctx).await?;
 
-        Ok(StatusMessageResponse {
-            status: true,
+        Ok(SuccessMessageResponse {
+            success: true,
             message: "Account deleted successfully".to_string(),
         })
     }
@@ -272,7 +273,7 @@ pub(crate) async fn delete_user_verify_core<DB: DatabaseAdapter>(
     token: &str,
     config: &UserManagementConfig,
     ctx: &AuthContext<DB>,
-) -> AuthResult<StatusMessageResponse> {
+) -> AuthResult<SuccessMessageResponse> {
     // Find verification by token value
     let verification = ctx
         .database
@@ -307,8 +308,8 @@ pub(crate) async fn delete_user_verify_core<DB: DatabaseAdapter>(
     // Consume the verification token after successful deletion
     ctx.database.delete_verification(&verification_id).await?;
 
-    Ok(StatusMessageResponse {
-        status: true,
+    Ok(SuccessMessageResponse {
+        success: true,
         message: "Account deleted successfully".to_string(),
     })
 }
