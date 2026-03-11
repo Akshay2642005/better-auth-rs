@@ -36,14 +36,14 @@ pub use better_auth_core::{
     ConsoleEmailProvider, CookieCacheConfig, CookieCacheStrategy, CorsConfig, CorsMiddleware,
     CreateAccount, CreateInvitation, CreateMember, CreateOrganization, CreatePasskey,
     CreateSession, CreateUser, CreateVerification, CsrfConfig, CsrfMiddleware, DatabaseAdapter,
-    DatabaseError, DatabaseHooks, DeleteUserResponse, EmailProvider, EndpointRateLimit,
-    HookedDatabaseAdapter, HttpMethod, Invitation, InvitationOps, InvitationStatus, JwtConfig,
-    MemberOps, MemoryAccount, MemoryCacheAdapter, MemoryDatabaseAdapter, MemoryInvitation,
-    MemoryMember, MemoryOrganization, MemorySession, MemoryUser, MemoryVerification, Middleware,
-    OpenApiBuilder, OpenApiSpec, OrganizationOps, Passkey, PasskeyOps, PasswordConfig,
-    RateLimitConfig, RateLimitMiddleware, SameSite, Session, SessionConfig, SessionManager,
-    SessionOps, TwoFactor, UpdateOrganization, UpdatePasskey, UpdateUser, UpdateUserRequest,
-    UpdateUserResponse, User, UserOps, Verification, VerificationOps, core_paths,
+    DatabaseError, DatabaseHooks, EmailProvider, EndpointRateLimit, HookedDatabaseAdapter,
+    HttpMethod, Invitation, InvitationOps, InvitationStatus, JwtConfig, MemberOps, MemoryAccount,
+    MemoryCacheAdapter, MemoryDatabaseAdapter, MemoryInvitation, MemoryMember, MemoryOrganization,
+    MemorySession, MemoryUser, MemoryVerification, Middleware, OpenApiBuilder, OpenApiSpec,
+    OrganizationOps, Passkey, PasskeyOps, PasswordConfig, RateLimitConfig, RateLimitMiddleware,
+    SameSite, Session, SessionConfig, SessionManager, SessionOps, TwoFactor, UpdateOrganization,
+    UpdatePasskey, UpdateUser, UpdateUserRequest, UpdateUserResponse, User, UserOps, Verification,
+    VerificationOps, core_paths,
 };
 
 // Re-export entity traits
@@ -57,9 +57,8 @@ pub mod types {
     pub use better_auth_core::{
         Account, AuthRequest, AuthResponse, CreateAccount, CreateInvitation, CreateMember,
         CreateOrganization, CreatePasskey, CreateSession, CreateUser, CreateVerification,
-        DeleteUserResponse, HttpMethod, Invitation, InvitationStatus, Passkey, Session, TwoFactor,
-        UpdateOrganization, UpdatePasskey, UpdateUser, UpdateUserRequest, UpdateUserResponse, User,
-        Verification,
+        HttpMethod, Invitation, InvitationStatus, Passkey, Session, TwoFactor, UpdateOrganization,
+        UpdatePasskey, UpdateUser, UpdateUserRequest, UpdateUserResponse, User, Verification,
     };
 }
 

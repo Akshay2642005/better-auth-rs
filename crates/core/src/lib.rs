@@ -67,9 +67,9 @@ pub use session::SessionManager;
 pub use types::{
     Account, ApiKey, AuthRequest, AuthResponse, CodeMessageResponse, CreateAccount, CreateApiKey,
     CreateInvitation, CreateMember, CreateOrganization, CreatePasskey, CreateSession,
-    CreateTwoFactor, CreateUser, CreateVerification, DeleteUserResponse, ErrorMessageResponse,
-    HealthCheckResponse, HttpMethod, Invitation, InvitationStatus, ListUsersParams, OkResponse,
-    Passkey, RateLimitErrorResponse, Session, StatusMessageResponse, StatusResponse, TwoFactor,
+    CreateTwoFactor, CreateUser, CreateVerification, ErrorMessageResponse, HealthCheckResponse,
+    HttpMethod, Invitation, InvitationStatus, ListUsersParams, OkResponse, Passkey,
+    RateLimitErrorResponse, Session, StatusMessageResponse, StatusResponse, TwoFactor,
     UpdateAccount, UpdateApiKey, UpdateOrganization, UpdatePasskey, UpdateUser, UpdateUserRequest,
     UpdateUserResponse, User, ValidationErrorResponse, Verification,
 };

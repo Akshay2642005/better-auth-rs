@@ -217,7 +217,7 @@ async fn test_get_session_response_shape() {
     );
 }
 
-/// Spec: POST /sign-out => { success: bool }
+/// Spec: POST /sign-out => { status: bool }
 #[tokio::test]
 async fn test_sign_out_response_shape() {
     let auth = create_test_auth().await;
@@ -232,8 +232,8 @@ async fn test_sign_out_response_shape() {
 
     let json: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
     assert!(
-        json["success"].is_boolean(),
-        "success must be a boolean, got: {:?}",
+        json["status"].is_boolean(),
+        "status must be a boolean, got: {:?}",
         json
     );
 }
@@ -425,8 +425,8 @@ async fn test_delete_user_response_shape() {
 
     let json: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
     assert!(
-        json["success"].is_boolean(),
-        "success must be a boolean, got: {:?}",
+        json["status"].is_boolean(),
+        "status must be a boolean, got: {:?}",
         json
     );
     assert!(

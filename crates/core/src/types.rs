@@ -568,12 +568,6 @@ pub struct UpdateUserResponse<U: Serialize> {
     pub user: U,
 }
 
-#[derive(Debug, Serialize)]
-pub struct DeleteUserResponse {
-    pub success: bool,
-    pub message: String,
-}
-
 /// Generic `{ ok: bool }` response used by `/ok` and `/error` endpoints.
 #[derive(Debug, Serialize)]
 pub struct OkResponse {

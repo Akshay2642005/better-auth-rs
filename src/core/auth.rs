@@ -4,9 +4,9 @@ use serde::Deserialize;
 
 use better_auth_core::{
     AuthConfig, AuthContext, AuthError, AuthPlugin, AuthRequest, AuthResponse, AuthResult,
-    BeforeRequestAction, DatabaseAdapter, DatabaseHooks, DeleteUserResponse, EmailProvider,
-    HttpMethod, OkResponse, OpenApiBuilder, OpenApiSpec, SessionManager, StatusMessageResponse,
-    StatusResponse, UpdateUser, UpdateUserRequest, core_paths,
+    BeforeRequestAction, DatabaseAdapter, DatabaseHooks, EmailProvider, HttpMethod, OkResponse,
+    OpenApiBuilder, OpenApiSpec, SessionManager, StatusMessageResponse, StatusResponse, UpdateUser,
+    UpdateUserRequest, core_paths,
     entity::{AuthAccount, AuthSession, AuthUser, AuthVerification},
     middleware::{
         self, BodyLimitConfig, BodyLimitMiddleware, CorsConfig, CorsMiddleware, CsrfConfig,
@@ -451,8 +451,8 @@ impl<DB: DatabaseAdapter> BetterAuth<DB> {
             .await?;
         self.database.delete_user(current_user.id()).await?;
 
-        let response = DeleteUserResponse {
-            success: true,
+        let response = StatusMessageResponse {
+            status: true,
             message: "User account successfully deleted".to_string(),
         };
 
@@ -533,8 +533,8 @@ impl<DB: DatabaseAdapter> BetterAuth<DB> {
         self.database.delete_user(user_id).await?;
         self.database.delete_verification(verification.id()).await?;
 
-        let response = DeleteUserResponse {
-            success: true,
+        let response = StatusMessageResponse {
+            status: true,
             message: "User account successfully deleted".to_string(),
         };
 

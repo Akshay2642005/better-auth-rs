@@ -10,12 +10,8 @@ pub(crate) struct ChangeEmailRequest {
     pub(crate) callback_url: Option<String>,
 }
 
-/// Request body for `POST /delete-user`. Currently empty; the user is
-/// identified by the session.
-#[derive(Debug, Deserialize, Validate)]
-pub(crate) struct DeleteUserRequest {}
-
 /// Query parameters for token-based verification endpoints.
+#[cfg(feature = "axum")]
 #[derive(Debug, Deserialize)]
 pub(crate) struct TokenQuery {
     pub(crate) token: String,
