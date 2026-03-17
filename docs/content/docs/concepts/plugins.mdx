@@ -32,6 +32,8 @@ Better Auth uses a plugin system to compose authentication features. Each plugin
 
 Plugins are added via the builder:
 
+These examples assume you've already defined `AppAuthSchema`. If you want a complete setup from entity definitions through Axum mounting, start with the [Axum integration guide](/docs/integrations/axum).
+
 ```rust
 let auth = BetterAuth::<AppAuthSchema>::new(config)
     .database(database)

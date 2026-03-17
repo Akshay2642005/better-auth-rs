@@ -7,6 +7,8 @@ Database hooks let you run custom logic before and after user and session operat
 
 ## Setup
 
+These examples assume you've already defined `AppAuthSchema`. If you want a complete setup from entity definitions through Axum mounting, start with the [Axum integration guide](/docs/integrations/axum).
+
 ```rust
 use better_auth::hooks::{DatabaseHookContext, DatabaseHooks, HookControl};
 use async_trait::async_trait;
