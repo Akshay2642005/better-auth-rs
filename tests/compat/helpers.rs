@@ -21,7 +21,8 @@ use better_auth::{
 };
 use serde_json::Value;
 
-type TestSchema = better_auth::__private_core::store::sea_orm::bundled_schema::BundledSchema;
+type TestSchema =
+    better_auth::__private_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
 type TestAuth = BetterAuth<TestSchema>;
 
 static LOCAL_PROXY_BYPASS: Once = Once::new();
@@ -156,9 +157,11 @@ async fn test_database() -> DatabaseConnection {
     let database = Database::connect("sqlite::memory:")
         .await
         .unwrap_or_else(|e| panic!("sqlite test database should connect: {e}"));
-    better_auth::__private_core::store::sea_orm::migrator::run_migrations(&database)
-        .await
-        .unwrap_or_else(|e| panic!("sqlite test migrations should run: {e}"));
+    better_auth::__private_core::store::sea_orm::__private_test_support::migrator::run_migrations(
+        &database,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("sqlite test migrations should run: {e}"));
     database
 }
 

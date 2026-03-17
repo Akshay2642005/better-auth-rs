@@ -2,18 +2,28 @@
 
 mod accounts;
 mod api_keys;
-pub mod bundled_schema;
-mod conversions;
+mod bundled_schema;
 pub mod entities;
 mod invitations;
 mod members;
-pub mod migrator;
+mod migrator;
 mod organizations;
 mod passkeys;
 mod sessions;
 mod two_factor;
 mod users;
 mod verifications;
+
+#[doc(hidden)]
+pub mod __private_test_support {
+    pub mod bundled_schema {
+        pub use super::super::bundled_schema::BundledSchema;
+    }
+
+    pub mod migrator {
+        pub use super::super::migrator::{AuthMigrator, run_migrations};
+    }
+}
 
 use std::future::Future;
 use std::marker::PhantomData;

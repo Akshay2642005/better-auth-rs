@@ -214,7 +214,7 @@ mod tests {
     use crate::entity::AuthSession;
     use crate::sea_orm::Database;
     use crate::store::AuthStore;
-    use crate::store::sea_orm::bundled_schema::BundledSchema;
+    use crate::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
     use crate::types::AuthRequest;
     use crate::types::HttpMethod;
     use chrono::Duration;
@@ -227,7 +227,7 @@ mod tests {
         let database = Database::connect("sqlite::memory:")
             .await
             .expect("sqlite test database should connect");
-        crate::store::sea_orm::migrator::run_migrations(&database)
+        crate::store::sea_orm::__private_test_support::migrator::run_migrations(&database)
             .await
             .expect("sqlite test migrations should run");
         Arc::new(AuthStore::<BundledSchema>::new(test_config(), database))

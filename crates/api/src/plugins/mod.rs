@@ -25,7 +25,7 @@ pub(crate) mod test_helpers {
     use std::sync::Arc;
 
     use better_auth_core::config::AuthConfig;
-    use better_auth_core::store::sea_orm::bundled_schema::BundledSchema;
+    use better_auth_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
     use better_auth_core::{
         AuthContext, AuthRequest, AuthStore, CreateSession, CreateUser, HttpMethod, Session, User,
         sea_orm::Database,
@@ -42,9 +42,11 @@ pub(crate) mod test_helpers {
         let database = Database::connect("sqlite::memory:")
             .await
             .expect("sqlite test database should connect");
-        better_auth_core::store::sea_orm::migrator::run_migrations(&database)
-            .await
-            .expect("sqlite test migrations should run");
+        better_auth_core::store::sea_orm::__private_test_support::migrator::run_migrations(
+            &database,
+        )
+        .await
+        .expect("sqlite test migrations should run");
         Arc::new(AuthStore::<BundledSchema>::new(
             Arc::new(create_test_config()),
             database,

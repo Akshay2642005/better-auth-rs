@@ -30,14 +30,17 @@ impl FromRef<AppState> for Arc<BetterAuth<TestSchema>> {
     }
 }
 
-type TestSchema = better_auth::__private_core::store::sea_orm::bundled_schema::BundledSchema;
+type TestSchema =
+    better_auth::__private_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
 
 /// Helper to create test BetterAuth instance with all plugins
 async fn test_database() -> DatabaseConnection {
     let database = Database::connect("sqlite::memory:").await.unwrap();
-    better_auth::__private_core::store::sea_orm::migrator::run_migrations(&database)
-        .await
-        .unwrap();
+    better_auth::__private_core::store::sea_orm::__private_test_support::migrator::run_migrations(
+        &database,
+    )
+    .await
+    .unwrap();
     database
 }
 

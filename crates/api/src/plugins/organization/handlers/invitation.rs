@@ -22,8 +22,8 @@ use crate::plugins::organization::types::{
 
 pub(crate) async fn invite_member_core(
     body: &InviteMemberRequest,
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     config: &OrganizationConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<better_auth_core::Invitation> {
@@ -140,8 +140,8 @@ pub(crate) async fn get_invitation_core(
 
 pub(crate) async fn list_invitations_core(
     query: &ListInvitationsQuery,
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Vec<better_auth_core::Invitation>> {
     let org_id =
@@ -159,7 +159,7 @@ pub(crate) async fn list_invitations_core(
 }
 
 pub(crate) async fn list_user_invitations_core(
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Vec<better_auth_core::Invitation>> {
     let user_email = user
@@ -178,8 +178,8 @@ pub(crate) async fn list_user_invitations_core(
 
 pub(crate) async fn accept_invitation_core(
     body: &AcceptInvitationRequest,
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     config: &OrganizationConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<AcceptInvitationResponse<better_auth_core::Invitation>> {
@@ -263,7 +263,7 @@ pub(crate) async fn accept_invitation_core(
 
 pub(crate) async fn reject_invitation_core(
     body: &RejectInvitationRequest,
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<SuccessResponse> {
     let invitation = ctx
@@ -297,7 +297,7 @@ pub(crate) async fn reject_invitation_core(
 
 pub(crate) async fn cancel_invitation_core(
     body: &CancelInvitationRequest,
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     config: &OrganizationConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<SuccessResponse> {

@@ -26,7 +26,7 @@ impl<S: AuthSchema> AuthStore<S> {
         }
         .insert(self.connection())
         .await
-        .map(Organization::from)
+        .map(|model| Organization::from(&model))
         .map_err(map_db_err)
     }
 
@@ -34,7 +34,7 @@ impl<S: AuthSchema> AuthStore<S> {
         Entity::find_by_id(id.to_owned())
             .one(self.connection())
             .await
-            .map(|model| model.map(Organization::from))
+            .map(|model| model.map(|model| Organization::from(&model)))
             .map_err(map_db_err)
     }
 
@@ -43,7 +43,7 @@ impl<S: AuthSchema> AuthStore<S> {
             .filter(Column::Slug.eq(slug))
             .one(self.connection())
             .await
-            .map(|model| model.map(Organization::from))
+            .map(|model| model.map(|model| Organization::from(&model)))
             .map_err(map_db_err)
     }
 
@@ -78,7 +78,7 @@ impl<S: AuthSchema> AuthStore<S> {
         active
             .update(self.connection())
             .await
-            .map(Organization::from)
+            .map(|model| Organization::from(&model))
             .map_err(map_db_err)
     }
 
@@ -111,7 +111,7 @@ impl<S: AuthSchema> AuthStore<S> {
             .order_by_desc(Column::CreatedAt)
             .all(self.connection())
             .await
-            .map(|models| models.into_iter().map(Organization::from).collect())
+            .map(|models| models.iter().map(Organization::from).collect())
             .map_err(map_db_err)
     }
 }

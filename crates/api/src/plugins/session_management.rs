@@ -262,131 +262,6 @@ fn sign_out_cookies(config: &AuthConfig) -> Vec<String> {
     cookies
 }
 
-#[cfg(any())]
-#[cfg(feature = "axum")]
-mod axum_impl {
-    use super::*;
-    use std::sync::Arc;
-
-    use axum::Json;
-    use axum::extract::{Extension, State};
-    use axum::http::{HeaderValue, header};
-    use axum::response::IntoResponse;
-    use better_auth_core::{AuthError, AuthState, CurrentSession, OptionalSession, ValidatedJson};
-
-    #[derive(Clone)]
-    struct PluginState {
-        config: SessionManagementConfig,
-    }
-
-    // get_session is trivially simple: just construct the response directly.
-    async fn handle_get_session(
-        CurrentSession { user, session }: CurrentSession,
-    ) -> Result<
-        Json<GetSessionResponse<better_auth_core::Session, better_auth_core::User>>,
-        AuthError,
-    > {
-        Ok(Json(GetSessionResponse { session, user }))
-    }
-
-    async fn handle_sign_out(
-        State(state): State<AuthState>,
-        OptionalSession(session): OptionalSession,
-    ) -> Result<axum::response::Response, AuthError> {
-        let response = if let Some(CurrentSession { session, .. }) = session {
-            let ctx = state.to_context();
-            sign_out_core(&session, &ctx).await?
-        } else {
-            SuccessResponse { success: true }
-        };
-
-        let mut headers = axum::http::HeaderMap::new();
-        for cookie in sign_out_cookies(&state.config) {
-            let header_value = HeaderValue::from_str(&cookie).map_err(|error| {
-                AuthError::internal(format!("Invalid cookie header: {}", error))
-            })?;
-            _ = headers.append(header::SET_COOKIE, header_value);
-        }
-
-        Ok((headers, Json(response)).into_response())
-    }
-
-    async fn handle_list_sessions(
-        State(state): State<AuthState>,
-        Extension(ps): Extension<Arc<PluginState>>,
-        CurrentSession { user, .. }: CurrentSession,
-    ) -> Result<Json<Vec<better_auth_core::Session>>, AuthError> {
-        if !ps.config.enable_session_listing {
-            return Err(AuthError::not_found("Not found"));
-        }
-        let ctx = state.to_context();
-        let sessions = list_sessions_core(user.id(), &ctx).await?;
-        Ok(Json(sessions))
-    }
-
-    async fn handle_revoke_session(
-        State(state): State<AuthState>,
-        Extension(ps): Extension<Arc<PluginState>>,
-        CurrentSession { user, .. }: CurrentSession,
-        ValidatedJson(body): ValidatedJson<RevokeSessionRequest>,
-    ) -> Result<Json<StatusResponse>, AuthError> {
-        if !ps.config.enable_session_revocation {
-            return Err(AuthError::not_found("Not found"));
-        }
-        let ctx = state.to_context();
-        let response = revoke_session_core(&user, &body.token, &ctx).await?;
-        Ok(Json(response))
-    }
-
-    async fn handle_revoke_sessions(
-        State(state): State<AuthState>,
-        Extension(ps): Extension<Arc<PluginState>>,
-        CurrentSession { user, .. }: CurrentSession,
-    ) -> Result<Json<StatusResponse>, AuthError> {
-        if !ps.config.enable_session_revocation {
-            return Err(AuthError::not_found("Not found"));
-        }
-        let ctx = state.to_context();
-        let response = revoke_sessions_core(user.id(), &ctx).await?;
-        Ok(Json(response))
-    }
-
-    async fn handle_revoke_other_sessions(
-        State(state): State<AuthState>,
-        Extension(ps): Extension<Arc<PluginState>>,
-        CurrentSession { user, session }: CurrentSession,
-    ) -> Result<Json<StatusResponse>, AuthError> {
-        if !ps.config.enable_session_revocation {
-            return Err(AuthError::not_found("Not found"));
-        }
-        let ctx = state.to_context();
-        let response = revoke_other_sessions_core(user.id(), &session, &ctx).await?;
-        Ok(Json(response))
-    }
-
-    impl better_auth_core::AxumPlugin for SessionManagementPlugin {
-        fn name(&self) -> &'static str {
-            "session-management"
-        }
-
-        fn router(&self) -> axum::Router<AuthState> {
-            use axum::routing::{get, post};
-
-            let plugin_state = Arc::new(PluginState {
-                config: self.config.clone(),
-            });
-            axum::Router::new()
-                .route("/get-session", get(handle_get_session))
-                .route("/sign-out", post(handle_sign_out))
-                .route("/list-sessions", get(handle_list_sessions))
-                .route("/revoke-session", post(handle_revoke_session))
-                .route("/revoke-sessions", post(handle_revoke_sessions))
-                .route("/revoke-other-sessions", post(handle_revoke_other_sessions))
-                .layer(Extension(plugin_state))
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -711,10 +586,9 @@ mod tests {
     #[tokio::test]
     async fn test_plugin_routes() {
         let plugin = SessionManagementPlugin::new();
-        let routes =
-            AuthPlugin::<better_auth_core::store::sea_orm::bundled_schema::BundledSchema>::routes(
-                &plugin,
-            );
+        let routes = AuthPlugin::<
+            better_auth_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema,
+        >::routes(&plugin);
 
         assert_eq!(routes.len(), 6);
         assert!(

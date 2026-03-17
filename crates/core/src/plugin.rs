@@ -320,80 +320,19 @@ impl<S: AuthSchema> AuthContext<S> {
     }
 }
 
-/// Axum-friendly shared state type.
-///
-/// All fields are behind `Arc` so `AuthState` is cheap to clone and can
-/// be used directly as axum `State`.
-#[cfg(test)]
-struct AuthState<S: AuthSchema> {
-    pub config: Arc<AuthConfig>,
-    pub database: Arc<AuthStore<S>>,
-    pub session_manager: SessionManager<S>,
-    pub email_provider: Option<Arc<dyn EmailProvider>>,
-    pub metadata: HashMap<String, serde_json::Value>,
-}
-
-#[cfg(test)]
-impl<S: AuthSchema> Clone for AuthState<S> {
-    fn clone(&self) -> Self {
-        Self {
-            config: self.config.clone(),
-            database: self.database.clone(),
-            session_manager: self.session_manager.clone(),
-            email_provider: self.email_provider.clone(),
-            metadata: self.metadata.clone(),
-        }
-    }
-}
-
-#[cfg(test)]
-impl<S: AuthSchema> AuthState<S> {
-    /// Create a new `AuthState` from an `AuthContext` and `SessionManager`.
-    fn new(ctx: &AuthContext<S>, session_manager: SessionManager<S>) -> Self {
-        Self {
-            config: ctx.config.clone(),
-            database: ctx.database.clone(),
-            session_manager,
-            email_provider: ctx.email_provider.clone(),
-            metadata: ctx.metadata.clone(),
-        }
-    }
-
-    /// Create an `AuthContext` for use with existing plugin handler methods.
-    fn to_context(&self) -> AuthContext<S> {
-        let mut ctx = AuthContext::with_metadata(
-            self.config.clone(),
-            self.database.clone(),
-            self.metadata.clone(),
-        );
-        ctx.email_provider = self.email_provider.clone();
-        ctx
-    }
-
-    /// Build a `Set-Cookie` header value for a session token.
-    fn session_cookie(&self, token: &str) -> String {
-        crate::utils::cookie_utils::create_session_cookie(token, &self.config)
-    }
-
-    /// Build a `Set-Cookie` header value that clears the session cookie.
-    fn clear_session_cookie(&self) -> String {
-        crate::utils::cookie_utils::create_clear_session_cookie(&self.config)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::entity::AuthUser;
     use crate::sea_orm::Database;
     use crate::store::AuthStore;
-    use crate::store::sea_orm::bundled_schema::BundledSchema;
+    use crate::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
 
     async fn test_database() -> Arc<AuthStore<BundledSchema>> {
         let database = Database::connect("sqlite::memory:")
             .await
             .expect("sqlite test database should connect");
-        crate::store::sea_orm::migrator::run_migrations(&database)
+        crate::store::sea_orm::__private_test_support::migrator::run_migrations(&database)
             .await
             .expect("sqlite test migrations should run");
         Arc::new(AuthStore::<BundledSchema>::new(
@@ -463,32 +402,6 @@ mod tests {
     }
 
     // Rust-specific surface: plugin infrastructure helpers and request-dispatch helpers in `crates/core::plugin` are Rust library APIs with no direct TS analogue.
-    #[test]
-    fn auth_state_clones() {
-        let config = Arc::new(AuthConfig::new("test-secret-min-32-chars-1234567"));
-        let runtime = tokio::runtime::Runtime::new().expect("runtime should build");
-        let db = runtime.block_on(test_database());
-        let ctx = AuthContext::new(config.clone(), db.clone());
-        let sm = SessionManager::new(config, db);
-        let state = AuthState::new(&ctx, sm);
-        let cloned = state.clone();
-        assert_eq!(cloned.config.secret, state.config.secret);
-    }
-
-    // Rust-specific surface: plugin infrastructure helpers and request-dispatch helpers in `crates/core::plugin` are Rust library APIs with no direct TS analogue.
-    #[test]
-    fn auth_state_to_context() {
-        let config = Arc::new(AuthConfig::new("test-secret-min-32-chars-1234567"));
-        let runtime = tokio::runtime::Runtime::new().expect("runtime should build");
-        let db = runtime.block_on(test_database());
-        let ctx = AuthContext::new(config.clone(), db.clone());
-        let sm = SessionManager::new(config, db);
-        let state = AuthState::new(&ctx, sm);
-        let ctx2 = state.to_context();
-        assert_eq!(ctx2.config.secret, state.config.secret);
-    }
-
-    // Rust-specific surface: plugin infrastructure helpers and request-dispatch helpers in `crates/core::plugin` are Rust library APIs with no direct TS analogue.
     #[tokio::test]
     async fn auth_context_require_session_unauthenticated() {
         let config = Arc::new(AuthConfig::new("test-secret-min-32-chars-1234567"));
@@ -525,76 +438,5 @@ mod tests {
 
         let (found_user, _found_session) = ctx.require_session(&req).await.unwrap();
         assert_eq!(found_user.id(), user.id());
-    }
-
-    // Rust-specific surface: plugin infrastructure helpers and request-dispatch helpers in `crates/core::plugin` are Rust library APIs with no direct TS analogue.
-    #[test]
-    fn auth_state_session_cookie() {
-        let config = Arc::new(AuthConfig::new("test-secret-min-32-chars-1234567"));
-        let runtime = tokio::runtime::Runtime::new().expect("runtime should build");
-        let db = runtime.block_on(test_database());
-        let ctx = AuthContext::new(config.clone(), db.clone());
-        let sm = SessionManager::new(config, db);
-        let state = AuthState::new(&ctx, sm);
-
-        let cookie = state.session_cookie("my-token");
-        assert!(cookie.contains("better-auth.session_token=my-token"));
-        assert!(cookie.contains("HttpOnly"));
-    }
-
-    // Rust-specific surface: plugin infrastructure helpers and request-dispatch helpers in `crates/core::plugin` are Rust library APIs with no direct TS analogue.
-    #[test]
-    fn auth_state_clear_session_cookie() {
-        let config = Arc::new(AuthConfig::new("test-secret-min-32-chars-1234567"));
-        let runtime = tokio::runtime::Runtime::new().expect("runtime should build");
-        let db = runtime.block_on(test_database());
-        let ctx = AuthContext::new(config.clone(), db.clone());
-        let sm = SessionManager::new(config, db);
-        let state = AuthState::new(&ctx, sm);
-
-        let cookie = state.clear_session_cookie();
-        assert!(cookie.contains("better-auth.session_token="));
-        // Clear cookie uses expires=UNIX_EPOCH (Thu, 01 Jan 1970)
-        assert!(cookie.contains("1970"));
-    }
-}
-
-/// Plugin trait for axum-native routing.
-///
-/// Unlike [`AuthPlugin`] which uses the custom `AuthRequest`/`AuthResponse`
-/// abstraction, `AxumPlugin` returns a standard `axum::Router` with handlers
-/// already bound to routes. This eliminates the triple route-matching overhead
-/// and enables use of axum extractors.
-#[cfg(any())]
-#[cfg(feature = "axum")]
-#[async_trait]
-pub(crate) trait AxumPlugin: Send + Sync {
-    /// Plugin name — should be unique and match the `AuthPlugin` name when
-    /// both traits are implemented on the same type.
-    fn name(&self) -> &'static str;
-
-    /// Return an axum `Router` with all routes for this plugin.
-    ///
-    /// The router uses [`AuthState`] as its state type.
-    fn router(&self) -> axum::Router<AuthState>;
-
-    /// Called after a user is created.
-    async fn on_user_created(&self, _user: &User, _ctx: &AuthContext) -> AuthResult<()> {
-        Ok(())
-    }
-
-    /// Called after a session is created.
-    async fn on_session_created(&self, _session: &Session, _ctx: &AuthContext) -> AuthResult<()> {
-        Ok(())
-    }
-
-    /// Called before a user is deleted.
-    async fn on_user_deleted(&self, _user_id: &str, _ctx: &AuthContext) -> AuthResult<()> {
-        Ok(())
-    }
-
-    /// Called before a session is deleted.
-    async fn on_session_deleted(&self, _session_token: &str, _ctx: &AuthContext) -> AuthResult<()> {
-        Ok(())
     }
 }

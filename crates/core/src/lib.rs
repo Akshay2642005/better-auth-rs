@@ -18,8 +18,6 @@ pub mod config;
 pub mod email;
 pub mod entity;
 pub mod error;
-#[cfg(any())]
-pub mod extractors;
 pub mod hooks;
 pub mod middleware;
 pub mod openapi;

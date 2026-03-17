@@ -16,8 +16,8 @@ use crate::plugins::organization::types::{
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn get_active_member_core(
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<MemberResponse> {
     let org_id = session
@@ -35,8 +35,8 @@ pub(crate) async fn get_active_member_core(
 
 pub(crate) async fn list_members_core(
     query: &ListMembersQuery,
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<ListMembersResponse> {
     let org_id = resolve_organization_id(
@@ -73,8 +73,8 @@ pub(crate) async fn list_members_core(
 
 pub(crate) async fn remove_member_core(
     body: &RemoveMemberRequest,
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     config: &OrganizationConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<RemovedMemberResponse> {
@@ -173,8 +173,8 @@ pub(crate) async fn remove_member_core(
 
 pub(crate) async fn update_member_role_core(
     body: &UpdateMemberRoleRequest,
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     config: &OrganizationConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<MemberWrappedResponse> {

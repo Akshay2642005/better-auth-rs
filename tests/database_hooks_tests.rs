@@ -17,7 +17,8 @@ use better_auth::store::sea_orm::sea_query::{Alias, ColumnDef, Expr, ExprTrait, 
 use better_auth::store::sea_orm::{ConnectionTrait, Database, DatabaseConnection};
 use better_auth::{AuthBuilder, AuthConfig};
 
-type TestSchema = better_auth::__private_core::store::sea_orm::bundled_schema::BundledSchema;
+type TestSchema =
+    better_auth::__private_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
 
 fn test_config() -> AuthConfig {
     AuthConfig::new("test-secret-key-that-is-at-least-32-characters-long")
@@ -28,9 +29,11 @@ async fn test_database() -> DatabaseConnection {
     let database = Database::connect("sqlite::memory:")
         .await
         .expect("sqlite test database should connect");
-    better_auth::__private_core::store::sea_orm::migrator::run_migrations(&database)
-        .await
-        .expect("sqlite test migrations should run");
+    better_auth::__private_core::store::sea_orm::__private_test_support::migrator::run_migrations(
+        &database,
+    )
+    .await
+    .expect("sqlite test migrations should run");
     database
 }
 

@@ -265,9 +265,9 @@ fn test_to_user_preserves_fields() {
 fn test_plugin_name() {
     let plugin = EmailVerificationPlugin::new();
     assert_eq!(
-        AuthPlugin::<better_auth_core::store::sea_orm::bundled_schema::BundledSchema>::name(
-            &plugin,
-        ),
+        AuthPlugin::<
+            better_auth_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema,
+        >::name(&plugin,),
         "email-verification"
     );
 }
@@ -276,10 +276,9 @@ fn test_plugin_name() {
 #[test]
 fn test_plugin_routes() {
     let plugin = EmailVerificationPlugin::new();
-    let routes =
-        AuthPlugin::<better_auth_core::store::sea_orm::bundled_schema::BundledSchema>::routes(
-            &plugin,
-        );
+    let routes = AuthPlugin::<
+        better_auth_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema,
+    >::routes(&plugin);
     assert_eq!(routes.len(), 2);
     assert!(
         routes

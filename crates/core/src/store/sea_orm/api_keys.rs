@@ -45,7 +45,7 @@ impl<S: AuthSchema> AuthStore<S> {
         }
         .insert(self.connection())
         .await
-        .map(ApiKey::from)
+        .map(|model| ApiKey::from(&model))
         .map_err(map_db_err)
     }
 
@@ -53,7 +53,7 @@ impl<S: AuthSchema> AuthStore<S> {
         Entity::find_by_id(id.to_owned())
             .one(self.connection())
             .await
-            .map(|model| model.map(ApiKey::from))
+            .map(|model| model.map(|model| ApiKey::from(&model)))
             .map_err(map_db_err)
     }
 
@@ -62,7 +62,7 @@ impl<S: AuthSchema> AuthStore<S> {
             .filter(Column::KeyHash.eq(hash))
             .one(self.connection())
             .await
-            .map(|model| model.map(ApiKey::from))
+            .map(|model| model.map(|model| ApiKey::from(&model)))
             .map_err(map_db_err)
     }
 
@@ -72,7 +72,7 @@ impl<S: AuthSchema> AuthStore<S> {
             .order_by_desc(Column::CreatedAt)
             .all(self.connection())
             .await
-            .map(|models| models.into_iter().map(ApiKey::from).collect())
+            .map(|models| models.iter().map(ApiKey::from).collect())
             .map_err(map_db_err)
     }
 
@@ -142,7 +142,7 @@ impl<S: AuthSchema> AuthStore<S> {
         active
             .update(self.connection())
             .await
-            .map(ApiKey::from)
+            .map(|model| ApiKey::from(&model))
             .map_err(map_db_err)
     }
 

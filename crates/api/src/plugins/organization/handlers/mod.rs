@@ -37,7 +37,7 @@ pub(crate) async fn require_session(
 pub(crate) async fn resolve_organization_id(
     org_id: Option<&str>,
     org_slug: Option<&str>,
-    session: &better_auth_core::Session,
+    session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<String> {
     if let Some(id) = org_id {

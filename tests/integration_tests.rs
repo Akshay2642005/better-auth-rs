@@ -18,7 +18,8 @@ use better_auth_core::AuthStore;
 use compat::helpers::*;
 use std::sync::Arc;
 
-type TestSchema = better_auth::__private_core::store::sea_orm::bundled_schema::BundledSchema;
+type TestSchema =
+    better_auth::__private_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
 
 /// Helper to create test BetterAuth instance with memory database
 async fn create_test_auth_memory() -> Arc<BetterAuth<TestSchema>> {
@@ -1308,7 +1309,7 @@ mod postgres_tests {
     async fn create_test_auth_postgres() -> Option<Arc<BetterAuth<TestSchema>>> {
         let database_url = env::var("TEST_DATABASE_URL").ok()?;
         let database = Database::connect(&database_url).await.ok()?;
-        better_auth::__private_core::store::sea_orm::migrator::run_migrations(&database)
+        better_auth::__private_core::store::sea_orm::__private_test_support::migrator::run_migrations(&database)
             .await
             .ok()?;
 
@@ -2277,9 +2278,11 @@ async fn test_api_key_get_nonexistent() {
 async fn test_get_user_by_username_adapter() {
     use better_auth::prelude::CreateUser;
     let database = Database::connect("sqlite::memory:").await.unwrap();
-    better_auth::__private_core::store::sea_orm::migrator::run_migrations(&database)
-        .await
-        .unwrap();
+    better_auth::__private_core::store::sea_orm::__private_test_support::migrator::run_migrations(
+        &database,
+    )
+    .await
+    .unwrap();
     let db = AuthStore::<TestSchema>::new(
         Arc::new(better_auth::AuthConfig::new(
             "test-secret-key-that-is-at-least-32-characters-long",

@@ -264,7 +264,7 @@ pub(crate) async fn impersonate_user_core(
 }
 
 pub(crate) async fn stop_impersonating_core(
-    session: &better_auth_core::Session,
+    session: &impl AuthSession,
     session_token: &str,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
@@ -437,7 +437,7 @@ pub(crate) async fn set_user_password_core(
 
 pub(crate) fn has_permission_core(
     body: &HasPermissionRequest,
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     config: &AdminConfig,
 ) -> AuthResult<PermissionResponse> {
     let _permissions = body.permissions.clone().or(body.permission.clone());

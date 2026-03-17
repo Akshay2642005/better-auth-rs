@@ -22,7 +22,7 @@ impl<S: AuthSchema> AuthStore<S> {
         }
         .insert(self.connection())
         .await
-        .map(TwoFactor::from)
+        .map(|model| TwoFactor::from(&model))
         .map_err(map_db_err)
     }
 
@@ -31,7 +31,7 @@ impl<S: AuthSchema> AuthStore<S> {
             .filter(Column::UserId.eq(user_id))
             .one(self.connection())
             .await
-            .map(|model| model.map(TwoFactor::from))
+            .map(|model| model.map(|model| TwoFactor::from(&model)))
             .map_err(map_db_err)
     }
 
@@ -57,7 +57,7 @@ impl<S: AuthSchema> AuthStore<S> {
         active
             .update(self.connection())
             .await
-            .map(TwoFactor::from)
+            .map(|model| TwoFactor::from(&model))
             .map_err(map_db_err)
     }
 

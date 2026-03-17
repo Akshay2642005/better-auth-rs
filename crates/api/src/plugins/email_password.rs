@@ -564,128 +564,6 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for EmailPasswordPlugin {
     }
 }
 
-#[cfg(any())]
-#[cfg(feature = "axum")]
-mod axum_impl {
-    use super::*;
-    use std::sync::Arc;
-
-    use axum::Json;
-    use axum::extract::{Extension, State};
-    use axum::http::header;
-    use axum::response::IntoResponse;
-    use better_auth_core::{AuthState, ValidatedJson};
-
-    /// Shared plugin state wrapping the full plugin (non-Clone due to
-    /// Option<Arc<EmailVerificationPlugin>>).
-    type SharedPlugin = Arc<EmailPasswordPlugin>;
-
-    async fn handle_sign_up(
-        State(state): State<AuthState>,
-        Extension(plugin): Extension<SharedPlugin>,
-        ValidatedJson(body): ValidatedJson<SignUpRequest>,
-    ) -> Result<axum::response::Response, AuthError> {
-        let ctx = state.to_context();
-        // Axum handlers do not yet extract IP/UA from the axum request.
-        // When needed, add `HeaderMap` extractor and build RequestMeta from it.
-        let meta = RequestMeta::default();
-        let (response, session_token) = sign_up_core(&body, &plugin.config, &meta, &ctx).await?;
-
-        if let Some(token) = session_token {
-            let cookie = state.session_cookie(&token);
-            Ok(([(header::SET_COOKIE, cookie)], Json(response)).into_response())
-        } else {
-            Ok(Json(response).into_response())
-        }
-    }
-
-    /// Helper to convert a `SignInCoreResult` into an axum response.
-    fn sign_in_result_to_response(
-        result: SignInCoreResult<better_auth_core::User>,
-        state: &AuthState,
-    ) -> axum::response::Response {
-        match result {
-            SignInCoreResult::Success(response, token) => {
-                let cookie = state.session_cookie(&token);
-                ([(header::SET_COOKIE, cookie)], Json(response)).into_response()
-            }
-            SignInCoreResult::TwoFactorRedirect(redirect) => Json(redirect).into_response(),
-        }
-    }
-
-    async fn handle_sign_in(
-        State(state): State<AuthState>,
-        Extension(plugin): Extension<SharedPlugin>,
-        ValidatedJson(body): ValidatedJson<SignInRequest>,
-    ) -> Result<axum::response::Response, AuthError> {
-        let ctx = state.to_context();
-        let meta = RequestMeta::default();
-        let result = sign_in_core(
-            &body,
-            &plugin.config,
-            plugin.email_verification.as_deref(),
-            &meta,
-            &ctx,
-        )
-        .await?;
-        Ok(sign_in_result_to_response(result, &state))
-    }
-
-    async fn handle_sign_in_username(
-        State(state): State<AuthState>,
-        Extension(plugin): Extension<SharedPlugin>,
-        ValidatedJson(body): ValidatedJson<SignInUsernameRequest>,
-    ) -> Result<axum::response::Response, AuthError> {
-        let ctx = state.to_context();
-        let meta = RequestMeta::default();
-        let result = sign_in_username_core(
-            &body,
-            &plugin.config,
-            plugin.email_verification.as_deref(),
-            &meta,
-            &ctx,
-        )
-        .await?;
-        Ok(sign_in_result_to_response(result, &state))
-    }
-
-    #[async_trait::async_trait]
-    impl better_auth_core::AxumPlugin for EmailPasswordPlugin {
-        fn name(&self) -> &'static str {
-            "email-password"
-        }
-
-        fn router(&self) -> axum::Router<AuthState> {
-            use axum::routing::post;
-
-            let shared: SharedPlugin = Arc::new(EmailPasswordPlugin {
-                config: self.config.clone(),
-                email_verification: self.email_verification.clone(),
-            });
-
-            axum::Router::new()
-                .route("/sign-up/email", post(handle_sign_up))
-                .route("/sign-in/email", post(handle_sign_in))
-                .route("/sign-in/username", post(handle_sign_in_username))
-                .layer(Extension(shared))
-        }
-
-        async fn on_user_created(
-            &self,
-            user: &better_auth_core::User,
-            _ctx: &better_auth_core::AuthContext,
-        ) -> better_auth_core::AuthResult<()> {
-            if self.config.require_email_verification
-                && !user.email_verified()
-                && let Some(email) = user.email()
-            {
-                println!("Email verification required for user: {}", email);
-            }
-            Ok(())
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -694,7 +572,8 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    type TestSchema = better_auth_core::store::sea_orm::bundled_schema::BundledSchema;
+    type TestSchema =
+        better_auth_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
 
     async fn create_test_context() -> AuthContext<TestSchema> {
         let config = AuthConfig::new("test-secret-key-at-least-32-chars-long");

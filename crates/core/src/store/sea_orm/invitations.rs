@@ -25,7 +25,7 @@ impl<S: AuthSchema> AuthStore<S> {
         }
         .insert(self.connection())
         .await
-        .map(Invitation::from)
+        .map(|model| Invitation::from(&model))
         .map_err(map_db_err)
     }
 
@@ -33,7 +33,7 @@ impl<S: AuthSchema> AuthStore<S> {
         Entity::find_by_id(id.to_owned())
             .one(self.connection())
             .await
-            .map(|model| model.map(Invitation::from))
+            .map(|model| model.map(|model| Invitation::from(&model)))
             .map_err(map_db_err)
     }
 
@@ -48,7 +48,7 @@ impl<S: AuthSchema> AuthStore<S> {
             .filter(Column::Status.eq(InvitationStatus::Pending.to_string()))
             .one(self.connection())
             .await
-            .map(|model| model.map(Invitation::from))
+            .map(|model| model.map(|model| Invitation::from(&model)))
             .map_err(map_db_err)
     }
 
@@ -70,7 +70,7 @@ impl<S: AuthSchema> AuthStore<S> {
         active
             .update(self.connection())
             .await
-            .map(Invitation::from)
+            .map(|model| Invitation::from(&model))
             .map_err(map_db_err)
     }
 
@@ -83,7 +83,7 @@ impl<S: AuthSchema> AuthStore<S> {
             .order_by_desc(Column::CreatedAt)
             .all(self.connection())
             .await
-            .map(|models| models.into_iter().map(Invitation::from).collect())
+            .map(|models| models.iter().map(Invitation::from).collect())
             .map_err(map_db_err)
     }
 
@@ -95,7 +95,7 @@ impl<S: AuthSchema> AuthStore<S> {
             .order_by_desc(Column::CreatedAt)
             .all(self.connection())
             .await
-            .map(|models| models.into_iter().map(Invitation::from).collect())
+            .map(|models| models.iter().map(Invitation::from).collect())
             .map_err(map_db_err)
     }
 }

@@ -20,7 +20,7 @@ use better_auth_core::types::{
 
 pub(crate) async fn create_organization_core(
     body: &CreateOrganizationRequest,
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     config: &OrganizationConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<CreateOrganizationResponse<better_auth_core::Organization, MemberResponse>> {
@@ -74,8 +74,8 @@ pub(crate) async fn create_organization_core(
 
 pub(crate) async fn update_organization_core(
     body: &UpdateOrganizationRequest,
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     config: &OrganizationConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<better_auth_core::Organization> {
@@ -123,7 +123,7 @@ pub(crate) async fn update_organization_core(
 
 pub(crate) async fn delete_organization_core(
     body: &DeleteOrganizationRequest,
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     config: &OrganizationConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<SuccessResponse> {
@@ -156,7 +156,7 @@ pub(crate) async fn delete_organization_core(
 }
 
 pub(crate) async fn list_organizations_core(
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Vec<better_auth_core::Organization>> {
     let organizations = ctx.database.list_user_organizations(user.id()).await?;
@@ -165,8 +165,8 @@ pub(crate) async fn list_organizations_core(
 
 pub(crate) async fn get_full_organization_core(
     query: &GetFullOrganizationQuery,
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<
     FullOrganizationResponse<better_auth_core::Organization, better_auth_core::Invitation>,
@@ -224,8 +224,8 @@ pub(crate) async fn check_slug_core(
 
 pub(crate) async fn set_active_organization_core(
     body: &SetActiveOrganizationRequest,
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<better_auth_core::Session> {
     let org_id = if body.organization_id.is_some() || body.organization_slug.is_some() {
@@ -260,8 +260,8 @@ pub(crate) async fn set_active_organization_core(
 
 pub(crate) async fn leave_organization_core(
     body: &LeaveOrganizationRequest,
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<SuccessResponse> {
     let member = ctx

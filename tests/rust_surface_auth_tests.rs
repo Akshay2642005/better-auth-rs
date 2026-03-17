@@ -11,7 +11,8 @@ use better_auth::prelude::{AuthRequest, AuthResponse, HttpMethod};
 use better_auth::store::sea_orm::{Database, DatabaseConnection};
 use better_auth::{AuthBuilder, AuthConfig, AuthResult, BetterAuth};
 
-type TestSchema = better_auth::__private_core::store::sea_orm::bundled_schema::BundledSchema;
+type TestSchema =
+    better_auth::__private_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
 
 struct RouteTestPlugin;
 
@@ -47,9 +48,11 @@ async fn test_database() -> DatabaseConnection {
     let database = Database::connect("sqlite::memory:")
         .await
         .expect("sqlite test database should connect");
-    better_auth::__private_core::store::sea_orm::migrator::run_migrations(&database)
-        .await
-        .expect("sqlite test migrations should run");
+    better_auth::__private_core::store::sea_orm::__private_test_support::migrator::run_migrations(
+        &database,
+    )
+    .await
+    .expect("sqlite test migrations should run");
     database
 }
 

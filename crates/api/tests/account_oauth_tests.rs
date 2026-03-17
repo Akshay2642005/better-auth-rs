@@ -153,7 +153,7 @@ async fn setup_user_with_account(
 
 async fn create_test_database() -> Arc<AuthStore<TestSchema>> {
     let database = Database::connect("sqlite::memory:").await.unwrap();
-    better_auth_core::store::sea_orm::migrator::run_migrations(&database)
+    better_auth_core::store::sea_orm::__private_test_support::migrator::run_migrations(&database)
         .await
         .unwrap();
     Arc::new(AuthStore::<TestSchema>::new(
@@ -1164,4 +1164,5 @@ async fn test_callback_with_encryption_encrypts_tokens_for_new_user() {
         Ok(None) => panic!("Expected a response"),
     }
 }
-type TestSchema = better_auth_core::store::sea_orm::bundled_schema::BundledSchema;
+type TestSchema =
+    better_auth_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;

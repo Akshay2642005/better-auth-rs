@@ -4,13 +4,6 @@ use validator::Validate;
 
 // -- Request types --
 
-#[cfg(any())]
-#[derive(Debug, Deserialize)]
-pub(crate) struct RegisterOptionsQuery {
-    #[serde(rename = "authenticatorAttachment")]
-    pub(crate) authenticator_attachment: Option<String>,
-}
-
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct VerifyRegistrationRequest {

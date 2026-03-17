@@ -40,7 +40,7 @@ pub(super) async fn send_email_or_log(
 
 pub(crate) async fn change_email_core(
     body: &ChangeEmailRequest,
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     config: &UserManagementConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<StatusResponse> {
@@ -116,8 +116,8 @@ pub(crate) async fn change_email_core(
 
 pub(crate) async fn delete_user_core(
     body: &DeleteUserRequest,
-    user: &better_auth_core::User,
-    session: &better_auth_core::Session,
+    user: &impl AuthUser,
+    session: &impl AuthSession,
     config: &UserManagementConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<SuccessMessageResponse> {
@@ -203,7 +203,7 @@ pub(crate) async fn delete_user_core(
 
 pub(crate) async fn delete_user_callback_core(
     token: &str,
-    current_user: &better_auth_core::User,
+    current_user: &impl AuthUser,
     config: &UserManagementConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<SuccessMessageResponse> {
@@ -230,7 +230,7 @@ pub(crate) async fn delete_user_callback_core(
 
 /// Delete a user together with all their sessions and accounts.
 async fn perform_user_deletion(
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     config: &UserManagementConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<()> {

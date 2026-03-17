@@ -19,13 +19,6 @@ pub(crate) struct ResetPasswordRequest {
     pub(crate) token: Option<String>,
 }
 
-/// Query parameters for `POST /reset-password`.
-#[cfg(any())]
-#[derive(Debug, Deserialize)]
-pub(crate) struct ResetPasswordQuery {
-    pub(crate) token: Option<String>,
-}
-
 /// Request body for `POST /change-password`.
 #[derive(Debug, Deserialize, Validate)]
 pub(crate) struct ChangePasswordRequest {
