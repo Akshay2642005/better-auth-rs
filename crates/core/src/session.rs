@@ -6,7 +6,7 @@ use crate::entity::{AuthSession, AuthUser};
 use crate::error::AuthResult;
 use crate::schema::AuthSchema;
 use crate::store::AuthStore;
-use crate::types::{CreateSession, Session};
+use crate::types::CreateSession;
 
 /// Session manager handles session creation, validation, and cleanup
 pub struct SessionManager<S: AuthSchema> {
@@ -34,7 +34,7 @@ impl<S: AuthSchema> SessionManager<S> {
         user: &impl AuthUser,
         ip_address: Option<String>,
         user_agent: Option<String>,
-    ) -> AuthResult<Session> {
+    ) -> AuthResult<S::Session> {
         let expires_at = Utc::now() + self.config.session.expires_in;
 
         let create_session = CreateSession {
@@ -51,8 +51,8 @@ impl<S: AuthSchema> SessionManager<S> {
     }
 
     /// Get session by token
-    pub async fn get_session(&self, token: &str) -> AuthResult<Option<Session>> {
-        let session: Option<Session> = self.database.get_session(token).await?;
+    pub async fn get_session(&self, token: &str) -> AuthResult<Option<S::Session>> {
+        let session = self.database.get_session(token).await?;
 
         // Check if session exists and is not expired
         if let Some(ref session) = session {
@@ -103,14 +103,14 @@ impl<S: AuthSchema> SessionManager<S> {
     }
 
     /// Get all active sessions for a user
-    pub async fn list_user_sessions(&self, user_id: &str) -> AuthResult<Vec<Session>> {
-        let sessions: Vec<Session> = self.database.get_user_sessions(user_id).await?;
+    pub async fn list_user_sessions(&self, user_id: &str) -> AuthResult<Vec<S::Session>> {
+        let sessions = self.database.get_user_sessions(user_id).await?;
         let now = Utc::now();
 
         // Filter out expired sessions
-        let active_sessions: Vec<Session> = sessions
+        let active_sessions = sessions
             .into_iter()
-            .filter(|session: &Session| session.expires_at() > now && session.active())
+            .filter(|session| session.expires_at() > now && session.active())
             .collect();
 
         Ok(active_sessions)

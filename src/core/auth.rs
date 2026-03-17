@@ -467,10 +467,10 @@ impl<S: AuthSchema> BetterAuth<S> {
     /// API-key session emulation), the user is resolved directly by ID
     /// **without** a database session lookup — matching the TypeScript
     /// `ctx.context.session` virtual-session behaviour.
-    async fn extract_current_user(&self, req: &AuthRequest) -> AuthResult<better_auth_core::User> {
+    async fn extract_current_user(&self, req: &AuthRequest) -> AuthResult<S::User> {
         // Fast path: virtual session injected by before_request hook
         if let Some(uid) = req.virtual_user_id() {
-            let user: Option<better_auth_core::User> = self.database.get_user_by_id(uid).await?;
+            let user = self.database.get_user_by_id(uid).await?;
             return user.ok_or(AuthError::UserNotFound);
         }
 
@@ -485,8 +485,7 @@ impl<S: AuthSchema> BetterAuth<S> {
             .await?
             .ok_or(AuthError::SessionNotFound)?;
 
-        let user: Option<better_auth_core::User> =
-            self.database.get_user_by_id(session.user_id()).await?;
+        let user = self.database.get_user_by_id(session.user_id()).await?;
 
         user.ok_or(AuthError::UserNotFound)
     }

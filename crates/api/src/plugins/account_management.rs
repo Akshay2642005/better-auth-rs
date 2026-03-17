@@ -59,7 +59,7 @@ better_auth_core::impl_auth_plugin! {
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn list_accounts_core(
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Vec<AccountResponse>> {
     let accounts = ctx.database.get_user_accounts(user.id()).await?;
@@ -92,7 +92,7 @@ pub(crate) async fn list_accounts_core(
 }
 
 pub(crate) async fn unlink_account_core(
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     provider_id: &str,
     account_id: Option<&str>,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,

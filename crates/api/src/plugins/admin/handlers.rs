@@ -29,7 +29,9 @@ pub(crate) async fn set_role_core(
     };
 
     let updated_user = ctx.database.update_user(&body.user_id, update).await?;
-    Ok(UserResponse { user: updated_user })
+    Ok(UserResponse {
+        user: better_auth_core::User::from(&updated_user),
+    })
 }
 
 pub(crate) async fn create_user_core(
@@ -96,7 +98,9 @@ pub(crate) async fn create_user_core(
         })
         .await?;
 
-    Ok(UserResponse { user })
+    Ok(UserResponse {
+        user: better_auth_core::User::from(&user),
+    })
 }
 
 pub(crate) async fn list_users_core(
@@ -125,7 +129,7 @@ pub(crate) async fn list_users_core(
 
     let (users, total) = ctx.database.list_users(params).await?;
     Ok(ListUsersResponse {
-        users,
+        users: users.iter().map(better_auth_core::User::from).collect(),
         total,
         limit,
         offset,
@@ -144,7 +148,12 @@ pub(crate) async fn list_user_sessions_core(
 
     let session_manager = ctx.session_manager();
     let sessions = session_manager.list_user_sessions(&body.user_id).await?;
-    Ok(ListSessionsResponse { sessions })
+    Ok(ListSessionsResponse {
+        sessions: sessions
+            .iter()
+            .map(better_auth_core::Session::from)
+            .collect(),
+    })
 }
 
 pub(crate) async fn ban_user_core(
@@ -186,7 +195,9 @@ pub(crate) async fn ban_user_core(
         .revoke_all_user_sessions(&body.user_id)
         .await?;
 
-    Ok(UserResponse { user: updated_user })
+    Ok(UserResponse {
+        user: better_auth_core::User::from(&updated_user),
+    })
 }
 
 pub(crate) async fn unban_user_core(
@@ -207,7 +218,9 @@ pub(crate) async fn unban_user_core(
     };
 
     let updated_user = ctx.database.update_user(&body.user_id, update).await?;
-    Ok(UserResponse { user: updated_user })
+    Ok(UserResponse {
+        user: better_auth_core::User::from(&updated_user),
+    })
 }
 
 pub(crate) async fn impersonate_user_core(
@@ -243,8 +256,8 @@ pub(crate) async fn impersonate_user_core(
     let session = ctx.database.create_session(create_session).await?;
     let token = session.token().to_string();
     let response = SessionUserResponse {
-        session,
-        user: target,
+        session: better_auth_core::Session::from(&session),
+        user: better_auth_core::User::from(&target),
     };
 
     Ok((response, token))
@@ -286,8 +299,8 @@ pub(crate) async fn stop_impersonating_core(
     let admin_session = ctx.database.create_session(create_session).await?;
     let token = admin_session.token().to_string();
     let response = SessionUserResponse {
-        session: admin_session,
-        user: admin_user,
+        session: better_auth_core::Session::from(&admin_session),
+        user: better_auth_core::User::from(&admin_user),
     };
 
     Ok((response, token))

@@ -94,14 +94,14 @@ better_auth_core::impl_auth_plugin! {
         get "/verify-email" => handle_verify_email, "verify_email";
     }
     extra {
-        async fn on_user_created(&self, user: &better_auth_core::User, ctx: &AuthContext<S>) -> AuthResult<()> {
+        async fn on_user_created(&self, user: &S::User, ctx: &AuthContext<S>) -> AuthResult<()> {
             // Send verification email for new users if configured.
             // Also fire when a custom sender is set, even if send_email_notifications is false.
             if (self.config.send_email_notifications || self.config.send_verification_email.is_some())
                 && !user.email_verified()
                 && let Some(email) = user.email()
                 && let Err(e) = self
-                    .send_verification_email_for_user(user, email, None, ctx)
+                    .send_verification_email_for_user(&User::from(user), email, None, ctx)
                     .await
             {
                 tracing::warn!(
@@ -130,7 +130,11 @@ impl EmailVerificationPlugin {
             Ok(v) => v,
             Err(resp) => return Ok(resp),
         };
-        let current_user = ctx.require_session(req).await.ok().map(|(user, _)| user);
+        let current_user = ctx
+            .require_session(req)
+            .await
+            .ok()
+            .map(|(user, _)| User::from(&user));
         let response =
             send_verification_email_core(&body, current_user.as_ref(), &self.config, ctx).await?;
         Ok(AuthResponse::json(200, &response)?)
@@ -153,7 +157,10 @@ impl EmailVerificationPlugin {
 
         let ip_address = req.headers.get("x-forwarded-for").cloned();
         let user_agent = req.headers.get("user-agent").cloned();
-        let current_session = ctx.require_session(req).await.ok();
+        let current_session =
+            ctx.require_session(req).await.ok().map(|(user, session)| {
+                (User::from(&user), better_auth_core::Session::from(&session))
+            });
 
         match verify_email_core(
             &query,
@@ -258,7 +265,7 @@ impl EmailVerificationPlugin {
     /// not yet verified.
     pub async fn send_verification_on_sign_in(
         &self,
-        user: &better_auth_core::User,
+        user: &impl AuthUser,
         callback_url: Option<&str>,
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<()> {
@@ -271,7 +278,8 @@ impl EmailVerificationPlugin {
         }
 
         if let Some(email) = user.email() {
-            self.send_verification_email_for_user(user, email, callback_url, ctx)
+            let user = User::from(user);
+            self.send_verification_email_for_user(&user, email, callback_url, ctx)
                 .await?;
         }
 

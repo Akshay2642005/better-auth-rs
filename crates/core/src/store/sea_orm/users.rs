@@ -18,7 +18,7 @@ impl<S: AuthSchema> AuthStore<S> {
         db: &C,
         tx: Option<&DatabaseTransaction>,
         mut create_user: CreateUser,
-    ) -> AuthResult<User>
+    ) -> AuthResult<S::User>
     where
         C: ConnectionTrait,
     {
@@ -43,15 +43,15 @@ impl<S: AuthSchema> AuthStore<S> {
             now,
         );
 
-        let user_model = model.insert(db).await.map_err(map_db_err)?;
-        let user = User::from(&user_model);
+        let user = model.insert(db).await.map_err(map_db_err)?;
+        let hook_user = User::from(&user);
         for hook in self.hooks() {
-            hook.after_create_user(&user, &hook_context).await?;
+            hook.after_create_user(&hook_user, &hook_context).await?;
         }
         Ok(user)
     }
 
-    pub async fn create_user(&self, create_user: CreateUser) -> AuthResult<User> {
+    pub async fn create_user(&self, create_user: CreateUser) -> AuthResult<S::User> {
         self.create_user_with_connection(self.connection(), None, create_user)
             .await
     }
@@ -62,21 +62,12 @@ impl<S: AuthSchema> AuthStore<S> {
         &self,
         tx: &DatabaseTransaction,
         create_user: CreateUser,
-    ) -> AuthResult<User> {
+    ) -> AuthResult<S::User> {
         self.create_user_with_connection(tx, Some(tx), create_user)
             .await
     }
 
-    pub async fn get_user_by_id(&self, id: &str) -> AuthResult<Option<User>> {
-        <S::User as AuthUserModel>::Entity::find()
-            .filter(<S::User as AuthUserModel>::id_column().eq(id))
-            .one(self.connection())
-            .await
-            .map(|model| model.map(|model| User::from(&model)))
-            .map_err(map_db_err)
-    }
-
-    pub async fn get_user_model_by_id(&self, id: &str) -> AuthResult<Option<S::User>> {
+    pub async fn get_user_by_id(&self, id: &str) -> AuthResult<Option<S::User>> {
         <S::User as AuthUserModel>::Entity::find()
             .filter(<S::User as AuthUserModel>::id_column().eq(id))
             .one(self.connection())
@@ -84,26 +75,24 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn get_user_by_email(&self, email: &str) -> AuthResult<Option<User>> {
+    pub async fn get_user_by_email(&self, email: &str) -> AuthResult<Option<S::User>> {
         let email = normalize_user_email(email);
         <S::User as AuthUserModel>::Entity::find()
             .filter(<S::User as AuthUserModel>::email_column().eq(email))
             .one(self.connection())
             .await
-            .map(|model| model.map(|model| User::from(&model)))
             .map_err(map_db_err)
     }
 
-    pub async fn get_user_by_username(&self, username: &str) -> AuthResult<Option<User>> {
+    pub async fn get_user_by_username(&self, username: &str) -> AuthResult<Option<S::User>> {
         <S::User as AuthUserModel>::Entity::find()
             .filter(<S::User as AuthUserModel>::username_column().eq(username))
             .one(self.connection())
             .await
-            .map(|model| model.map(|model| User::from(&model)))
             .map_err(map_db_err)
     }
 
-    pub async fn update_user(&self, id: &str, mut update: UpdateUser) -> AuthResult<User> {
+    pub async fn update_user(&self, id: &str, mut update: UpdateUser) -> AuthResult<S::User> {
         update.email = normalize_optional_user_email(update.email);
         let hook_context = self.hook_context(None);
         for hook in self.hooks() {
@@ -127,10 +116,10 @@ impl<S: AuthSchema> AuthStore<S> {
         let mut active = model.into_active_model();
         S::User::apply_update(&mut active, update, Utc::now());
 
-        let user_model = active.update(self.connection()).await.map_err(map_db_err)?;
-        let user = User::from(&user_model);
+        let user = active.update(self.connection()).await.map_err(map_db_err)?;
+        let hook_user = User::from(&user);
         for hook in self.hooks() {
-            hook.after_update_user(&user, &hook_context).await?;
+            hook.after_update_user(&hook_user, &hook_context).await?;
         }
         Ok(user)
     }
@@ -139,10 +128,11 @@ impl<S: AuthSchema> AuthStore<S> {
         let Some(user) = self.get_user_by_id(id).await? else {
             return Err(AuthError::UserNotFound);
         };
+        let hook_user = User::from(&user);
         let hook_context = self.hook_context(None);
         for hook in self.hooks() {
             if hook
-                .before_delete_user(&user, &hook_context)
+                .before_delete_user(&hook_user, &hook_context)
                 .await?
                 .is_cancelled()
             {
@@ -155,12 +145,12 @@ impl<S: AuthSchema> AuthStore<S> {
             .await
             .map_err(map_db_err)?;
         for hook in self.hooks() {
-            hook.after_delete_user(&user, &hook_context).await?;
+            hook.after_delete_user(&hook_user, &hook_context).await?;
         }
         Ok(())
     }
 
-    pub async fn list_users(&self, params: ListUsersParams) -> AuthResult<(Vec<User>, usize)> {
+    pub async fn list_users(&self, params: ListUsersParams) -> AuthResult<(Vec<S::User>, usize)> {
         let limit = params.limit.unwrap_or(100);
         let offset = params.offset.unwrap_or(0);
         let mut count_query = <S::User as AuthUserModel>::Entity::find();
@@ -210,6 +200,6 @@ impl<S: AuthSchema> AuthStore<S> {
             .await
             .map_err(map_db_err)?;
 
-        Ok((models.iter().map(User::from).collect(), total))
+        Ok((models, total))
     }
 }

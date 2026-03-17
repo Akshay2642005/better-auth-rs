@@ -42,6 +42,7 @@ async fn require_session(
     session_manager
         .get_session(&token)
         .await?
+        .map(|session| better_auth_core::Session::from(&session))
         .ok_or(AuthError::Unauthenticated)
 }
 
@@ -651,8 +652,8 @@ async fn process_oauth_sign_in(
                 });
 
         return Ok(ProcessOAuthUserResult {
-            session,
-            user,
+            session: better_auth_core::Session::from(&session),
+            user: better_auth_core::User::from(&user),
             is_register: false,
             account_cookie,
         });
@@ -752,8 +753,8 @@ async fn process_oauth_sign_in(
             .then(|| AccountCookiePayload::from_account(&created_account));
 
         Ok(ProcessOAuthUserResult {
-            session,
-            user: linked_user,
+            session: better_auth_core::Session::from(&session),
+            user: better_auth_core::User::from(&linked_user),
             is_register: false,
             account_cookie,
         })
@@ -807,8 +808,8 @@ async fn process_oauth_sign_in(
             .then(|| AccountCookiePayload::from_account(&created_account));
 
         Ok(ProcessOAuthUserResult {
-            session,
-            user: created_user,
+            session: better_auth_core::Session::from(&session),
+            user: better_auth_core::User::from(&created_user),
             is_register: true,
             account_cookie,
         })

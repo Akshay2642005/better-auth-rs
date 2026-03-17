@@ -11,7 +11,7 @@ use crate::schema::AuthSchema;
 #[cfg(test)]
 use crate::session::SessionManager;
 use crate::store::AuthStore;
-use crate::types::{AuthRequest, AuthResponse, HttpMethod, Session, User};
+use crate::types::{AuthRequest, AuthResponse, HttpMethod};
 
 type MetadataMap = HashMap<String, serde_json::Value>;
 type DatabaseHookList = Vec<Arc<dyn DatabaseHooks>>;
@@ -72,13 +72,17 @@ pub trait AuthPlugin<S: AuthSchema>: Send + Sync {
     ) -> AuthResult<Option<AuthResponse>>;
 
     /// Called after a user is created
-    async fn on_user_created(&self, user: &User, ctx: &AuthContext<S>) -> AuthResult<()> {
+    async fn on_user_created(&self, user: &S::User, ctx: &AuthContext<S>) -> AuthResult<()> {
         let _ = (user, ctx);
         Ok(())
     }
 
     /// Called after a session is created
-    async fn on_session_created(&self, session: &Session, ctx: &AuthContext<S>) -> AuthResult<()> {
+    async fn on_session_created(
+        &self,
+        session: &S::Session,
+        ctx: &AuthContext<S>,
+    ) -> AuthResult<()> {
         let _ = (session, ctx);
         Ok(())
     }
@@ -302,7 +306,7 @@ impl<S: AuthSchema> AuthContext<S> {
     ///
     /// This centralises the pattern previously duplicated across many plugins
     /// (`get_authenticated_user`, `require_session`, etc.).
-    pub async fn require_session(&self, req: &AuthRequest) -> AuthResult<(User, Session)> {
+    pub async fn require_session(&self, req: &AuthRequest) -> AuthResult<(S::User, S::Session)> {
         let session_manager = self.session_manager();
 
         if let Some(token) = session_manager.extract_session_token(req)

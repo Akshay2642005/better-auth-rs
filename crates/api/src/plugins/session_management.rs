@@ -90,7 +90,7 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for SessionManagementPlugin 
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn sign_out_core(
-    session: &better_auth_core::Session,
+    session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<SuccessResponse> {
     ctx.database.delete_session(session.token()).await?;
@@ -101,11 +101,15 @@ pub(crate) async fn list_sessions_core(
     user_id: &str,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Vec<better_auth_core::Session>> {
-    ctx.session_manager().list_user_sessions(user_id).await
+    let sessions = ctx.session_manager().list_user_sessions(user_id).await?;
+    Ok(sessions
+        .iter()
+        .map(better_auth_core::Session::from)
+        .collect())
 }
 
 pub(crate) async fn revoke_session_core(
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     token: &str,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<StatusResponse> {
@@ -128,11 +132,10 @@ pub(crate) async fn revoke_sessions_core(
 
 pub(crate) async fn revoke_other_sessions_core(
     user_id: &str,
-    current_session: &better_auth_core::Session,
+    current_session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<StatusResponse> {
-    let all_sessions: Vec<better_auth_core::Session> =
-        ctx.session_manager().list_user_sessions(user_id).await?;
+    let all_sessions = ctx.session_manager().list_user_sessions(user_id).await?;
     for session in all_sessions {
         if session.token() != current_session.token() {
             ctx.database.delete_session(session.token()).await?;
@@ -154,7 +157,10 @@ impl SessionManagementPlugin {
         // Returns 200 with null body when unauthenticated (never an error status).
         match ctx.require_session(req).await {
             Ok((user, session)) => {
-                let response = GetSessionResponse { session, user };
+                let response = GetSessionResponse {
+                    session: better_auth_core::Session::from(&session),
+                    user: better_auth_core::User::from(&user),
+                };
                 Ok(AuthResponse::json(200, &response)?)
             }
             Err(_) => Ok(AuthResponse::json(200, &serde_json::Value::Null)?),

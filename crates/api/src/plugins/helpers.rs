@@ -62,7 +62,7 @@ pub async fn get_credential_account(
 /// Resolve the user's stored password hash from the credential account.
 pub async fn get_credential_password_hash(
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
 ) -> AuthResult<Option<String>> {
     Ok(get_credential_account(ctx, user.id())
         .await?
@@ -72,7 +72,7 @@ pub async fn get_credential_password_hash(
 /// Whether the user currently has a password set.
 pub async fn user_has_password(
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
 ) -> AuthResult<bool> {
     Ok(get_credential_password_hash(ctx, user).await?.is_some())
 }

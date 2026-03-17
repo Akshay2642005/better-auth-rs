@@ -213,7 +213,7 @@ pub(crate) async fn reset_password_token_core(
 /// Change the user's password. Returns the response and an optional new session token.
 pub(crate) async fn change_password_core(
     body: &ChangePasswordRequest,
-    user: &better_auth_core::User,
+    user: &impl AuthUser,
     config: &PasswordManagementConfig,
     meta: &RequestMeta,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
@@ -276,6 +276,7 @@ pub(crate) async fn change_password_core(
             .database
             .get_user_by_id(user.id())
             .await?
+            .map(|user| better_auth_core::User::from(&user))
             .ok_or(AuthError::UserNotFound)?,
     };
 

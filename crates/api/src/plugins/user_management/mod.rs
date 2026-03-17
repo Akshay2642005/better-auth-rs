@@ -3,7 +3,7 @@ use chrono::Duration;
 use std::sync::Arc;
 
 use better_auth_core::entity::AuthUser;
-use better_auth_core::{AuthContext, AuthPlugin, AuthRoute};
+use better_auth_core::{AuthContext, AuthPlugin, AuthRoute, Session, User};
 use better_auth_core::{AuthError, AuthResult};
 use better_auth_core::{AuthRequest, AuthResponse, HttpMethod};
 
@@ -284,6 +284,7 @@ impl UserManagementPlugin {
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
         let (user, _session) = ctx.require_session(req).await?;
+        let user = User::from(&user);
         let body: ChangeEmailRequest = match better_auth_core::validate_request_body(req) {
             Ok(v) => v,
             Err(resp) => return Ok(resp),
@@ -299,6 +300,8 @@ impl UserManagementPlugin {
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
         let (user, session) = ctx.require_session(req).await?;
+        let user = User::from(&user);
+        let session = Session::from(&session);
         let body: DeleteUserRequest = match better_auth_core::validate_request_body(req) {
             Ok(v) => v,
             Err(resp) => return Ok(resp),
@@ -319,6 +322,7 @@ impl UserManagementPlugin {
             .require_session(req)
             .await
             .map_err(|_| AuthError::not_found("Failed to get user info"))?;
+        let user = User::from(&user);
         let query: TokenQuery = serde_json::from_value(serde_json::json!({
             "token": req.query.get("token").cloned(),
             "callbackURL": req.query.get("callbackURL").cloned(),

@@ -73,7 +73,8 @@ pub(crate) mod test_helpers {
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
         create_user: CreateUser,
     ) -> User {
-        ctx.database.create_user(create_user).await.unwrap()
+        let user = ctx.database.create_user(create_user).await.unwrap();
+        User::from(&user)
     }
 
     pub async fn create_session(
@@ -89,7 +90,8 @@ pub(crate) mod test_helpers {
             impersonated_by: None,
             active_organization_id: None,
         };
-        ctx.database.create_session(create_session).await.unwrap()
+        let session = ctx.database.create_session(create_session).await.unwrap();
+        Session::from(&session)
     }
 
     pub async fn create_user_and_session(

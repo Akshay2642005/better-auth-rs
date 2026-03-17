@@ -181,16 +181,20 @@ pub(super) async fn verify_email_core(
                 });
             }
             Some("change-email-verification") => {
-                let (session_user, session) = match current_session {
-                    Some((user, session)) => (user, session),
-                    None => {
-                        let session = ctx
-                            .session_manager()
-                            .create_session(&user, ip_address, user_agent)
-                            .await?;
-                        (user.clone(), session)
-                    }
-                };
+                let (session_user, session): (better_auth_core::User, better_auth_core::Session) =
+                    match current_session {
+                        Some((user, session)) => (user, session),
+                        None => {
+                            let session = ctx
+                                .session_manager()
+                                .create_session(&user, ip_address, user_agent)
+                                .await?;
+                            (
+                                better_auth_core::User::from(&user),
+                                better_auth_core::Session::from(&session),
+                            )
+                        }
+                    };
 
                 let updated_user = ctx
                     .database
@@ -225,7 +229,7 @@ pub(super) async fn verify_email_core(
                 return Ok(VerifyEmailResult::Json {
                     body: serde_json::json!({
                         "status": true,
-                        "user": updated_user,
+                        "user": better_auth_core::User::from(&updated_user),
                     }),
                     session_token: Some(session.token().to_string()),
                 });
@@ -255,7 +259,8 @@ pub(super) async fn verify_email_core(
                     query.callback_url.as_deref(),
                 );
                 if let Some(ref sender) = config.send_verification_email {
-                    sender.send(&updated_user, &url, &new_token).await?;
+                    let wire_user = better_auth_core::User::from(&updated_user);
+                    sender.send(&wire_user, &url, &new_token).await?;
                 }
 
                 if let Some(callback_url) = query.callback_url.as_deref() {

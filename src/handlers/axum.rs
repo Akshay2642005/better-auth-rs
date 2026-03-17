@@ -328,14 +328,14 @@ where
 
         let session = auth
             .database()
-            .get_session_model(&token)
+            .get_session(&token)
             .await
             .map_err(IntoResponse::into_response)?
             .ok_or_else(|| AuthError::SessionNotFound.into_response())?;
 
         let user = auth
             .database()
-            .get_user_model_by_id(session.user_id())
+            .get_user_by_id(session.user_id())
             .await
             .map_err(IntoResponse::into_response)?
             .ok_or_else(|| AuthError::UserNotFound.into_response())?;

@@ -326,8 +326,7 @@ pub(crate) async fn sign_up_core(
         .transaction(move |tx| {
             let database = transaction_database.clone();
             Box::pin(async move {
-                let user: better_auth_core::User =
-                    database.create_user_in_tx(tx, create_user).await?;
+                let user = database.create_user_in_tx(tx, create_user).await?;
 
                 let _ = database
                     .create_account_in_tx(
@@ -348,7 +347,7 @@ pub(crate) async fn sign_up_core(
                     .await?;
 
                 if auto_sign_in {
-                    let session: better_auth_core::Session = database
+                    let session = database
                         .create_session_in_tx(
                             tx,
                             CreateSession {
@@ -366,12 +365,18 @@ pub(crate) async fn sign_up_core(
                     Ok((
                         SignUpResponse {
                             token: Some(token.clone()),
-                            user,
+                            user: better_auth_core::User::from(&user),
                         },
                         Some(token),
                     ))
                 } else {
-                    Ok((SignUpResponse { token: None, user }, None))
+                    Ok((
+                        SignUpResponse {
+                            token: None,
+                            user: better_auth_core::User::from(&user),
+                        },
+                        None,
+                    ))
                 }
             })
         })
@@ -380,7 +385,7 @@ pub(crate) async fn sign_up_core(
 
 /// Shared sign-in logic after user lookup: verify password, check 2FA, create session.
 async fn sign_in_with_user_core(
-    user: better_auth_core::User,
+    user: impl AuthUser,
     password: &str,
     config: &EmailPasswordConfig,
     email_verification: Option<&EmailVerificationPlugin>,
@@ -423,7 +428,7 @@ async fn sign_in_with_user_core(
     // Send verification email on sign-in if configured
     if let Some(ev) = email_verification
         && let Err(e) = ev
-            .send_verification_on_sign_in(&user, callback_url, ctx)
+            .send_verification_on_sign_in(&better_auth_core::User::from(&user), callback_url, ctx)
             .await
     {
         tracing::warn!(
@@ -442,7 +447,7 @@ async fn sign_in_with_user_core(
         redirect: false,
         token: token.clone(),
         url: None,
-        user,
+        user: better_auth_core::User::from(&user),
     };
     Ok(SignInCoreResult::Success(response, token))
 }
@@ -548,11 +553,7 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for EmailPasswordPlugin {
         }
     }
 
-    async fn on_user_created(
-        &self,
-        user: &better_auth_core::User,
-        _ctx: &AuthContext<S>,
-    ) -> AuthResult<()> {
+    async fn on_user_created(&self, user: &S::User, _ctx: &AuthContext<S>) -> AuthResult<()> {
         if self.config.require_email_verification
             && !user.email_verified()
             && let Some(email) = user.email()

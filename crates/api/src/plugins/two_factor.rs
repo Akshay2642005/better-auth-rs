@@ -337,7 +337,10 @@ async fn get_pending_2fa_user(
         .await?
         .ok_or(AuthError::UserNotFound)?;
 
-    Ok((user, verification.id().to_string()))
+    Ok((
+        better_auth_core::User::from(&user),
+        verification.id().to_string(),
+    ))
 }
 
 // -- Core functions (pending-2fa) --
@@ -527,7 +530,7 @@ async fn verify_backup_code_core(
     let token = session.token().to_string();
     let response = VerifyBackupCodeResponse {
         user: user.clone(),
-        session,
+        session: better_auth_core::Session::from(&session),
     };
     Ok((response, token))
 }
@@ -541,6 +544,7 @@ impl TwoFactorPlugin {
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
         let (user, _session) = ctx.require_session(req).await?;
+        let user = better_auth_core::User::from(&user);
         let body: EnableRequest = match better_auth_core::validate_request_body(req) {
             Ok(v) => v,
             Err(resp) => return Ok(resp),
@@ -555,6 +559,7 @@ impl TwoFactorPlugin {
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
         let (user, _session) = ctx.require_session(req).await?;
+        let user = better_auth_core::User::from(&user);
         let body: DisableRequest = match better_auth_core::validate_request_body(req) {
             Ok(v) => v,
             Err(resp) => return Ok(resp),
@@ -569,6 +574,7 @@ impl TwoFactorPlugin {
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
         let (user, _session) = ctx.require_session(req).await?;
+        let user = better_auth_core::User::from(&user);
         let body: GetTotpUriRequest = match better_auth_core::validate_request_body(req) {
             Ok(v) => v,
             Err(resp) => return Ok(resp),
@@ -624,6 +630,7 @@ impl TwoFactorPlugin {
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
         let (user, _session) = ctx.require_session(req).await?;
+        let user = better_auth_core::User::from(&user);
         let body: GenerateBackupCodesRequest = match better_auth_core::validate_request_body(req) {
             Ok(v) => v,
             Err(resp) => return Ok(resp),

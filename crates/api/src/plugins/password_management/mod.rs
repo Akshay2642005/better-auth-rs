@@ -234,7 +234,11 @@ impl PasswordManagementPlugin {
         if let Some(token) = session_manager.extract_session_token(req)
             && let Some(session) = session_manager.get_session(&token).await?
         {
-            return ctx.database.get_user_by_id(session.user_id()).await;
+            return ctx
+                .database
+                .get_user_by_id(session.user_id())
+                .await
+                .map(|user| user.map(|user| better_auth_core::User::from(&user)));
         }
 
         Ok(None)

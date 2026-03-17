@@ -10,6 +10,7 @@ use better_auth_core::entity::{AuthMember, AuthSession, AuthUser};
 use better_auth_core::error::{AuthError, AuthResult};
 use better_auth_core::plugin::AuthContext;
 use better_auth_core::types::{AuthRequest, AuthResponse};
+use better_auth_core::{Session, User};
 
 use super::OrganizationConfig;
 use super::rbac::{Action, Resource, has_permission_any};
@@ -26,7 +27,7 @@ pub(crate) async fn require_session(
         && let Some(session) = session_manager.get_session(&token).await?
         && let Some(user) = ctx.database.get_user_by_id(session.user_id()).await?
     {
-        return Ok((user, session));
+        return Ok((User::from(&user), Session::from(&session)));
     }
 
     Err(AuthError::Unauthenticated)

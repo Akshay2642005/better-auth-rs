@@ -23,10 +23,11 @@ async fn create_test_context_with_user() -> (AuthContext<TestSchema>, User, Sess
         )
         .await
         .unwrap();
+    let wire_user = User::from(&user);
 
     let session = database
         .create_session(CreateSession {
-            user_id: user.id.clone(),
+            user_id: user.id().to_string(),
             expires_at: Utc::now() + Duration::hours(24),
             ip_address: Some("127.0.0.1".to_string()),
             user_agent: Some("test-agent".to_string()),
@@ -35,8 +36,9 @@ async fn create_test_context_with_user() -> (AuthContext<TestSchema>, User, Sess
         })
         .await
         .unwrap();
+    let wire_session = Session::from(&session);
 
-    (ctx, user, session)
+    (ctx, wire_user, wire_session)
 }
 
 async fn create_user_with_session(
@@ -52,11 +54,12 @@ async fn create_user_with_session(
         )
         .await
         .unwrap();
+    let wire_user = User::from(&user);
 
     let session = ctx
         .database
         .create_session(CreateSession {
-            user_id: user.id.clone(),
+            user_id: user.id().to_string(),
             expires_at: Utc::now() + Duration::hours(24),
             ip_address: None,
             user_agent: None,
@@ -65,8 +68,9 @@ async fn create_user_with_session(
         })
         .await
         .unwrap();
+    let wire_session = Session::from(&session);
 
-    (user, session)
+    (wire_user, wire_session)
 }
 
 fn create_auth_request(

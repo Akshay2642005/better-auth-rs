@@ -255,7 +255,7 @@ pub(crate) async fn set_active_organization_core(
         .update_session_active_organization(session.token(), org_id.as_deref())
         .await?;
 
-    Ok(updated_session)
+    Ok(better_auth_core::Session::from(&updated_session))
 }
 
 pub(crate) async fn leave_organization_core(
