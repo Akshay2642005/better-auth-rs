@@ -970,7 +970,7 @@ async fn link_with_id_token_core(
     body: &LinkSocialRequest,
     id_token: &OAuthIdTokenRequest,
     provider: &OAuthProvider,
-    session: &better_auth_core::Session,
+    session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<SocialSignInResponse> {
     let verifier = provider
@@ -1138,7 +1138,7 @@ async fn social_sign_in_core(
 
 async fn link_social_core(
     body: &LinkSocialRequest,
-    session: &better_auth_core::Session,
+    session: &impl AuthSession,
     config: &OAuthConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<InitiatedOAuthFlow> {
@@ -1191,7 +1191,7 @@ pub(crate) async fn get_access_token_core(
     body: &GetAccessTokenRequest,
     config: &OAuthConfig,
     req: &AuthRequest,
-    session: &better_auth_core::Session,
+    session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<AccessTokenCoreResult> {
     let _ = body.user_id.as_deref();
@@ -1383,7 +1383,7 @@ pub(crate) async fn get_access_token_core(
 pub(crate) async fn refresh_token_core(
     body: &RefreshTokenRequest,
     req: &AuthRequest,
-    session: &better_auth_core::Session,
+    session: &impl AuthSession,
     config: &OAuthConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<RefreshTokenCoreResult> {
