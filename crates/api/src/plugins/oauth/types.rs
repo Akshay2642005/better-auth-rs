@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use validator::Validate;
+use better_auth_core::wire::UserView;
 
 #[derive(Debug, Deserialize, Validate)]
 pub(crate) struct SocialSignInRequest {
@@ -89,7 +90,7 @@ pub(crate) struct SocialSignInResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<better_auth_core::User>,
+    pub user: Option<UserView>,
 }
 
 #[derive(Debug, Serialize)]

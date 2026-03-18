@@ -25,6 +25,7 @@ use super::types::{
     AccessTokenResponse, GetAccessTokenRequest, LinkSocialRequest, OAuthIdTokenRequest,
     RefreshTokenRequest, RefreshTokenResponse, SocialSignInRequest, SocialSignInResponse,
 };
+use better_auth_core::wire::UserView;
 
 // ---------------------------------------------------------------------------
 // Shared helpers (DRY)
@@ -488,7 +489,7 @@ fn auth_base_url(ctx: &AuthContext<impl better_auth_core::AuthSchema>) -> String
 
 struct ProcessOAuthUserResult {
     session: better_auth_core::Session,
-    user: better_auth_core::User,
+    user: UserView,
     is_register: bool,
     account_cookie: Option<AccountCookiePayload>,
 }
@@ -652,7 +653,7 @@ async fn process_oauth_sign_in(
 
         return Ok(ProcessOAuthUserResult {
             session: better_auth_core::Session::from(&session),
-            user: better_auth_core::User::from(&user),
+            user: UserView::from(&user),
             is_register: false,
             account_cookie,
         });
@@ -753,7 +754,7 @@ async fn process_oauth_sign_in(
 
         Ok(ProcessOAuthUserResult {
             session: better_auth_core::Session::from(&session),
-            user: better_auth_core::User::from(&linked_user),
+            user: UserView::from(&linked_user),
             is_register: false,
             account_cookie,
         })
@@ -808,7 +809,7 @@ async fn process_oauth_sign_in(
 
         Ok(ProcessOAuthUserResult {
             session: better_auth_core::Session::from(&session),
-            user: better_auth_core::User::from(&created_user),
+            user: UserView::from(&created_user),
             is_register: true,
             account_cookie,
         })
