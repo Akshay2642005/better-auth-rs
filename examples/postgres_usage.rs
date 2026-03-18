@@ -3,8 +3,11 @@ use better_auth::plugins::{
 };
 use better_auth::prelude::{AuthRequest, HttpMethod};
 use better_auth::store::Database;
-use better_auth::{AuthConfig, BetterAuth, run_migrations};
+use better_auth::{AuthConfig, BetterAuth};
 use std::collections::HashMap;
+
+type AppSchema =
+    better_auth::__private_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,7 +21,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to database: {}", hide_password(&database_url));
 
     let database = Database::connect(&database_url).await?;
-    run_migrations(&database).await?;
+    better_auth::__private_core::store::sea_orm::__private_test_support::migrator::run_migrations(
+        &database,
+    )
+    .await?;
     println!("Database connection established\n");
 
     // Create configuration
@@ -27,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .password_min_length(8);
 
     // Build authentication system with all Phase 1 plugins
-    let auth = BetterAuth::new(config)
+    let auth = BetterAuth::<AppSchema>::new(config)
         .database(database)
         .plugin(EmailPasswordPlugin::new().enable_signup(true))
         .plugin(PasswordManagementPlugin::new())
@@ -175,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Helper: send a request through the auth handler
 async fn send(
-    auth: &BetterAuth,
+    auth: &BetterAuth<AppSchema>,
     method: HttpMethod,
     path: &str,
     body: Option<&serde_json::Value>,

@@ -106,7 +106,7 @@ fn test_config_with_account_cookie() -> AuthConfig {
 
 /// Helper: create a user + OAuth account + session, returning (user_id, session_token).
 async fn setup_user_with_account(
-    db: &Arc<AuthStore>,
+    db: &Arc<AuthStore<TestSchema>>,
     config: &Arc<AuthConfig>,
     email: &str,
     provider: &str,

@@ -24,7 +24,10 @@ use serde_json::json;
 // Helper: create an admin user and return the admin token
 // ---------------------------------------------------------------------------
 
-async fn setup_admin(auth: &better_auth::BetterAuth) -> String {
+type TestSchema =
+    better_auth::__private_core::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
+
+async fn setup_admin(auth: &better_auth::BetterAuth<TestSchema>) -> String {
     // Sign up a regular user first
     let (token, _) = signup_user(auth, "admin@test.com", "password123", "Admin User").await;
 

@@ -32,7 +32,7 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for RouteTestPlugin {
     async fn on_request(
         &self,
         _req: &AuthRequest,
-        _ctx: &AuthContext<impl better_auth_core::AuthSchema>,
+        _ctx: &AuthContext<S>,
     ) -> AuthResult<Option<AuthResponse>> {
         Ok(None)
     }

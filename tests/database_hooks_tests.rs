@@ -12,7 +12,7 @@ use better_auth::error::{AuthResult, DatabaseError};
 use better_auth::hooks::{DatabaseHookContext, DatabaseHooks, HookControl};
 use better_auth::plugin::{AuthContext, AuthInitContext, AuthPlugin, AuthRoute};
 use better_auth::plugins::EmailPasswordPlugin;
-use better_auth::prelude::{AuthRequest, AuthResponse, CreateUser, HttpMethod, User};
+use better_auth::prelude::{AuthRequest, AuthResponse, AuthUser, CreateUser, HttpMethod};
 use better_auth::store::sea_orm::sea_query::{Alias, ColumnDef, Expr, ExprTrait, Query, Table};
 use better_auth::store::sea_orm::{ConnectionTrait, Database, DatabaseConnection};
 use better_auth::{AuthBuilder, AuthConfig};
@@ -89,7 +89,7 @@ struct OrderingHook {
 }
 
 #[async_trait]
-impl DatabaseHooks for OrderingHook {
+impl DatabaseHooks<TestSchema> for OrderingHook {
     async fn before_create_user(
         &self,
         _user: &mut CreateUser,
@@ -108,7 +108,7 @@ struct HookRegistrationPlugin {
 }
 
 #[async_trait]
-impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for HookRegistrationPlugin {
+impl AuthPlugin<TestSchema> for HookRegistrationPlugin {
     fn name(&self) -> &'static str {
         "hook-registration"
     }
@@ -117,7 +117,7 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for HookRegistrationPlugin {
         Vec::new()
     }
 
-    async fn on_init(&self, ctx: &mut AuthInitContext<S>) -> AuthResult<()> {
+    async fn on_init(&self, ctx: &mut AuthInitContext<TestSchema>) -> AuthResult<()> {
         ctx.register_database_hook(OrderingHook {
             label: "plugin",
             events: self.events.clone(),
@@ -128,7 +128,7 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for HookRegistrationPlugin {
     async fn on_request(
         &self,
         _req: &AuthRequest,
-        _ctx: &AuthContext<impl better_auth_core::AuthSchema>,
+        _ctx: &AuthContext<TestSchema>,
     ) -> AuthResult<Option<AuthResponse>> {
         Ok(None)
     }
@@ -140,7 +140,7 @@ struct RequestContextHook {
 }
 
 #[async_trait]
-impl DatabaseHooks for RequestContextHook {
+impl DatabaseHooks<TestSchema> for RequestContextHook {
     async fn before_create_user(
         &self,
         _user: &mut CreateUser,
@@ -170,13 +170,13 @@ struct ProvisioningService {
 impl ProvisioningService {
     async fn provision(
         &self,
-        user: &User,
+        user: &impl AuthUser,
         ctx: &DatabaseHookContext<'_>,
     ) -> Result<(), DatabaseError> {
         let statement = Query::insert()
             .into_table(Alias::new("app_workspaces"))
             .columns([Alias::new("user_id"), Alias::new("name")])
-            .values_panic([user.id.clone().into(), "Default Workspace".into()])
+            .values_panic([user.id().to_owned().into(), "Default Workspace".into()])
             .to_owned();
 
         if let Some(tx) = ctx.tx {
@@ -202,10 +202,10 @@ struct OnboardingHook {
 }
 
 #[async_trait]
-impl DatabaseHooks for OnboardingHook {
+impl DatabaseHooks<TestSchema> for OnboardingHook {
     async fn after_create_user(
         &self,
-        user: &User,
+        user: &<TestSchema as better_auth_core::AuthSchema>::User,
         ctx: &DatabaseHookContext<'_>,
     ) -> AuthResult<()> {
         self.service
@@ -221,16 +221,16 @@ struct DeleteCaptureHook {
 }
 
 #[async_trait]
-impl DatabaseHooks for DeleteCaptureHook {
+impl DatabaseHooks<TestSchema> for DeleteCaptureHook {
     async fn before_delete_user(
         &self,
-        user: &User,
+        user: &<TestSchema as better_auth_core::AuthSchema>::User,
         _ctx: &DatabaseHookContext<'_>,
     ) -> AuthResult<HookControl> {
         self.emails
             .lock()
             .expect("delete capture mutex should lock")
-            .push(user.email.clone());
+            .push(user.email().map(str::to_owned));
         Ok(HookControl::Continue)
     }
 }
@@ -365,7 +365,7 @@ async fn delete_hooks_receive_the_loaded_user_entity() {
         .expect("user should be created");
 
     auth.database()
-        .delete_user(&user.id)
+        .delete_user(user.id())
         .await
         .expect("user should be deleted");
 
