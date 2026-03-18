@@ -224,21 +224,17 @@ impl PasswordManagementPlugin {
         }
     }
 
-    async fn get_current_user(
+    async fn get_current_user<S: better_auth_core::AuthSchema>(
         &self,
         req: &AuthRequest,
-        ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-    ) -> AuthResult<Option<better_auth_core::User>> {
+        ctx: &AuthContext<S>,
+    ) -> AuthResult<Option<S::User>> {
         let session_manager = ctx.session_manager();
 
         if let Some(token) = session_manager.extract_session_token(req)
             && let Some(session) = session_manager.get_session(&token).await?
         {
-            return ctx
-                .database
-                .get_user_by_id(session.user_id())
-                .await
-                .map(|user| user.map(|user| better_auth_core::User::from(&user)));
+            return ctx.database.get_user_by_id(session.user_id()).await;
         }
 
         Ok(None)
