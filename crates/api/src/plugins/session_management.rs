@@ -265,7 +265,8 @@ mod tests {
     use super::*;
     use crate::plugins::test_helpers;
     use better_auth_core::config::AccountConfig;
-    use better_auth_core::{CreateSession, CreateUser, Session};
+    use better_auth_core::wire::SessionView;
+    use better_auth_core::{CreateSession, CreateUser};
     use chrono::{Duration, Utc};
 
     // Upstream reference: packages/better-auth/src/api/routes/session-api.test.ts :: describe("session") and packages/better-auth/src/api/routes/sign-out.test.ts :: describe("sign-out"); adapted to the Rust session-management plugin.
@@ -452,7 +453,7 @@ mod tests {
         assert_eq!(response.status, 200);
 
         let body_str = String::from_utf8(response.body).unwrap();
-        let sessions: Vec<Session> = serde_json::from_str(&body_str).unwrap();
+        let sessions: Vec<SessionView> = serde_json::from_str(&body_str).unwrap();
         assert_eq!(sessions.len(), 2);
     }
 

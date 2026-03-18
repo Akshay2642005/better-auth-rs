@@ -12,8 +12,7 @@ pub use better_auth_core::types::{
     Account, ApiKey, AuthRequest, AuthResponse, CreateAccount, CreateApiKey, CreateInvitation,
     CreateMember, CreateOrganization, CreatePasskey, CreateSession, CreateTwoFactor, CreateUser,
     CreateVerification, Headers, HttpMethod, Invitation, InvitationStatus, ListUsersParams, Member,
-    Organization, Passkey, RequestMeta, Session, TwoFactor, UpdateAccount, UpdateApiKey,
-    UpdateOrganization, UpdatePasskey, UpdateUser, UpdateUserRequest, UpdateUserResponse, User,
-    Verification,
+    Organization, Passkey, RequestMeta, TwoFactor, UpdateAccount, UpdateApiKey, UpdateOrganization,
+    UpdatePasskey, UpdateUser, UpdateUserRequest, UpdateUserResponse,
 };
 pub use better_auth_core::wire::{AccountView, SessionView, UserView, VerificationView};

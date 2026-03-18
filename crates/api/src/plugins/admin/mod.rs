@@ -1,5 +1,6 @@
 use better_auth_core::entity::AuthUser;
-use better_auth_core::{AuthContext, AuthError, AuthResult, Session, User};
+use better_auth_core::wire::{SessionView, UserView};
+use better_auth_core::{AuthContext, AuthError, AuthResult};
 use better_auth_core::{AuthRequest, AuthResponse};
 
 use better_auth_core::utils::cookie_utils::create_session_cookie;
@@ -82,7 +83,7 @@ impl AdminPlugin {
         &self,
         req: &AuthRequest,
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-    ) -> AuthResult<(User, Session)> {
+    ) -> AuthResult<(UserView, SessionView)> {
         let (user, session) = ctx.require_session(req).await?;
 
         let user_role = user.role().unwrap_or("user");
@@ -92,7 +93,7 @@ impl AdminPlugin {
             ));
         }
 
-        Ok((User::from(&user), Session::from(&session)))
+        Ok((UserView::from(&user), SessionView::from(&session)))
     }
 
     async fn handle_set_role(
@@ -222,7 +223,7 @@ impl AdminPlugin {
             .get_session(&token)
             .await?
             .ok_or(AuthError::Unauthenticated)?;
-        let session = Session::from(&session);
+        let session = SessionView::from(&session);
         let (response, new_token) = stop_impersonating_core(
             &session,
             &token,
@@ -297,7 +298,7 @@ impl AdminPlugin {
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
         let (user, _session) = ctx.require_session(req).await?;
-        let user = User::from(&user);
+        let user = UserView::from(&user);
         let body: HasPermissionRequest = match better_auth_core::validate_request_body(req) {
             Ok(v) => v,
             Err(resp) => return Ok(resp),
