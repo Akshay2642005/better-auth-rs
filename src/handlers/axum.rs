@@ -246,7 +246,7 @@ fn convert_auth_response(auth_response: AuthResponse) -> Response {
 /// ```rust,ignore
 /// use better_auth::integrations::axum::CurrentSession;
 ///
-/// async fn profile(session: CurrentSession) -> impl IntoResponse {
+/// async fn profile(session: CurrentSession<AppAuthSchema>) -> impl IntoResponse {
 ///     let user = &session.user;
 ///     let session = &session.session;
 ///     axum::Json(serde_json::json!({ "id": user.id() }))
@@ -268,7 +268,7 @@ pub struct CurrentSession<T: AuthSchema> {
 /// # Example
 ///
 /// ```rust,ignore
-/// async fn home(session: OptionalSession) -> impl IntoResponse {
+/// async fn home(session: OptionalSession<AppAuthSchema>) -> impl IntoResponse {
 ///     if let Some(session) = session.0 {
 ///         axum::Json(serde_json::json!({ "user": session.user.id() }))
 ///     } else {

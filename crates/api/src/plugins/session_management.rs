@@ -99,7 +99,7 @@ pub(crate) async fn sign_out_core(
 }
 
 pub(crate) async fn list_sessions_core(
-    user_id: &str,
+    user_id: impl AsRef<str>,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Vec<SessionView>> {
     let sessions = ctx.session_manager().list_user_sessions(user_id).await?;
@@ -121,7 +121,7 @@ pub(crate) async fn revoke_session_core(
 }
 
 pub(crate) async fn revoke_sessions_core(
-    user_id: &str,
+    user_id: impl AsRef<str>,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<StatusResponse> {
     ctx.database.delete_user_sessions(user_id).await?;
@@ -129,7 +129,7 @@ pub(crate) async fn revoke_sessions_core(
 }
 
 pub(crate) async fn revoke_other_sessions_core(
-    user_id: &str,
+    user_id: impl AsRef<str>,
     current_session: &impl AuthSession,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<StatusResponse> {

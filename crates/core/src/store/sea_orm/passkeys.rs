@@ -34,8 +34,8 @@ impl<S: AuthSchema> AuthStore<S> {
         .map_err(map_db_err)
     }
 
-    pub async fn get_passkey_by_id(&self, id: &str) -> AuthResult<Option<Passkey>> {
-        Entity::find_by_id(id.to_owned())
+    pub async fn get_passkey_by_id(&self, id: impl AsRef<str>) -> AuthResult<Option<Passkey>> {
+        Entity::find_by_id(id.as_ref().to_owned())
             .one(self.connection())
             .await
             .map(|model| model.map(|model| Passkey::from(&model)))
@@ -54,9 +54,12 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn list_passkeys_by_user(&self, user_id: &str) -> AuthResult<Vec<Passkey>> {
+    pub async fn list_passkeys_by_user(
+        &self,
+        user_id: impl AsRef<str>,
+    ) -> AuthResult<Vec<Passkey>> {
         Entity::find()
-            .filter(Column::UserId.eq(user_id))
+            .filter(Column::UserId.eq(user_id.as_ref()))
             .order_by_desc(Column::CreatedAt)
             .all(self.connection())
             .await
@@ -64,8 +67,12 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn update_passkey_counter(&self, id: &str, counter: u64) -> AuthResult<Passkey> {
-        let Some(model) = Entity::find_by_id(id.to_owned())
+    pub async fn update_passkey_counter(
+        &self,
+        id: impl AsRef<str>,
+        counter: u64,
+    ) -> AuthResult<Passkey> {
+        let Some(model) = Entity::find_by_id(id.as_ref().to_owned())
             .one(self.connection())
             .await
             .map_err(map_db_err)?
@@ -83,8 +90,12 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn update_passkey_name(&self, id: &str, name: &str) -> AuthResult<Passkey> {
-        let Some(model) = Entity::find_by_id(id.to_owned())
+    pub async fn update_passkey_name(
+        &self,
+        id: impl AsRef<str>,
+        name: &str,
+    ) -> AuthResult<Passkey> {
+        let Some(model) = Entity::find_by_id(id.as_ref().to_owned())
             .one(self.connection())
             .await
             .map_err(map_db_err)?
@@ -101,8 +112,8 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn delete_passkey(&self, id: &str) -> AuthResult<()> {
-        Entity::delete_by_id(id.to_owned())
+    pub async fn delete_passkey(&self, id: impl AsRef<str>) -> AuthResult<()> {
+        Entity::delete_by_id(id.as_ref().to_owned())
             .exec(self.connection())
             .await
             .map(|_| ())

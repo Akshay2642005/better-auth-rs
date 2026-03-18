@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::borrow::Cow;
 use uuid::Uuid;
 
 use crate::entity::{AuthInvitation, AuthMember, AuthOrganization};
@@ -232,7 +233,7 @@ impl CreateInvitation {
 impl<T: AuthOrganization> From<&T> for Organization {
     fn from(organization: &T) -> Self {
         Self {
-            id: organization.id().to_owned(),
+            id: organization.id().into_owned(),
             name: organization.name().to_owned(),
             slug: organization.slug().to_owned(),
             logo: organization.logo().map(str::to_owned),
@@ -258,8 +259,8 @@ impl From<&entities::organization::Model> for Organization {
 }
 
 impl AuthOrganization for Organization {
-    fn id(&self) -> &str {
-        &self.id
+    fn id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.id)
     }
     fn name(&self) -> &str {
         &self.name
@@ -282,14 +283,14 @@ impl AuthOrganization for Organization {
 }
 
 impl AuthMember for Member {
-    fn id(&self) -> &str {
-        &self.id
+    fn id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.id)
     }
-    fn organization_id(&self) -> &str {
-        &self.organization_id
+    fn organization_id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.organization_id)
     }
-    fn user_id(&self) -> &str {
-        &self.user_id
+    fn user_id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.user_id)
     }
     fn role(&self) -> &str {
         &self.role
@@ -302,9 +303,9 @@ impl AuthMember for Member {
 impl<T: AuthMember> From<&T> for Member {
     fn from(member: &T) -> Self {
         Self {
-            id: member.id().to_owned(),
-            organization_id: member.organization_id().to_owned(),
-            user_id: member.user_id().to_owned(),
+            id: member.id().into_owned(),
+            organization_id: member.organization_id().into_owned(),
+            user_id: member.user_id().into_owned(),
             role: member.role().to_owned(),
             created_at: member.created_at(),
         }
@@ -324,11 +325,11 @@ impl From<&entities::member::Model> for Member {
 }
 
 impl AuthInvitation for Invitation {
-    fn id(&self) -> &str {
-        &self.id
+    fn id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.id)
     }
-    fn organization_id(&self) -> &str {
-        &self.organization_id
+    fn organization_id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.organization_id)
     }
     fn email(&self) -> &str {
         &self.email
@@ -339,8 +340,8 @@ impl AuthInvitation for Invitation {
     fn status(&self) -> &InvitationStatus {
         &self.status
     }
-    fn inviter_id(&self) -> &str {
-        &self.inviter_id
+    fn inviter_id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.inviter_id)
     }
     fn expires_at(&self) -> DateTime<Utc> {
         self.expires_at
@@ -353,12 +354,12 @@ impl AuthInvitation for Invitation {
 impl<T: AuthInvitation> From<&T> for Invitation {
     fn from(invitation: &T) -> Self {
         Self {
-            id: invitation.id().to_owned(),
-            organization_id: invitation.organization_id().to_owned(),
+            id: invitation.id().into_owned(),
+            organization_id: invitation.organization_id().into_owned(),
             email: invitation.email().to_owned(),
             role: invitation.role().to_owned(),
             status: invitation.status().clone(),
-            inviter_id: invitation.inviter_id().to_owned(),
+            inviter_id: invitation.inviter_id().into_owned(),
             expires_at: invitation.expires_at(),
             created_at: invitation.created_at(),
         }

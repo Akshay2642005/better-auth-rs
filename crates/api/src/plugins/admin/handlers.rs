@@ -156,11 +156,11 @@ pub(crate) async fn list_user_sessions_core(
 
 pub(crate) async fn ban_user_core(
     body: &BanUserRequest,
-    admin_user_id: &str,
+    admin_user_id: impl AsRef<str>,
     config: &AdminConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<UserResponse<UserView>> {
-    if body.user_id == admin_user_id {
+    if body.user_id == admin_user_id.as_ref() {
         return Err(AuthError::bad_request("You cannot ban yourself"));
     }
 
@@ -223,12 +223,12 @@ pub(crate) async fn unban_user_core(
 
 pub(crate) async fn impersonate_user_core(
     body: &UserIdRequest,
-    admin_user_id: &str,
+    admin_user_id: impl AsRef<str>,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<(SessionUserResponse<SessionView, UserView>, String)> {
-    if body.user_id == admin_user_id {
+    if body.user_id == admin_user_id.as_ref() {
         return Err(AuthError::bad_request("Cannot impersonate yourself"));
     }
 
@@ -244,7 +244,7 @@ pub(crate) async fn impersonate_user_core(
         expires_at,
         ip_address: ip_address.map(|s| s.to_string()),
         user_agent: user_agent.map(|s| s.to_string()),
-        impersonated_by: Some(admin_user_id.to_string()),
+        impersonated_by: Some(admin_user_id.as_ref().to_string()),
         active_organization_id: None,
     };
 
@@ -328,10 +328,10 @@ pub(crate) async fn revoke_user_sessions_core(
 
 pub(crate) async fn remove_user_core(
     body: &UserIdRequest,
-    admin_user_id: &str,
+    admin_user_id: impl AsRef<str>,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<SuccessResponse> {
-    if body.user_id == admin_user_id {
+    if body.user_id == admin_user_id.as_ref() {
         return Err(AuthError::bad_request("You cannot remove yourself"));
     }
 

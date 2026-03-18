@@ -3,7 +3,6 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait,
     IntoActiveModel, QueryFilter, QueryOrder, QuerySelect,
 };
-use uuid::Uuid;
 
 use crate::error::{AuthError, AuthResult};
 use crate::schema::{AuthSchema, AuthUserModel};
@@ -34,14 +33,12 @@ impl<S: AuthSchema> AuthStore<S> {
             }
         }
         let now = Utc::now();
-        let model = S::User::new_active(
-            create_user
-                .id
-                .clone()
-                .unwrap_or_else(|| Uuid::new_v4().to_string()),
-            create_user,
-            now,
-        );
+        let user_id = create_user
+            .id
+            .as_deref()
+            .map(S::User::parse_id)
+            .transpose()?;
+        let model = S::User::new_active(user_id, create_user, now);
 
         let user = model.insert(db).await.map_err(map_db_err)?;
         for hook in self.hooks() {
@@ -66,9 +63,11 @@ impl<S: AuthSchema> AuthStore<S> {
             .await
     }
 
-    pub async fn get_user_by_id(&self, id: &str) -> AuthResult<Option<S::User>> {
+    pub async fn get_user_by_id(&self, id: impl AsRef<str>) -> AuthResult<Option<S::User>> {
+        let id = id.as_ref();
+        let user_id = S::User::parse_id(id)?;
         <S::User as AuthUserModel>::Entity::find()
-            .filter(<S::User as AuthUserModel>::id_column().eq(id))
+            .filter(<S::User as AuthUserModel>::id_column().eq(user_id))
             .one(self.connection())
             .await
             .map_err(map_db_err)
@@ -91,8 +90,14 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn update_user(&self, id: &str, mut update: UpdateUser) -> AuthResult<S::User> {
+    pub async fn update_user(
+        &self,
+        id: impl AsRef<str>,
+        mut update: UpdateUser,
+    ) -> AuthResult<S::User> {
+        let id = id.as_ref();
         update.email = normalize_optional_user_email(update.email);
+        let user_id = S::User::parse_id(id)?;
         let hook_context = self.hook_context(None);
         for hook in self.hooks() {
             if hook
@@ -104,7 +109,7 @@ impl<S: AuthSchema> AuthStore<S> {
             }
         }
         let Some(model) = <S::User as AuthUserModel>::Entity::find()
-            .filter(<S::User as AuthUserModel>::id_column().eq(id))
+            .filter(<S::User as AuthUserModel>::id_column().eq(user_id))
             .one(self.connection())
             .await
             .map_err(map_db_err)?
@@ -122,7 +127,9 @@ impl<S: AuthSchema> AuthStore<S> {
         Ok(user)
     }
 
-    pub async fn delete_user(&self, id: &str) -> AuthResult<()> {
+    pub async fn delete_user(&self, id: impl AsRef<str>) -> AuthResult<()> {
+        let id = id.as_ref();
+        let user_id = S::User::parse_id(id)?;
         let Some(user) = self.get_user_by_id(id).await? else {
             return Err(AuthError::UserNotFound);
         };
@@ -137,7 +144,7 @@ impl<S: AuthSchema> AuthStore<S> {
             }
         }
         let _ = <S::User as AuthUserModel>::Entity::delete_many()
-            .filter(<S::User as AuthUserModel>::id_column().eq(id))
+            .filter(<S::User as AuthUserModel>::id_column().eq(user_id))
             .exec(self.connection())
             .await
             .map_err(map_db_err)?;

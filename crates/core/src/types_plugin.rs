@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 use crate::entity::{AuthApiKey, AuthPasskey, AuthTwoFactor};
 use crate::store::sea_orm::entities;
@@ -157,8 +158,8 @@ pub struct UpdateApiKey {
 }
 
 impl AuthTwoFactor for TwoFactor {
-    fn id(&self) -> &str {
-        &self.id
+    fn id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.id)
     }
     fn secret(&self) -> &str {
         &self.secret
@@ -166,8 +167,8 @@ impl AuthTwoFactor for TwoFactor {
     fn backup_codes(&self) -> Option<&str> {
         self.backup_codes.as_deref()
     }
-    fn user_id(&self) -> &str {
-        &self.user_id
+    fn user_id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.user_id)
     }
     fn created_at(&self) -> DateTime<Utc> {
         self.created_at
@@ -180,10 +181,10 @@ impl AuthTwoFactor for TwoFactor {
 impl<T: AuthTwoFactor> From<&T> for TwoFactor {
     fn from(two_factor: &T) -> Self {
         Self {
-            id: two_factor.id().to_owned(),
+            id: two_factor.id().into_owned(),
             secret: two_factor.secret().to_owned(),
             backup_codes: two_factor.backup_codes().map(str::to_owned),
-            user_id: two_factor.user_id().to_owned(),
+            user_id: two_factor.user_id().into_owned(),
             created_at: two_factor.created_at(),
             updated_at: two_factor.updated_at(),
         }
@@ -204,8 +205,8 @@ impl From<&entities::two_factor::Model> for TwoFactor {
 }
 
 impl AuthApiKey for ApiKey {
-    fn id(&self) -> &str {
-        &self.id
+    fn id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.id)
     }
     fn name(&self) -> Option<&str> {
         self.name.as_deref()
@@ -219,8 +220,8 @@ impl AuthApiKey for ApiKey {
     fn key_hash(&self) -> &str {
         &self.key_hash
     }
-    fn user_id(&self) -> &str {
-        &self.user_id
+    fn user_id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.user_id)
     }
     fn refill_interval(&self) -> Option<i64> {
         self.refill_interval
@@ -272,12 +273,12 @@ impl AuthApiKey for ApiKey {
 impl<T: AuthApiKey> From<&T> for ApiKey {
     fn from(api_key: &T) -> Self {
         Self {
-            id: api_key.id().to_owned(),
+            id: api_key.id().into_owned(),
             name: api_key.name().map(str::to_owned),
             start: api_key.start().map(str::to_owned),
             prefix: api_key.prefix().map(str::to_owned),
             key_hash: api_key.key_hash().to_owned(),
-            user_id: api_key.user_id().to_owned(),
+            user_id: api_key.user_id().into_owned(),
             refill_interval: api_key.refill_interval(),
             refill_amount: api_key.refill_amount(),
             last_refill_at: api_key.last_refill_at().map(str::to_owned),
@@ -326,8 +327,8 @@ impl From<&entities::api_key::Model> for ApiKey {
 }
 
 impl AuthPasskey for Passkey {
-    fn id(&self) -> &str {
-        &self.id
+    fn id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.id)
     }
     fn name(&self) -> &str {
         &self.name
@@ -335,8 +336,8 @@ impl AuthPasskey for Passkey {
     fn public_key(&self) -> &str {
         &self.public_key
     }
-    fn user_id(&self) -> &str {
-        &self.user_id
+    fn user_id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.user_id)
     }
     fn credential_id(&self) -> &str {
         &self.credential_id
@@ -361,10 +362,10 @@ impl AuthPasskey for Passkey {
 impl<T: AuthPasskey> From<&T> for Passkey {
     fn from(passkey: &T) -> Self {
         Self {
-            id: passkey.id().to_owned(),
+            id: passkey.id().into_owned(),
             name: passkey.name().to_owned(),
             public_key: passkey.public_key().to_owned(),
-            user_id: passkey.user_id().to_owned(),
+            user_id: passkey.user_id().into_owned(),
             credential_id: passkey.credential_id().to_owned(),
             counter: passkey.counter(),
             device_type: passkey.device_type().to_owned(),

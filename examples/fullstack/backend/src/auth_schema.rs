@@ -1,16 +1,8 @@
-use axum::extract::{FromRef, State};
-use axum::{Json as AxumJson, Router, response::IntoResponse, routing::get};
-use better_auth::integrations::axum::{AxumIntegration, CurrentSession, OptionalSession};
-use better_auth::plugins::{EmailPasswordPlugin, SessionManagementPlugin};
-use better_auth::prelude::AuthUser;
 use better_auth::store::sea_orm;
 use better_auth::store::sea_orm::entity::prelude::*;
 use better_auth::store::sea_orm::{ConnectionTrait, Schema};
-use better_auth::store::{Database, DatabaseConnection};
-use better_auth::{AuthConfig, AuthEntity, AuthSchema, BetterAuth};
-use std::sync::Arc;
-use tokio::net::TcpListener;
-use tower_http::cors::CorsLayer;
+use better_auth::store::DatabaseConnection;
+use better_auth::{AuthEntity, AuthSchema};
 
 mod user {
     use super::*;
@@ -124,72 +116,16 @@ mod verification {
 pub struct AppAuthSchema;
 
 impl AuthSchema for AppAuthSchema {
-    type User = crate::user::Model;
-    type Session = crate::session::Model;
-    type Account = crate::account::Model;
-    type Verification = crate::verification::Model;
+    type User = crate::auth_schema::user::Model;
+    type Session = crate::auth_schema::session::Model;
+    type Account = crate::auth_schema::account::Model;
+    type Verification = crate::auth_schema::verification::Model;
 }
 
-#[derive(Clone)]
-struct AppState {
-    auth: Arc<BetterAuth<AppAuthSchema>>,
-    db: DatabaseConnection,
-    app_name: &'static str,
-}
-
-impl FromRef<AppState> for Arc<BetterAuth<AppAuthSchema>> {
-    fn from_ref(state: &AppState) -> Self {
-        state.auth.clone()
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt::init();
-
-    let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
-        .base_url("http://localhost:8080")
-        .password_min_length(8);
-
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite://better-auth-axum.db?mode=rwc".to_string());
-    let database = Database::connect(&database_url).await?;
-    run_app_migrations(&database).await?;
-
-    let auth = Arc::new(
-        BetterAuth::<AppAuthSchema>::new(config)
-            .database(database.clone())
-            .plugin(EmailPasswordPlugin::new().enable_signup(true))
-            .plugin(SessionManagementPlugin::new())
-            .build()
-            .await?,
-    );
-
-    let state = AppState {
-        auth: auth.clone(),
-        db: database,
-        app_name: "axum-example",
-    };
-
-    let app = Router::new()
-        .route("/api/profile", get(get_user_profile))
-        .route("/api/public", get(public_route))
-        .nest("/auth", auth.axum_router_with_state::<AppState>())
-        .layer(CorsLayer::permissive())
-        .with_state(state);
-
-    let listener = TcpListener::bind("0.0.0.0:8080").await?;
-    axum::serve(listener, app).await?;
-    Ok(())
-}
-
-async fn run_app_migrations(database: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
+pub async fn run_app_migrations(database: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
     let schema = Schema::new(database.get_database_backend());
     for statement in [
-        schema
-            .create_table_from_entity(user::Entity)
-            .if_not_exists()
-            .to_owned(),
+        schema.create_table_from_entity(user::Entity).if_not_exists().to_owned(),
         schema
             .create_table_from_entity(session::Entity)
             .if_not_exists()
@@ -206,24 +142,4 @@ async fn run_app_migrations(database: &DatabaseConnection) -> Result<(), sea_orm
         let _ = database.execute(&statement).await?;
     }
     Ok(())
-}
-
-async fn get_user_profile(session: CurrentSession<AppAuthSchema>) -> impl IntoResponse {
-    AxumJson(serde_json::json!({
-        "id": session.user.id(),
-        "email": session.user.email(),
-        "name": session.user.name(),
-    }))
-}
-
-async fn public_route(
-    session: OptionalSession<AppAuthSchema>,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    let database_backend = format!("{:?}", state.db.get_database_backend());
-    AxumJson(serde_json::json!({
-        "app": state.app_name,
-        "authenticated": session.0.is_some(),
-        "databaseBackend": database_backend,
-    }))
 }

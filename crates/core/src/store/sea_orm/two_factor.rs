@@ -26,9 +26,12 @@ impl<S: AuthSchema> AuthStore<S> {
         .map_err(map_db_err)
     }
 
-    pub async fn get_two_factor_by_user_id(&self, user_id: &str) -> AuthResult<Option<TwoFactor>> {
+    pub async fn get_two_factor_by_user_id(
+        &self,
+        user_id: impl AsRef<str>,
+    ) -> AuthResult<Option<TwoFactor>> {
         Entity::find()
-            .filter(Column::UserId.eq(user_id))
+            .filter(Column::UserId.eq(user_id.as_ref()))
             .one(self.connection())
             .await
             .map(|model| model.map(|model| TwoFactor::from(&model)))
@@ -37,11 +40,11 @@ impl<S: AuthSchema> AuthStore<S> {
 
     pub async fn update_two_factor_backup_codes(
         &self,
-        user_id: &str,
+        user_id: impl AsRef<str>,
         backup_codes: &str,
     ) -> AuthResult<TwoFactor> {
         let Some(model) = Entity::find()
-            .filter(Column::UserId.eq(user_id))
+            .filter(Column::UserId.eq(user_id.as_ref()))
             .one(self.connection())
             .await
             .map_err(map_db_err)?
@@ -61,9 +64,9 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn delete_two_factor(&self, user_id: &str) -> AuthResult<()> {
+    pub async fn delete_two_factor(&self, user_id: impl AsRef<str>) -> AuthResult<()> {
         Entity::delete_many()
-            .filter(Column::UserId.eq(user_id))
+            .filter(Column::UserId.eq(user_id.as_ref()))
             .exec(self.connection())
             .await
             .map(|_| ())

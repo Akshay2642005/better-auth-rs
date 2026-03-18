@@ -31,7 +31,7 @@ pub fn expires_in_to_at(expires_in_ms: Option<i64>) -> AuthResult<Option<String>
 pub async fn get_owned_api_key(
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     key_id: &str,
-    user_id: &str,
+    user_id: impl AsRef<str>,
 ) -> AuthResult<better_auth_core::ApiKey> {
     let api_key = ctx
         .database
@@ -39,7 +39,7 @@ pub async fn get_owned_api_key(
         .await?
         .ok_or_else(|| AuthError::not_found("API key not found"))?;
 
-    if api_key.user_id() != user_id {
+    if api_key.user_id().as_ref() != user_id.as_ref() {
         return Err(AuthError::not_found("API key not found"));
     }
 
@@ -49,7 +49,7 @@ pub async fn get_owned_api_key(
 /// Fetch the user's credential account, if present.
 pub async fn get_credential_account<S: better_auth_core::AuthSchema>(
     ctx: &AuthContext<S>,
-    user_id: &str,
+    user_id: impl AsRef<str>,
 ) -> AuthResult<Option<S::Account>> {
     Ok(ctx
         .database

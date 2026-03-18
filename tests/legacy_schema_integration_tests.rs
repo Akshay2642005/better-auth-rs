@@ -1,5 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    reason = "integration tests intentionally use direct assertions over concrete JSON payloads"
+)]
+
 use std::borrow::Cow;
-use std::collections::HashMap;
 
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHasher};
@@ -7,7 +12,7 @@ use better_auth::plugins::{
     AccountManagementPlugin, EmailPasswordPlugin, PasswordManagementPlugin, SessionManagementPlugin,
 };
 use better_auth::prelude::{
-    AuthAccount, AuthRequest, AuthResponse, AuthSession, AuthUser, AuthVerification, CreateAccount,
+    AuthAccount, AuthRequest, AuthSession, AuthUser, AuthVerification, CreateAccount,
     CreateSession, CreateUser, CreateVerification, HttpMethod, UpdateAccount, UpdateUser,
 };
 use better_auth::store::sea_orm;
@@ -57,59 +62,45 @@ mod user {
         fn id(&self) -> Cow<'_, str> {
             Cow::Owned(self.id.to_string())
         }
-
         fn email(&self) -> Option<&str> {
             self.email.as_deref()
         }
-
         fn name(&self) -> Option<&str> {
             self.name.as_deref()
         }
-
         fn email_verified(&self) -> bool {
             self.email_verified
         }
-
         fn image(&self) -> Option<&str> {
             self.image.as_deref()
         }
-
         fn created_at(&self) -> DateTime<Utc> {
             self.created_at
         }
-
         fn updated_at(&self) -> DateTime<Utc> {
             self.updated_at
         }
-
         fn username(&self) -> Option<&str> {
             self.username.as_deref()
         }
-
         fn display_username(&self) -> Option<&str> {
             self.display_username.as_deref()
         }
-
         fn two_factor_enabled(&self) -> bool {
             self.two_factor_enabled
         }
-
         fn role(&self) -> Option<&str> {
             self.role.as_deref()
         }
-
         fn banned(&self) -> bool {
             self.banned
         }
-
         fn ban_reason(&self) -> Option<&str> {
             self.ban_reason.as_deref()
         }
-
         fn ban_expires(&self) -> Option<DateTime<Utc>> {
             self.ban_expires
         }
-
         fn metadata(&self) -> &serde_json::Value {
             &self.metadata
         }
@@ -124,28 +115,22 @@ mod user {
         fn id_column() -> Self::Column {
             Column::Id
         }
-
         fn email_column() -> Self::Column {
             Column::Email
         }
-
         fn username_column() -> Self::Column {
             Column::Username
         }
-
         fn name_column() -> Self::Column {
             Column::Name
         }
-
         fn created_at_column() -> Self::Column {
             Column::CreatedAt
         }
-
         fn parse_id(id: &str) -> AuthResult<Self::Id> {
             id.parse()
                 .map_err(|_| AuthError::bad_request("Invalid user id"))
         }
-
         fn new_active(
             id: Option<Self::Id>,
             create_user: CreateUser,
@@ -171,7 +156,6 @@ mod user {
                 locale: Set("en".to_string()),
             }
         }
-
         fn apply_update(active: &mut Self::ActiveModel, update: UpdateUser, now: DateTime<Utc>) {
             if let Some(email) = update.email {
                 active.email = Set(Some(email));
@@ -249,43 +233,33 @@ mod session {
         fn id(&self) -> Cow<'_, str> {
             Cow::Owned(self.id.to_string())
         }
-
         fn expires_at(&self) -> DateTime<Utc> {
             self.expires_at
         }
-
         fn token(&self) -> &str {
             &self.token
         }
-
         fn created_at(&self) -> DateTime<Utc> {
             self.created_at
         }
-
         fn updated_at(&self) -> DateTime<Utc> {
             self.updated_at
         }
-
         fn ip_address(&self) -> Option<&str> {
             self.ip_address.as_deref()
         }
-
         fn user_agent(&self) -> Option<&str> {
             self.user_agent.as_deref()
         }
-
         fn user_id(&self) -> Cow<'_, str> {
             Cow::Owned(self.user_id.to_string())
         }
-
         fn impersonated_by(&self) -> Option<&str> {
             self.impersonated_by.as_deref()
         }
-
         fn active_organization_id(&self) -> Option<&str> {
             self.active_organization_id.as_deref()
         }
-
         fn active(&self) -> bool {
             self.active
         }
@@ -301,38 +275,30 @@ mod session {
         fn id_column() -> Self::Column {
             Column::Id
         }
-
         fn token_column() -> Self::Column {
             Column::Token
         }
-
         fn user_id_column() -> Self::Column {
             Column::UserId
         }
-
         fn active_column() -> Self::Column {
             Column::Active
         }
-
         fn expires_at_column() -> Self::Column {
             Column::ExpiresAt
         }
-
         fn created_at_column() -> Self::Column {
             Column::CreatedAt
         }
-
         fn parse_id(id: &str) -> AuthResult<Self::Id> {
             id.parse()
                 .map_err(|_| AuthError::bad_request("Invalid session id"))
         }
-
         fn parse_user_id(user_id: &str) -> AuthResult<Self::UserId> {
             user_id
                 .parse()
                 .map_err(|_| AuthError::bad_request("Invalid session user id"))
         }
-
         fn new_active(
             id: Option<Self::Id>,
             token: String,
@@ -357,15 +323,12 @@ mod session {
                 active: Set(true),
             }
         }
-
         fn set_expires_at(active: &mut Self::ActiveModel, expires_at: DateTime<Utc>) {
             active.expires_at = Set(expires_at);
         }
-
         fn set_updated_at(active: &mut Self::ActiveModel, updated_at: DateTime<Utc>) {
             active.updated_at = Set(updated_at);
         }
-
         fn set_active_organization_id(
             active: &mut Self::ActiveModel,
             organization_id: Option<String>,
@@ -406,51 +369,39 @@ mod account {
         fn id(&self) -> Cow<'_, str> {
             Cow::Owned(self.id.to_string())
         }
-
         fn account_id(&self) -> &str {
             &self.account_id
         }
-
         fn provider_id(&self) -> &str {
             &self.provider_id
         }
-
         fn user_id(&self) -> Cow<'_, str> {
             Cow::Owned(self.user_id.to_string())
         }
-
         fn access_token(&self) -> Option<&str> {
             self.access_token.as_deref()
         }
-
         fn refresh_token(&self) -> Option<&str> {
             self.refresh_token.as_deref()
         }
-
         fn id_token(&self) -> Option<&str> {
             self.id_token.as_deref()
         }
-
         fn access_token_expires_at(&self) -> Option<DateTime<Utc>> {
             self.access_token_expires_at
         }
-
         fn refresh_token_expires_at(&self) -> Option<DateTime<Utc>> {
             self.refresh_token_expires_at
         }
-
         fn scope(&self) -> Option<&str> {
             self.scope.as_deref()
         }
-
         fn password(&self) -> Option<&str> {
             self.password.as_deref()
         }
-
         fn created_at(&self) -> DateTime<Utc> {
             self.created_at
         }
-
         fn updated_at(&self) -> DateTime<Utc> {
             self.updated_at
         }
@@ -466,34 +417,27 @@ mod account {
         fn id_column() -> Self::Column {
             Column::Id
         }
-
         fn provider_id_column() -> Self::Column {
             Column::ProviderId
         }
-
         fn account_id_column() -> Self::Column {
             Column::AccountId
         }
-
         fn user_id_column() -> Self::Column {
             Column::UserId
         }
-
         fn created_at_column() -> Self::Column {
             Column::CreatedAt
         }
-
         fn parse_id(id: &str) -> AuthResult<Self::Id> {
             id.parse()
                 .map_err(|_| AuthError::bad_request("Invalid account id"))
         }
-
         fn parse_user_id(user_id: &str) -> AuthResult<Self::UserId> {
             user_id
                 .parse()
                 .map_err(|_| AuthError::bad_request("Invalid account user id"))
         }
-
         fn new_active(
             id: Option<Self::Id>,
             create_account: CreateAccount,
@@ -519,7 +463,6 @@ mod account {
                 updated_at: Set(now),
             }
         }
-
         fn apply_update(active: &mut Self::ActiveModel, update: UpdateAccount, now: DateTime<Utc>) {
             if let Some(access_token) = update.access_token {
                 active.access_token = Set(Some(access_token));
@@ -571,23 +514,18 @@ mod verification {
         fn id(&self) -> Cow<'_, str> {
             Cow::Owned(self.id.to_string())
         }
-
         fn identifier(&self) -> &str {
             &self.identifier
         }
-
         fn value(&self) -> &str {
             &self.value
         }
-
         fn expires_at(&self) -> DateTime<Utc> {
             self.expires_at
         }
-
         fn created_at(&self) -> DateTime<Utc> {
             self.created_at
         }
-
         fn updated_at(&self) -> DateTime<Utc> {
             self.updated_at
         }
@@ -602,28 +540,22 @@ mod verification {
         fn id_column() -> Self::Column {
             Column::Id
         }
-
         fn identifier_column() -> Self::Column {
             Column::Identifier
         }
-
         fn value_column() -> Self::Column {
             Column::Value
         }
-
         fn expires_at_column() -> Self::Column {
             Column::ExpiresAt
         }
-
         fn created_at_column() -> Self::Column {
             Column::CreatedAt
         }
-
         fn parse_id(id: &str) -> AuthResult<Self::Id> {
             id.parse()
                 .map_err(|_| AuthError::bad_request("Invalid verification id"))
         }
-
         fn new_active(
             id: Option<Self::Id>,
             verification: CreateVerification,
@@ -641,124 +573,23 @@ mod verification {
     }
 }
 
-pub struct AppSchema;
+pub struct LegacySchema;
 
-impl AuthSchema for AppSchema {
+impl AuthSchema for LegacySchema {
     type User = crate::user::Model;
     type Session = crate::session::Model;
     type Account = crate::account::Model;
     type Verification = crate::verification::Model;
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Better Auth PostgreSQL Example\n");
-
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-        "postgresql://better_auth:password@localhost:5432/better_auth".to_string()
-    });
-
-    println!("Connecting to database: {}", hide_password(&database_url));
-
-    let database = Database::connect(&database_url).await?;
-    run_app_migrations(&database).await?;
-    println!("Database connection established\n");
-
-    let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
-        .base_url("http://localhost:3000")
-        .password_min_length(8);
-
-    let auth = BetterAuth::<AppSchema>::new(config)
-        .database(database.clone())
-        .plugin(EmailPasswordPlugin::new().enable_signup(true))
-        .plugin(PasswordManagementPlugin::new())
-        .plugin(SessionManagementPlugin::new())
-        .plugin(AccountManagementPlugin::new())
-        .build()
-        .await?;
-
-    println!("BetterAuth instance created");
-    println!("Registered plugins: {:?}\n", auth.plugin_names());
-
-    seed_legacy_user(&database).await?;
-
-    println!("=== Legacy user sign in ===");
-    let legacy_signin_body = serde_json::json!({
-        "email": "legacy@example.com",
-        "password": "legacy_password_123"
-    });
-    let legacy_signin = send(
-        &auth,
-        HttpMethod::Post,
-        "/sign-in/email",
-        Some(&legacy_signin_body),
-        None,
-    )
-    .await?;
-    println!("Status: {}", legacy_signin.status);
-    let legacy_data = parse_body(&legacy_signin.body);
-    println!(
-        "Legacy DB user id: {}\n",
-        legacy_data["user"]["id"].as_str().unwrap_or("<missing>")
-    );
-
-    println!("=== Sign up ===");
-    let signup_body = serde_json::json!({
-        "email": "postgres_user@example.com",
-        "password": "secure_password_123",
-        "name": "PostgreSQL Test User",
-        "username": "pg_user"
-    });
-
-    let signup_response = send(
-        &auth,
-        HttpMethod::Post,
-        "/sign-up/email",
-        Some(&signup_body),
-        None,
-    )
-    .await?;
-    println!("Status: {}", signup_response.status);
-    let signup_data = parse_body(&signup_response.body);
-    let token = signup_data
-        .get("token")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    println!(
-        "New DB user id: {}",
-        signup_data["user"]["id"].as_str().unwrap_or("<missing>")
-    );
-    println!(
-        "Locale defaulted to: {}",
-        user::Entity::find()
-            .filter(user::Column::Email.eq("postgres_user@example.com"))
-            .one(&database)
-            .await?
-            .map(|user| user.locale)
-            .unwrap_or_else(|| "<missing>".to_string())
-    );
-    println!();
-
-    println!("=== Get session ===");
-    let response = send(&auth, HttpMethod::Get, "/get-session", None, Some(&token)).await?;
-    println!("Status: {}", response.status);
-    let data = parse_body(&response.body);
-    println!(
-        "Session user: {}\n",
-        data.get("user")
-            .and_then(|user| user.get("email"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("<missing>")
-    );
-
-    println!("=== List accounts ===");
-    let response = send(&auth, HttpMethod::Get, "/list-accounts", None, Some(&token)).await?;
-    println!("Status: {}\n", response.status);
-
-    println!("PostgreSQL example completed successfully!");
-
-    Ok(())
+async fn test_database() -> DatabaseConnection {
+    let database = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite test database should connect");
+    run_app_migrations(&database)
+        .await
+        .expect("legacy schema migrations should run");
+    database
 }
 
 async fn run_app_migrations(database: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
@@ -786,20 +617,47 @@ async fn run_app_migrations(database: &DatabaseConnection) -> Result<(), sea_orm
     Ok(())
 }
 
-async fn seed_legacy_user(database: &DatabaseConnection) -> Result<(), Box<dyn std::error::Error>> {
-    if user::Entity::find()
-        .filter(user::Column::Email.eq("legacy@example.com"))
-        .one(database)
-        .await?
-        .is_some()
-    {
-        return Ok(());
-    }
+fn test_config() -> AuthConfig {
+    AuthConfig::new("test-secret-key-that-is-at-least-32-characters-long")
+        .base_url("http://localhost:3000")
+        .password_min_length(8)
+}
 
+async fn create_auth() -> BetterAuth<LegacySchema> {
+    BetterAuth::<LegacySchema>::new(test_config())
+        .database(test_database().await)
+        .plugin(EmailPasswordPlugin::new().enable_signup(true))
+        .plugin(SessionManagementPlugin::new())
+        .plugin(PasswordManagementPlugin::new())
+        .plugin(AccountManagementPlugin::new())
+        .build()
+        .await
+        .expect("legacy auth should build")
+}
+
+fn request(method: HttpMethod, path: &str, body: Option<serde_json::Value>) -> AuthRequest {
+    let mut req = AuthRequest::new(method, path);
+    if let Some(body) = body {
+        req.body = Some(body.to_string().into_bytes());
+        let _ = req
+            .headers
+            .insert("content-type".to_string(), "application/json".to_string());
+    }
+    req
+}
+
+fn auth_request(method: HttpMethod, path: &str, token: &str) -> AuthRequest {
+    let mut req = AuthRequest::new(method, path);
+    let _ = req
+        .headers
+        .insert("authorization".to_string(), format!("Bearer {token}"));
+    req
+}
+
+async fn seed_legacy_user(database: &DatabaseConnection) -> i32 {
     let now = Utc::now();
-    let password_hash = hash_seed_password("legacy_password_123")
-        .map_err(|error| format!("failed to hash seeded password: {error}"))?;
-    let legacy_user = user::ActiveModel {
+    let password_hash = hash_seed_password("legacy-password").expect("seed password should hash");
+    let user = user::ActiveModel {
         id: NotSet,
         name: Set(Some("Legacy User".to_string())),
         email: Set(Some("legacy@example.com".to_string())),
@@ -819,13 +677,14 @@ async fn seed_legacy_user(database: &DatabaseConnection) -> Result<(), Box<dyn s
         locale: Set("fr".to_string()),
     }
     .insert(database)
-    .await?;
+    .await
+    .expect("legacy user should insert");
 
     let _ = account::ActiveModel {
         id: NotSet,
-        account_id: Set(legacy_user.id.to_string()),
+        account_id: Set(user.id.to_string()),
         provider_id: Set("credential".to_string()),
-        user_id: Set(legacy_user.id),
+        user_id: Set(user.id),
         access_token: Set(None),
         refresh_token: Set(None),
         id_token: Set(None),
@@ -837,51 +696,10 @@ async fn seed_legacy_user(database: &DatabaseConnection) -> Result<(), Box<dyn s
         updated_at: Set(now),
     }
     .insert(database)
-    .await?;
+    .await
+    .expect("legacy credential account should insert");
 
-    Ok(())
-}
-
-async fn send(
-    auth: &BetterAuth<AppSchema>,
-    method: HttpMethod,
-    path: &str,
-    body: Option<&serde_json::Value>,
-    bearer_token: Option<&str>,
-) -> Result<AuthResponse, better_auth::AuthError> {
-    let mut headers = HashMap::new();
-    if body.is_some() {
-        let _ = headers.insert("content-type".to_string(), "application/json".to_string());
-    }
-    if let Some(token) = bearer_token {
-        let _ = headers.insert("authorization".to_string(), format!("Bearer {}", token));
-    }
-
-    let request = AuthRequest::from_parts(
-        method,
-        path.to_string(),
-        headers,
-        body.map(|b| b.to_string().into_bytes()),
-        HashMap::new(),
-    );
-
-    auth.handle_request(request).await
-}
-
-fn parse_body(body: &[u8]) -> serde_json::Value {
-    serde_json::from_slice(body).unwrap_or(serde_json::Value::Null)
-}
-
-fn hide_password(url: &str) -> String {
-    if let Some(at_pos) = url.find('@')
-        && let Some(colon_pos) = url[..at_pos].rfind(':')
-        && let Some(slash_pos) = url[..colon_pos].rfind('/')
-    {
-        let before_password = &url[..slash_pos + 1];
-        let after_password = &url[at_pos..];
-        return format!("{}****{}", before_password, after_password);
-    }
-    url.to_string()
+    user.id
 }
 
 fn hash_seed_password(password: &str) -> Result<String, argon2::password_hash::Error> {
@@ -889,4 +707,137 @@ fn hash_seed_password(password: &str) -> Result<String, argon2::password_hash::E
     Argon2::default()
         .hash_password(password.as_bytes(), &salt)
         .map(|hash| hash.to_string())
+}
+
+#[tokio::test]
+async fn legacy_numeric_schema_signup_flow_uses_numeric_ids_and_defaults() {
+    let auth = create_auth().await;
+
+    let signup = request(
+        HttpMethod::Post,
+        "/sign-up/email",
+        Some(json!({
+            "email": "new@example.com",
+            "password": "Password123!",
+            "name": "New User",
+        })),
+    );
+    let response = auth
+        .handle_request(signup)
+        .await
+        .expect("signup should succeed");
+    assert_eq!(response.status, 200);
+
+    let body: serde_json::Value = serde_json::from_slice(&response.body).expect("valid json");
+    let token = body["token"]
+        .as_str()
+        .expect("token should exist")
+        .to_string();
+
+    let stored_user = auth
+        .database()
+        .get_user_by_email("new@example.com")
+        .await
+        .expect("lookup should succeed")
+        .expect("user should exist");
+    assert!(stored_user.id > 0);
+    assert_eq!(stored_user.tenant_id, 1);
+    assert_eq!(stored_user.locale, "en");
+    assert_eq!(body["user"]["id"], stored_user.id.to_string());
+
+    let session_response = auth
+        .handle_request(auth_request(HttpMethod::Get, "/get-session", &token))
+        .await
+        .expect("get-session should succeed");
+    assert_eq!(session_response.status, 200);
+    let session_body: serde_json::Value =
+        serde_json::from_slice(&session_response.body).expect("valid session json");
+    assert_eq!(session_body["user"]["id"], stored_user.id.to_string());
+
+    let accounts_response = auth
+        .handle_request(auth_request(HttpMethod::Get, "/list-accounts", &token))
+        .await
+        .expect("list-accounts should succeed");
+    assert_eq!(accounts_response.status, 200);
+    let accounts_body: serde_json::Value =
+        serde_json::from_slice(&accounts_response.body).expect("valid accounts json");
+    assert_eq!(accounts_body.as_array().expect("array").len(), 1);
+    assert_eq!(accounts_body[0]["userId"], stored_user.id.to_string());
+    assert_eq!(accounts_body[0]["providerId"], "credential");
+}
+
+#[tokio::test]
+async fn legacy_numeric_schema_existing_user_can_sign_in() {
+    let auth = create_auth().await;
+    let database = auth.database().connection().clone();
+    let legacy_user_id = seed_legacy_user(&database).await;
+
+    let signin = request(
+        HttpMethod::Post,
+        "/sign-in/email",
+        Some(json!({
+            "email": "legacy@example.com",
+            "password": "legacy-password",
+        })),
+    );
+    let response = auth
+        .handle_request(signin)
+        .await
+        .expect("signin should succeed");
+    assert_eq!(response.status, 200);
+
+    let body: serde_json::Value = serde_json::from_slice(&response.body).expect("valid json");
+    let token = body["token"]
+        .as_str()
+        .expect("token should exist")
+        .to_string();
+    assert_eq!(body["user"]["id"], legacy_user_id.to_string());
+
+    let session_response = auth
+        .handle_request(auth_request(HttpMethod::Get, "/get-session", &token))
+        .await
+        .expect("get-session should succeed");
+    let session_body: serde_json::Value =
+        serde_json::from_slice(&session_response.body).expect("valid session json");
+    assert_eq!(session_body["user"]["id"], legacy_user_id.to_string());
+    assert_eq!(
+        session_body["session"]["userId"],
+        legacy_user_id.to_string()
+    );
+}
+
+#[tokio::test]
+async fn legacy_numeric_schema_store_verifications_use_public_string_ids() {
+    let auth = create_auth().await;
+
+    let verification = auth
+        .database()
+        .create_verification(CreateVerification {
+            identifier: "verify:legacy".to_string(),
+            value: "token-123".to_string(),
+            expires_at: Utc::now() + chrono::Duration::minutes(30),
+        })
+        .await
+        .expect("verification should insert");
+
+    assert!(!verification.id().is_empty());
+
+    let loaded = auth
+        .database()
+        .get_verification_by_identifier("verify:legacy")
+        .await
+        .expect("lookup should succeed");
+    assert!(loaded.is_some());
+
+    auth.database()
+        .delete_verification(verification.id())
+        .await
+        .expect("delete should succeed");
+
+    let loaded = auth
+        .database()
+        .get_verification_by_identifier("verify:legacy")
+        .await
+        .expect("lookup should succeed");
+    assert!(loaded.is_none());
 }

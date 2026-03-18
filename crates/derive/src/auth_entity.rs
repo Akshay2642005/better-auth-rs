@@ -54,7 +54,7 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
     match role {
         Role::User => quote! {
             impl ::better_auth::__private_core::entity::AuthUser for #ident {
-                fn id(&self) -> &str { &self.id }
+                fn id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.id) }
                 fn email(&self) -> Option<&str> { self.email.as_deref() }
                 fn name(&self) -> Option<&str> { self.name.as_deref() }
                 fn email_verified(&self) -> bool { self.email_verified }
@@ -72,6 +72,7 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
             }
 
             impl ::better_auth::__private_core::schema::AuthUserModel for #ident {
+                type Id = ::std::string::String;
                 type Entity = Entity;
                 type ActiveModel = ActiveModel;
                 type Column = Column;
@@ -81,14 +82,19 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
                 fn username_column() -> Self::Column { Column::Username }
                 fn name_column() -> Self::Column { Column::Name }
                 fn created_at_column() -> Self::Column { Column::CreatedAt }
+                fn parse_id(id: &str) -> ::better_auth::__private_core::AuthResult<Self::Id> {
+                    Ok(id.to_string())
+                }
 
                 fn new_active(
-                    id: ::std::string::String,
+                    id: ::std::option::Option<Self::Id>,
                     create_user: ::better_auth::__private_core::types::CreateUser,
                     now: ::chrono::DateTime<::chrono::Utc>,
                 ) -> Self::ActiveModel {
                     Self::ActiveModel {
-                        id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(id),
+                        id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(
+                            id.unwrap_or_else(|| ::better_auth::__private_core::uuid::Uuid::new_v4().to_string())
+                        ),
                         email: ::better_auth::__private_core::sea_orm::ActiveValue::Set(create_user.email),
                         name: ::better_auth::__private_core::sea_orm::ActiveValue::Set(create_user.name),
                         image: ::better_auth::__private_core::sea_orm::ActiveValue::Set(create_user.image),
@@ -159,20 +165,22 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
         },
         Role::Session => quote! {
             impl ::better_auth::__private_core::entity::AuthSession for #ident {
-                fn id(&self) -> &str { &self.id }
+                fn id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.id) }
                 fn expires_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.expires_at }
                 fn token(&self) -> &str { &self.token }
                 fn created_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.created_at }
                 fn updated_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.updated_at }
                 fn ip_address(&self) -> Option<&str> { self.ip_address.as_deref() }
                 fn user_agent(&self) -> Option<&str> { self.user_agent.as_deref() }
-                fn user_id(&self) -> &str { &self.user_id }
+                fn user_id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.user_id) }
                 fn impersonated_by(&self) -> Option<&str> { self.impersonated_by.as_deref() }
                 fn active_organization_id(&self) -> Option<&str> { self.active_organization_id.as_deref() }
                 fn active(&self) -> bool { self.active }
             }
 
             impl ::better_auth::__private_core::schema::AuthSessionModel for #ident {
+                type Id = ::std::string::String;
+                type UserId = ::std::string::String;
                 type Entity = Entity;
                 type ActiveModel = ActiveModel;
                 type Column = Column;
@@ -183,15 +191,23 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
                 fn active_column() -> Self::Column { Column::Active }
                 fn expires_at_column() -> Self::Column { Column::ExpiresAt }
                 fn created_at_column() -> Self::Column { Column::CreatedAt }
+                fn parse_id(id: &str) -> ::better_auth::__private_core::AuthResult<Self::Id> {
+                    Ok(id.to_string())
+                }
+                fn parse_user_id(user_id: &str) -> ::better_auth::__private_core::AuthResult<Self::UserId> {
+                    Ok(user_id.to_string())
+                }
 
                 fn new_active(
-                    id: ::std::string::String,
+                    id: ::std::option::Option<Self::Id>,
                     token: ::std::string::String,
                     create_session: ::better_auth::__private_core::types::CreateSession,
                     now: ::chrono::DateTime<::chrono::Utc>,
                 ) -> Self::ActiveModel {
                     Self::ActiveModel {
-                        id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(id),
+                        id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(
+                            id.unwrap_or_else(|| ::better_auth::__private_core::uuid::Uuid::new_v4().to_string())
+                        ),
                         user_id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(create_session.user_id),
                         token: ::better_auth::__private_core::sea_orm::ActiveValue::Set(token),
                         expires_at: ::better_auth::__private_core::sea_orm::ActiveValue::Set(create_session.expires_at),
@@ -229,10 +245,10 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
         },
         Role::Account => quote! {
             impl ::better_auth::__private_core::entity::AuthAccount for #ident {
-                fn id(&self) -> &str { &self.id }
+                fn id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.id) }
                 fn account_id(&self) -> &str { &self.account_id }
                 fn provider_id(&self) -> &str { &self.provider_id }
-                fn user_id(&self) -> &str { &self.user_id }
+                fn user_id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.user_id) }
                 fn access_token(&self) -> Option<&str> { self.access_token.as_deref() }
                 fn refresh_token(&self) -> Option<&str> { self.refresh_token.as_deref() }
                 fn id_token(&self) -> Option<&str> { self.id_token.as_deref() }
@@ -245,6 +261,8 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
             }
 
             impl ::better_auth::__private_core::schema::AuthAccountModel for #ident {
+                type Id = ::std::string::String;
+                type UserId = ::std::string::String;
                 type Entity = Entity;
                 type ActiveModel = ActiveModel;
                 type Column = Column;
@@ -254,14 +272,22 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
                 fn account_id_column() -> Self::Column { Column::AccountId }
                 fn user_id_column() -> Self::Column { Column::UserId }
                 fn created_at_column() -> Self::Column { Column::CreatedAt }
+                fn parse_id(id: &str) -> ::better_auth::__private_core::AuthResult<Self::Id> {
+                    Ok(id.to_string())
+                }
+                fn parse_user_id(user_id: &str) -> ::better_auth::__private_core::AuthResult<Self::UserId> {
+                    Ok(user_id.to_string())
+                }
 
                 fn new_active(
-                    id: ::std::string::String,
+                    id: ::std::option::Option<Self::Id>,
                     create_account: ::better_auth::__private_core::types::CreateAccount,
                     now: ::chrono::DateTime<::chrono::Utc>,
                 ) -> Self::ActiveModel {
                     Self::ActiveModel {
-                        id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(id),
+                        id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(
+                            id.unwrap_or_else(|| ::better_auth::__private_core::uuid::Uuid::new_v4().to_string())
+                        ),
                         account_id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(create_account.account_id),
                         provider_id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(create_account.provider_id),
                         user_id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(create_account.user_id),
@@ -309,7 +335,7 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
         },
         Role::Verification => quote! {
             impl ::better_auth::__private_core::entity::AuthVerification for #ident {
-                fn id(&self) -> &str { &self.id }
+                fn id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.id) }
                 fn identifier(&self) -> &str { &self.identifier }
                 fn value(&self) -> &str { &self.value }
                 fn expires_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.expires_at }
@@ -318,6 +344,7 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
             }
 
             impl ::better_auth::__private_core::schema::AuthVerificationModel for #ident {
+                type Id = ::std::string::String;
                 type Entity = Entity;
                 type ActiveModel = ActiveModel;
                 type Column = Column;
@@ -327,14 +354,19 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
                 fn value_column() -> Self::Column { Column::Value }
                 fn expires_at_column() -> Self::Column { Column::ExpiresAt }
                 fn created_at_column() -> Self::Column { Column::CreatedAt }
+                fn parse_id(id: &str) -> ::better_auth::__private_core::AuthResult<Self::Id> {
+                    Ok(id.to_string())
+                }
 
                 fn new_active(
-                    id: ::std::string::String,
+                    id: ::std::option::Option<Self::Id>,
                     verification: ::better_auth::__private_core::types::CreateVerification,
                     now: ::chrono::DateTime<::chrono::Utc>,
                 ) -> Self::ActiveModel {
                     Self::ActiveModel {
-                        id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(id),
+                        id: ::better_auth::__private_core::sea_orm::ActiveValue::Set(
+                            id.unwrap_or_else(|| ::better_auth::__private_core::uuid::Uuid::new_v4().to_string())
+                        ),
                         identifier: ::better_auth::__private_core::sea_orm::ActiveValue::Set(verification.identifier),
                         value: ::better_auth::__private_core::sea_orm::ActiveValue::Set(verification.value),
                         expires_at: ::better_auth::__private_core::sea_orm::ActiveValue::Set(verification.expires_at),

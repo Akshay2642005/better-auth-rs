@@ -74,6 +74,8 @@ pub use types::{
     UpdateUserRequest, UpdateUserResponse, ValidationErrorResponse,
 };
 pub use utils::password::{PasswordHasher, hash_password, verify_password};
+#[doc(hidden)]
+pub use uuid;
 pub use wire::{
     AccountView, ApiKeyView, InvitationView, OrganizationView, PasskeyView, SessionView, UserView,
     VerificationView,

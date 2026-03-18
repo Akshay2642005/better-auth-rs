@@ -29,28 +29,32 @@ impl<S: AuthSchema> AuthStore<S> {
 
     pub async fn get_member(
         &self,
-        organization_id: &str,
-        user_id: &str,
+        organization_id: impl AsRef<str>,
+        user_id: impl AsRef<str>,
     ) -> AuthResult<Option<Member>> {
         Entity::find()
-            .filter(Column::OrganizationId.eq(organization_id))
-            .filter(Column::UserId.eq(user_id))
+            .filter(Column::OrganizationId.eq(organization_id.as_ref()))
+            .filter(Column::UserId.eq(user_id.as_ref()))
             .one(self.connection())
             .await
             .map(|model| model.map(|model| Member::from(&model)))
             .map_err(map_db_err)
     }
 
-    pub async fn get_member_by_id(&self, id: &str) -> AuthResult<Option<Member>> {
-        Entity::find_by_id(id.to_owned())
+    pub async fn get_member_by_id(&self, id: impl AsRef<str>) -> AuthResult<Option<Member>> {
+        Entity::find_by_id(id.as_ref().to_owned())
             .one(self.connection())
             .await
             .map(|model| model.map(|model| Member::from(&model)))
             .map_err(map_db_err)
     }
 
-    pub async fn update_member_role(&self, member_id: &str, role: &str) -> AuthResult<Member> {
-        let Some(model) = Entity::find_by_id(member_id.to_owned())
+    pub async fn update_member_role(
+        &self,
+        member_id: impl AsRef<str>,
+        role: &str,
+    ) -> AuthResult<Member> {
+        let Some(model) = Entity::find_by_id(member_id.as_ref().to_owned())
             .one(self.connection())
             .await
             .map_err(map_db_err)?
@@ -67,8 +71,8 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn delete_member(&self, member_id: &str) -> AuthResult<()> {
-        Entity::delete_by_id(member_id.to_owned())
+    pub async fn delete_member(&self, member_id: impl AsRef<str>) -> AuthResult<()> {
+        Entity::delete_by_id(member_id.as_ref().to_owned())
             .exec(self.connection())
             .await
             .map(|_| ())
@@ -77,10 +81,10 @@ impl<S: AuthSchema> AuthStore<S> {
 
     pub async fn list_organization_members(
         &self,
-        organization_id: &str,
+        organization_id: impl AsRef<str>,
     ) -> AuthResult<Vec<Member>> {
         Entity::find()
-            .filter(Column::OrganizationId.eq(organization_id))
+            .filter(Column::OrganizationId.eq(organization_id.as_ref()))
             .order_by_asc(Column::CreatedAt)
             .all(self.connection())
             .await
@@ -88,18 +92,24 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn count_organization_members(&self, organization_id: &str) -> AuthResult<usize> {
+    pub async fn count_organization_members(
+        &self,
+        organization_id: impl AsRef<str>,
+    ) -> AuthResult<usize> {
         Entity::find()
-            .filter(Column::OrganizationId.eq(organization_id))
+            .filter(Column::OrganizationId.eq(organization_id.as_ref()))
             .count(self.connection())
             .await
             .map(|count| count as usize)
             .map_err(map_db_err)
     }
 
-    pub async fn count_organization_owners(&self, organization_id: &str) -> AuthResult<usize> {
+    pub async fn count_organization_owners(
+        &self,
+        organization_id: impl AsRef<str>,
+    ) -> AuthResult<usize> {
         Entity::find()
-            .filter(Column::OrganizationId.eq(organization_id))
+            .filter(Column::OrganizationId.eq(organization_id.as_ref()))
             .filter(Column::Role.eq("owner"))
             .count(self.connection())
             .await

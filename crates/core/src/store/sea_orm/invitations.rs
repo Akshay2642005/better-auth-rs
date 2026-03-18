@@ -29,8 +29,11 @@ impl<S: AuthSchema> AuthStore<S> {
         .map_err(map_db_err)
     }
 
-    pub async fn get_invitation_by_id(&self, id: &str) -> AuthResult<Option<Invitation>> {
-        Entity::find_by_id(id.to_owned())
+    pub async fn get_invitation_by_id(
+        &self,
+        id: impl AsRef<str>,
+    ) -> AuthResult<Option<Invitation>> {
+        Entity::find_by_id(id.as_ref().to_owned())
             .one(self.connection())
             .await
             .map(|model| model.map(|model| Invitation::from(&model)))
@@ -39,11 +42,11 @@ impl<S: AuthSchema> AuthStore<S> {
 
     pub async fn get_pending_invitation(
         &self,
-        organization_id: &str,
+        organization_id: impl AsRef<str>,
         email: &str,
     ) -> AuthResult<Option<Invitation>> {
         Entity::find()
-            .filter(Column::OrganizationId.eq(organization_id))
+            .filter(Column::OrganizationId.eq(organization_id.as_ref()))
             .filter(Column::Email.eq(email.to_lowercase()))
             .filter(Column::Status.eq(InvitationStatus::Pending.to_string()))
             .one(self.connection())
@@ -54,10 +57,10 @@ impl<S: AuthSchema> AuthStore<S> {
 
     pub async fn update_invitation_status(
         &self,
-        id: &str,
+        id: impl AsRef<str>,
         status: InvitationStatus,
     ) -> AuthResult<Invitation> {
-        let Some(model) = Entity::find_by_id(id.to_owned())
+        let Some(model) = Entity::find_by_id(id.as_ref().to_owned())
             .one(self.connection())
             .await
             .map_err(map_db_err)?
@@ -76,10 +79,10 @@ impl<S: AuthSchema> AuthStore<S> {
 
     pub async fn list_organization_invitations(
         &self,
-        organization_id: &str,
+        organization_id: impl AsRef<str>,
     ) -> AuthResult<Vec<Invitation>> {
         Entity::find()
-            .filter(Column::OrganizationId.eq(organization_id))
+            .filter(Column::OrganizationId.eq(organization_id.as_ref()))
             .order_by_desc(Column::CreatedAt)
             .all(self.connection())
             .await

@@ -3,10 +3,11 @@
 use chrono::{DateTime, Utc};
 use sea_orm::{
     ActiveModelBehavior, ActiveModelTrait, ColumnTrait, EntityTrait, FromQueryResult,
-    IntoActiveModel,
+    IntoActiveModel, Value,
 };
 
 use crate::entity::{AuthAccount, AuthSession, AuthUser, AuthVerification};
+use crate::error::AuthResult;
 use crate::types::{
     CreateAccount, CreateSession, CreateUser, CreateVerification, UpdateAccount, UpdateUser,
 };
@@ -23,6 +24,7 @@ pub trait AuthSchema: Send + Sync + 'static {
 pub trait AuthUserModel:
     AuthUser + IntoActiveModel<Self::ActiveModel> + Clone + Send + Sync + 'static + FromQueryResult
 {
+    type Id: Clone + Into<Value> + Send + Sync + 'static;
     type Entity: EntityTrait<Model = Self>;
     type ActiveModel: ActiveModelTrait<Entity = Self::Entity> + ActiveModelBehavior + Send;
     type Column: ColumnTrait;
@@ -32,8 +34,13 @@ pub trait AuthUserModel:
     fn username_column() -> Self::Column;
     fn name_column() -> Self::Column;
     fn created_at_column() -> Self::Column;
+    fn parse_id(id: &str) -> AuthResult<Self::Id>;
 
-    fn new_active(id: String, create_user: CreateUser, now: DateTime<Utc>) -> Self::ActiveModel;
+    fn new_active(
+        id: Option<Self::Id>,
+        create_user: CreateUser,
+        now: DateTime<Utc>,
+    ) -> Self::ActiveModel;
     fn apply_update(active: &mut Self::ActiveModel, update: UpdateUser, now: DateTime<Utc>);
 }
 
@@ -41,6 +48,8 @@ pub trait AuthUserModel:
 pub trait AuthSessionModel:
     AuthSession + IntoActiveModel<Self::ActiveModel> + Clone + Send + Sync + 'static + FromQueryResult
 {
+    type Id: Clone + Into<Value> + Send + Sync + 'static;
+    type UserId: Clone + Into<Value> + Send + Sync + 'static;
     type Entity: EntityTrait<Model = Self>;
     type ActiveModel: ActiveModelTrait<Entity = Self::Entity> + ActiveModelBehavior + Send;
     type Column: ColumnTrait;
@@ -51,9 +60,11 @@ pub trait AuthSessionModel:
     fn active_column() -> Self::Column;
     fn expires_at_column() -> Self::Column;
     fn created_at_column() -> Self::Column;
+    fn parse_id(id: &str) -> AuthResult<Self::Id>;
+    fn parse_user_id(user_id: &str) -> AuthResult<Self::UserId>;
 
     fn new_active(
-        id: String,
+        id: Option<Self::Id>,
         token: String,
         create_session: CreateSession,
         now: DateTime<Utc>,
@@ -67,6 +78,8 @@ pub trait AuthSessionModel:
 pub trait AuthAccountModel:
     AuthAccount + IntoActiveModel<Self::ActiveModel> + Clone + Send + Sync + 'static + FromQueryResult
 {
+    type Id: Clone + Into<Value> + Send + Sync + 'static;
+    type UserId: Clone + Into<Value> + Send + Sync + 'static;
     type Entity: EntityTrait<Model = Self>;
     type ActiveModel: ActiveModelTrait<Entity = Self::Entity> + ActiveModelBehavior + Send;
     type Column: ColumnTrait;
@@ -76,9 +89,11 @@ pub trait AuthAccountModel:
     fn account_id_column() -> Self::Column;
     fn user_id_column() -> Self::Column;
     fn created_at_column() -> Self::Column;
+    fn parse_id(id: &str) -> AuthResult<Self::Id>;
+    fn parse_user_id(user_id: &str) -> AuthResult<Self::UserId>;
 
     fn new_active(
-        id: String,
+        id: Option<Self::Id>,
         create_account: CreateAccount,
         now: DateTime<Utc>,
     ) -> Self::ActiveModel;
@@ -95,6 +110,7 @@ pub trait AuthVerificationModel:
     + 'static
     + FromQueryResult
 {
+    type Id: Clone + Into<Value> + Send + Sync + 'static;
     type Entity: EntityTrait<Model = Self>;
     type ActiveModel: ActiveModelTrait<Entity = Self::Entity> + ActiveModelBehavior + Send;
     type Column: ColumnTrait;
@@ -104,9 +120,10 @@ pub trait AuthVerificationModel:
     fn value_column() -> Self::Column;
     fn expires_at_column() -> Self::Column;
     fn created_at_column() -> Self::Column;
+    fn parse_id(id: &str) -> AuthResult<Self::Id>;
 
     fn new_active(
-        id: String,
+        id: Option<Self::Id>,
         verification: CreateVerification,
         now: DateTime<Utc>,
     ) -> Self::ActiveModel;

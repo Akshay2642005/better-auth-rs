@@ -3,7 +3,6 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait,
     IntoActiveModel, QueryFilter, QueryOrder,
 };
-use uuid::Uuid;
 
 use crate::error::AuthResult;
 use crate::schema::{AuthAccountModel, AuthSchema};
@@ -32,7 +31,7 @@ impl<S: AuthSchema> AuthStore<S> {
             }
         }
         let now = Utc::now();
-        let account = S::Account::new_active(Uuid::new_v4().to_string(), create_account, now)
+        let account = S::Account::new_active(None, create_account, now)
             .insert(db)
             .await
             .map_err(map_db_err)?;
@@ -71,7 +70,9 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn get_user_accounts(&self, user_id: &str) -> AuthResult<Vec<S::Account>> {
+    pub async fn get_user_accounts(&self, user_id: impl AsRef<str>) -> AuthResult<Vec<S::Account>> {
+        let user_id = user_id.as_ref();
+        let user_id = <S::Account as AuthAccountModel>::parse_user_id(user_id)?;
         <S::Account as AuthAccountModel>::Entity::find()
             .filter(<S::Account as AuthAccountModel>::user_id_column().eq(user_id))
             .order_by_desc(<S::Account as AuthAccountModel>::created_at_column())
@@ -82,9 +83,11 @@ impl<S: AuthSchema> AuthStore<S> {
 
     pub async fn update_account(
         &self,
-        id: &str,
+        id: impl AsRef<str>,
         mut update: UpdateAccount,
     ) -> AuthResult<S::Account> {
+        let id = id.as_ref();
+        let account_id = <S::Account as AuthAccountModel>::parse_id(id)?;
         let hook_context = self.hook_context(None);
         for hook in self.hooks() {
             if hook
@@ -96,7 +99,7 @@ impl<S: AuthSchema> AuthStore<S> {
             }
         }
         let Some(model) = <S::Account as AuthAccountModel>::Entity::find()
-            .filter(<S::Account as AuthAccountModel>::id_column().eq(id))
+            .filter(<S::Account as AuthAccountModel>::id_column().eq(account_id))
             .one(self.connection())
             .await
             .map_err(map_db_err)?
@@ -114,9 +117,11 @@ impl<S: AuthSchema> AuthStore<S> {
         Ok(account)
     }
 
-    pub async fn delete_account(&self, id: &str) -> AuthResult<()> {
+    pub async fn delete_account(&self, id: impl AsRef<str>) -> AuthResult<()> {
+        let id = id.as_ref();
+        let account_id = <S::Account as AuthAccountModel>::parse_id(id)?;
         let Some(account_model) = <S::Account as AuthAccountModel>::Entity::find()
-            .filter(<S::Account as AuthAccountModel>::id_column().eq(id))
+            .filter(<S::Account as AuthAccountModel>::id_column().eq(account_id.clone()))
             .one(self.connection())
             .await
             .map_err(map_db_err)?
@@ -134,7 +139,7 @@ impl<S: AuthSchema> AuthStore<S> {
             }
         }
         let _ = <S::Account as AuthAccountModel>::Entity::delete_many()
-            .filter(<S::Account as AuthAccountModel>::id_column().eq(id))
+            .filter(<S::Account as AuthAccountModel>::id_column().eq(account_id))
             .exec(self.connection())
             .await
             .map_err(map_db_err)?;

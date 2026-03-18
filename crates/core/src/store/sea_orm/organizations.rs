@@ -30,8 +30,11 @@ impl<S: AuthSchema> AuthStore<S> {
         .map_err(map_db_err)
     }
 
-    pub async fn get_organization_by_id(&self, id: &str) -> AuthResult<Option<Organization>> {
-        Entity::find_by_id(id.to_owned())
+    pub async fn get_organization_by_id(
+        &self,
+        id: impl AsRef<str>,
+    ) -> AuthResult<Option<Organization>> {
+        Entity::find_by_id(id.as_ref().to_owned())
             .one(self.connection())
             .await
             .map(|model| model.map(|model| Organization::from(&model)))
@@ -49,10 +52,10 @@ impl<S: AuthSchema> AuthStore<S> {
 
     pub async fn update_organization(
         &self,
-        id: &str,
+        id: impl AsRef<str>,
         update: UpdateOrganization,
     ) -> AuthResult<Organization> {
-        let Some(model) = Entity::find_by_id(id.to_owned())
+        let Some(model) = Entity::find_by_id(id.as_ref().to_owned())
             .one(self.connection())
             .await
             .map_err(map_db_err)?
@@ -82,17 +85,20 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn delete_organization(&self, id: &str) -> AuthResult<()> {
-        Entity::delete_by_id(id.to_owned())
+    pub async fn delete_organization(&self, id: impl AsRef<str>) -> AuthResult<()> {
+        Entity::delete_by_id(id.as_ref().to_owned())
             .exec(self.connection())
             .await
             .map(|_| ())
             .map_err(map_db_err)
     }
 
-    pub async fn list_user_organizations(&self, user_id: &str) -> AuthResult<Vec<Organization>> {
+    pub async fn list_user_organizations(
+        &self,
+        user_id: impl AsRef<str>,
+    ) -> AuthResult<Vec<Organization>> {
         let member_models = entities::member::Entity::find()
-            .filter(entities::member::Column::UserId.eq(user_id))
+            .filter(entities::member::Column::UserId.eq(user_id.as_ref()))
             .all(self.connection())
             .await
             .map_err(map_db_err)?;

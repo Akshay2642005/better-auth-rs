@@ -6,6 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize, Serializer};
+use std::borrow::Cow;
 
 use crate::entity::{
     AuthAccount, AuthApiKey, AuthInvitation, AuthOrganization, AuthPasskey, AuthSession, AuthUser,
@@ -121,7 +122,7 @@ pub struct VerificationView {
 impl<T: AuthUser> From<&T> for UserView {
     fn from(user: &T) -> Self {
         Self {
-            id: user.id().to_owned(),
+            id: user.id().into_owned(),
             name: user.name().map(str::to_owned),
             email: user.email().map(str::to_owned),
             email_verified: user.email_verified(),
@@ -143,14 +144,14 @@ impl<T: AuthUser> From<&T> for UserView {
 impl<T: AuthSession> From<&T> for SessionView {
     fn from(session: &T) -> Self {
         Self {
-            id: session.id().to_owned(),
+            id: session.id().into_owned(),
             expires_at: session.expires_at(),
             token: session.token().to_owned(),
             created_at: session.created_at(),
             updated_at: session.updated_at(),
             ip_address: session.ip_address().map(str::to_owned),
             user_agent: session.user_agent().map(str::to_owned),
-            user_id: session.user_id().to_owned(),
+            user_id: session.user_id().into_owned(),
             impersonated_by: session.impersonated_by().map(str::to_owned),
             active_organization_id: session.active_organization_id().map(str::to_owned),
             active: session.active(),
@@ -161,10 +162,10 @@ impl<T: AuthSession> From<&T> for SessionView {
 impl<T: AuthAccount> From<&T> for AccountView {
     fn from(account: &T) -> Self {
         Self {
-            id: account.id().to_owned(),
+            id: account.id().into_owned(),
             account_id: account.account_id().to_owned(),
             provider_id: account.provider_id().to_owned(),
-            user_id: account.user_id().to_owned(),
+            user_id: account.user_id().into_owned(),
             access_token: account.access_token().map(str::to_owned),
             refresh_token: account.refresh_token().map(str::to_owned),
             id_token: account.id_token().map(str::to_owned),
@@ -181,7 +182,7 @@ impl<T: AuthAccount> From<&T> for AccountView {
 impl<T: AuthVerification> From<&T> for VerificationView {
     fn from(verification: &T) -> Self {
         Self {
-            id: verification.id().to_owned(),
+            id: verification.id().into_owned(),
             identifier: verification.identifier().to_owned(),
             value: verification.value().to_owned(),
             expires_at: verification.expires_at(),
@@ -192,8 +193,8 @@ impl<T: AuthVerification> From<&T> for VerificationView {
 }
 
 impl AuthUser for UserView {
-    fn id(&self) -> &str {
-        &self.id
+    fn id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.id)
     }
     fn email(&self) -> Option<&str> {
         self.email.as_deref()
@@ -240,8 +241,8 @@ impl AuthUser for UserView {
 }
 
 impl AuthSession for SessionView {
-    fn id(&self) -> &str {
-        &self.id
+    fn id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.id)
     }
     fn expires_at(&self) -> DateTime<Utc> {
         self.expires_at
@@ -261,8 +262,8 @@ impl AuthSession for SessionView {
     fn user_agent(&self) -> Option<&str> {
         self.user_agent.as_deref()
     }
-    fn user_id(&self) -> &str {
-        &self.user_id
+    fn user_id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.user_id)
     }
     fn impersonated_by(&self) -> Option<&str> {
         self.impersonated_by.as_deref()
@@ -276,8 +277,8 @@ impl AuthSession for SessionView {
 }
 
 impl AuthAccount for AccountView {
-    fn id(&self) -> &str {
-        &self.id
+    fn id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.id)
     }
     fn account_id(&self) -> &str {
         &self.account_id
@@ -285,8 +286,8 @@ impl AuthAccount for AccountView {
     fn provider_id(&self) -> &str {
         &self.provider_id
     }
-    fn user_id(&self) -> &str {
-        &self.user_id
+    fn user_id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.user_id)
     }
     fn access_token(&self) -> Option<&str> {
         self.access_token.as_deref()
@@ -318,8 +319,8 @@ impl AuthAccount for AccountView {
 }
 
 impl AuthVerification for VerificationView {
-    fn id(&self) -> &str {
-        &self.id
+    fn id(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.id)
     }
     fn identifier(&self) -> &str {
         &self.identifier
@@ -377,7 +378,7 @@ pub struct OrganizationView {
 impl<T: AuthOrganization> From<&T> for OrganizationView {
     fn from(org: &T) -> Self {
         Self {
-            id: org.id().to_owned(),
+            id: org.id().into_owned(),
             name: org.name().to_owned(),
             slug: org.slug().to_owned(),
             logo: org.logo().map(str::to_owned),
@@ -408,12 +409,12 @@ pub struct InvitationView {
 impl<T: AuthInvitation> From<&T> for InvitationView {
     fn from(inv: &T) -> Self {
         Self {
-            id: inv.id().to_owned(),
-            organization_id: inv.organization_id().to_owned(),
+            id: inv.id().into_owned(),
+            organization_id: inv.organization_id().into_owned(),
             email: inv.email().to_owned(),
             role: inv.role().to_owned(),
             status: inv.status().clone(),
-            inviter_id: inv.inviter_id().to_owned(),
+            inviter_id: inv.inviter_id().into_owned(),
             expires_at: inv.expires_at(),
             created_at: inv.created_at(),
         }
@@ -445,10 +446,10 @@ pub struct PasskeyView {
 impl<T: AuthPasskey> From<&T> for PasskeyView {
     fn from(pk: &T) -> Self {
         Self {
-            id: pk.id().to_owned(),
+            id: pk.id().into_owned(),
             name: pk.name().to_owned(),
             credential_id: pk.credential_id().to_owned(),
-            user_id: pk.user_id().to_owned(),
+            user_id: pk.user_id().into_owned(),
             public_key: pk.public_key().to_owned(),
             counter: pk.counter(),
             device_type: pk.device_type().to_owned(),
@@ -502,11 +503,11 @@ pub struct ApiKeyView {
 impl<T: AuthApiKey> From<&T> for ApiKeyView {
     fn from(ak: &T) -> Self {
         Self {
-            id: ak.id().to_owned(),
+            id: ak.id().into_owned(),
             name: ak.name().map(str::to_owned),
             start: ak.start().map(str::to_owned),
             prefix: ak.prefix().map(str::to_owned),
-            user_id: ak.user_id().to_owned(),
+            user_id: ak.user_id().into_owned(),
             refill_interval: ak.refill_interval(),
             refill_amount: ak.refill_amount(),
             last_refill_at: ak.last_refill_at().map(str::to_owned),

@@ -160,7 +160,7 @@ use better_auth::integrations::axum::CurrentSession;
 use better_auth::prelude::{AuthSession, AuthUser};
 use axum::{Json, response::IntoResponse};
 
-async fn profile(session: CurrentSession) -> impl IntoResponse {
+async fn profile(session: CurrentSession<AppAuthSchema>) -> impl IntoResponse {
     Json(serde_json::json!({
         "user_id": session.user.id(),
         "session_token": session.session.token(),

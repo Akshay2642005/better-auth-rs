@@ -2,7 +2,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Index;
-use uuid::Uuid;
 use validator::Validate;
 
 use crate::utils::email::normalize_user_email;
@@ -277,7 +276,7 @@ pub struct CreateVerification {
 impl CreateUser {
     pub fn new() -> Self {
         Self {
-            id: Some(Uuid::new_v4().to_string()),
+            id: None,
             email: None,
             name: None,
             image: None,
@@ -741,7 +740,7 @@ mod tests {
             .with_role("admin")
             .with_metadata(serde_json::json!({"key": "val"}));
 
-        assert!(cu.id.is_some()); // auto-generated UUID
+        assert!(cu.id.is_none()); // ID generation is delegated to the model/store path
         assert_eq!(cu.email.as_deref(), Some("test@example.com"));
         assert_eq!(cu.name.as_deref(), Some("Test"));
         assert_eq!(cu.password.as_deref(), Some("pass123"));
@@ -755,7 +754,7 @@ mod tests {
     #[test]
     fn create_user_default() {
         let cu = CreateUser::default();
-        assert!(cu.id.is_some());
+        assert!(cu.id.is_none());
         assert!(cu.email.is_none());
     }
 

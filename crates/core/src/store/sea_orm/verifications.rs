@@ -1,6 +1,5 @@
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
-use uuid::Uuid;
 
 use crate::entity::AuthVerification;
 use crate::error::AuthResult;
@@ -25,11 +24,10 @@ impl<S: AuthSchema> AuthStore<S> {
             }
         }
         let now = Utc::now();
-        let verification =
-            S::Verification::new_active(Uuid::new_v4().to_string(), verification, now)
-                .insert(self.connection())
-                .await
-                .map_err(map_db_err)?;
+        let verification = S::Verification::new_active(None, verification, now)
+            .insert(self.connection())
+            .await
+            .map_err(map_db_err)?;
         for hook in self.hooks() {
             hook.after_create_verification(&verification, &hook_context)
                 .await?;
@@ -92,8 +90,10 @@ impl<S: AuthSchema> AuthStore<S> {
             return Ok(None);
         };
 
+        let verification_id =
+            <S::Verification as AuthVerificationModel>::parse_id(model.id().as_ref())?;
         let _ = <S::Verification as AuthVerificationModel>::Entity::delete_many()
-            .filter(<S::Verification as AuthVerificationModel>::id_column().eq(model.id()))
+            .filter(<S::Verification as AuthVerificationModel>::id_column().eq(verification_id))
             .exec(self.connection())
             .await
             .map_err(map_db_err)?;
@@ -101,9 +101,13 @@ impl<S: AuthSchema> AuthStore<S> {
         Ok(Some(model))
     }
 
-    pub async fn delete_verification(&self, id: &str) -> AuthResult<()> {
+    pub async fn delete_verification(&self, id: impl AsRef<str>) -> AuthResult<()> {
+        let id = id.as_ref();
+        let verification_id = <S::Verification as AuthVerificationModel>::parse_id(id)?;
         let verification = <S::Verification as AuthVerificationModel>::Entity::find()
-            .filter(<S::Verification as AuthVerificationModel>::id_column().eq(id))
+            .filter(
+                <S::Verification as AuthVerificationModel>::id_column().eq(verification_id.clone()),
+            )
             .one(self.connection())
             .await
             .map_err(map_db_err)?;
@@ -120,7 +124,7 @@ impl<S: AuthSchema> AuthStore<S> {
             }
         }
         let _ = <S::Verification as AuthVerificationModel>::Entity::delete_many()
-            .filter(<S::Verification as AuthVerificationModel>::id_column().eq(id))
+            .filter(<S::Verification as AuthVerificationModel>::id_column().eq(verification_id))
             .exec(self.connection())
             .await
             .map_err(map_db_err)?;

@@ -12,6 +12,9 @@ fn collect_files(root: &Path, files: &mut Vec<PathBuf>) {
         let entry = entry.expect("directory entry should be readable");
         let path = entry.path();
         if path.is_dir() {
+            if path.file_name().and_then(std::ffi::OsStr::to_str) == Some("target") {
+                continue;
+            }
             collect_files(&path, files);
             continue;
         }
@@ -28,6 +31,9 @@ fn collect_rust_files(root: &Path, files: &mut Vec<PathBuf>) {
         let entry = entry.expect("directory entry should be readable");
         let path = entry.path();
         if path.is_dir() {
+            if path.file_name().and_then(std::ffi::OsStr::to_str) == Some("target") {
+                continue;
+            }
             collect_rust_files(&path, files);
             continue;
         }
@@ -260,6 +266,44 @@ fn stale_test_drift_phrasing_is_gone() {
     assert!(
         violations.is_empty(),
         "stale test drift phrasing remains:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn public_docs_and_examples_must_not_use_hidden_auth_apis() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+
+    for relative in ["README.md", "docs", "examples"] {
+        let path = root.join(relative);
+        if path.is_file() {
+            files.push(path);
+        } else {
+            collect_files(&path, &mut files);
+        }
+    }
+
+    let banned_fragments = [
+        "__private",
+        "__private_core",
+        "__private_test_support",
+        "better_auth::run_migrations",
+    ];
+
+    let mut violations = Vec::new();
+    for path in files {
+        let content = fs::read_to_string(&path).expect("public-facing file should be readable");
+        for fragment in &banned_fragments {
+            if content.contains(fragment) {
+                violations.push(format!("{} -> {}", path.display(), fragment));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "public docs/examples must not use hidden auth APIs:\n{}",
         violations.join("\n")
     );
 }

@@ -49,8 +49,8 @@ impl<S: AuthSchema> AuthStore<S> {
         .map_err(map_db_err)
     }
 
-    pub async fn get_api_key_by_id(&self, id: &str) -> AuthResult<Option<ApiKey>> {
-        Entity::find_by_id(id.to_owned())
+    pub async fn get_api_key_by_id(&self, id: impl AsRef<str>) -> AuthResult<Option<ApiKey>> {
+        Entity::find_by_id(id.as_ref().to_owned())
             .one(self.connection())
             .await
             .map(|model| model.map(|model| ApiKey::from(&model)))
@@ -66,9 +66,9 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn list_api_keys_by_user(&self, user_id: &str) -> AuthResult<Vec<ApiKey>> {
+    pub async fn list_api_keys_by_user(&self, user_id: impl AsRef<str>) -> AuthResult<Vec<ApiKey>> {
         Entity::find()
-            .filter(Column::UserId.eq(user_id))
+            .filter(Column::UserId.eq(user_id.as_ref()))
             .order_by_desc(Column::CreatedAt)
             .all(self.connection())
             .await
@@ -76,8 +76,12 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn update_api_key(&self, id: &str, update: UpdateApiKey) -> AuthResult<ApiKey> {
-        let Some(model) = Entity::find_by_id(id.to_owned())
+    pub async fn update_api_key(
+        &self,
+        id: impl AsRef<str>,
+        update: UpdateApiKey,
+    ) -> AuthResult<ApiKey> {
+        let Some(model) = Entity::find_by_id(id.as_ref().to_owned())
             .one(self.connection())
             .await
             .map_err(map_db_err)?
@@ -146,8 +150,8 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn delete_api_key(&self, id: &str) -> AuthResult<()> {
-        Entity::delete_by_id(id.to_owned())
+    pub async fn delete_api_key(&self, id: impl AsRef<str>) -> AuthResult<()> {
+        Entity::delete_by_id(id.as_ref().to_owned())
             .exec(self.connection())
             .await
             .map(|_| ())

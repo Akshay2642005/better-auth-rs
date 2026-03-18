@@ -252,7 +252,10 @@ pub(crate) async fn accept_invitation_core(
 
     let _ = ctx
         .database
-        .update_session_active_organization(session.token(), Some(invitation.organization_id()))
+        .update_session_active_organization(
+            session.token(),
+            Some(invitation.organization_id().as_ref()),
+        )
         .await?;
 
     let member_response = MemberResponse::from_member_and_user(&member, user);

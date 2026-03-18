@@ -7,7 +7,7 @@ These live in the workspace and are run via `cargo run --example`.
 | Example | Command | Description |
 |---------|---------|-------------|
 | `axum_server` | `cargo run --example axum_server --features axum` | Full Axum server using app-owned auth entities and an explicit `AppAuthSchema`. |
-| `postgres_usage` | `cargo run --example postgres_usage` | PostgreSQL usage with SeaORM-backed auth persistence. Requires `DATABASE_URL`. |
+| `postgres_usage` | `cargo run --example postgres_usage` | PostgreSQL example for an existing app-owned schema with numeric user IDs and seeded legacy users. Requires `DATABASE_URL`. |
 
 ## Standalone projects
 

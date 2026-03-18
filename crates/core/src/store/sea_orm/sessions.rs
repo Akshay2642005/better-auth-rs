@@ -3,7 +3,6 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait, ExprTrait,
     IntoActiveModel, QueryFilter, QueryOrder,
 };
-use uuid::Uuid;
 
 use crate::error::{AuthError, AuthResult};
 use crate::schema::{AuthSchema, AuthSessionModel};
@@ -42,8 +41,8 @@ impl<S: AuthSchema> AuthStore<S> {
         create_session.ip_address = Self::normalize_session_client_field(create_session.ip_address);
         create_session.user_agent = Self::normalize_session_client_field(create_session.user_agent);
         let session = S::Session::new_active(
-            Uuid::new_v4().to_string(),
-            format!("session_{}", Uuid::new_v4()),
+            None,
+            format!("session_{}", uuid::Uuid::new_v4()),
             create_session,
             now,
         )
@@ -81,7 +80,9 @@ impl<S: AuthSchema> AuthStore<S> {
             .map_err(map_db_err)
     }
 
-    pub async fn get_user_sessions(&self, user_id: &str) -> AuthResult<Vec<S::Session>> {
+    pub async fn get_user_sessions(&self, user_id: impl AsRef<str>) -> AuthResult<Vec<S::Session>> {
+        let user_id = user_id.as_ref();
+        let user_id = <S::Session as AuthSessionModel>::parse_user_id(user_id)?;
         <S::Session as AuthSessionModel>::Entity::find()
             .filter(<S::Session as AuthSessionModel>::user_id_column().eq(user_id))
             .filter(<S::Session as AuthSessionModel>::active_column().eq(true))
@@ -143,7 +144,9 @@ impl<S: AuthSchema> AuthStore<S> {
         Ok(())
     }
 
-    pub async fn delete_user_sessions(&self, user_id: &str) -> AuthResult<()> {
+    pub async fn delete_user_sessions(&self, user_id: impl AsRef<str>) -> AuthResult<()> {
+        let user_id = user_id.as_ref();
+        let user_id = <S::Session as AuthSessionModel>::parse_user_id(user_id)?;
         <S::Session as AuthSessionModel>::Entity::delete_many()
             .filter(<S::Session as AuthSessionModel>::user_id_column().eq(user_id))
             .exec(self.connection())

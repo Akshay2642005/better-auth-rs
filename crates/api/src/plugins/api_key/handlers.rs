@@ -97,7 +97,7 @@ pub(super) fn check_permissions(key_permissions_json: &str, required: &serde_jso
 
 pub(crate) async fn create_key_core(
     body: &CreateKeyRequest,
-    user_id: &str,
+    user_id: impl AsRef<str>,
     plugin: &ApiKeyPlugin,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<CreateKeyResponse> {
@@ -122,7 +122,7 @@ pub(crate) async fn create_key_core(
     };
 
     let input = CreateApiKey {
-        user_id: user_id.to_string(),
+        user_id: user_id.as_ref().to_string(),
         name: body.name.clone(),
         prefix: body.prefix.clone().or_else(|| plugin.config.prefix.clone()),
         key_hash: hash,
@@ -158,7 +158,7 @@ pub(crate) async fn create_key_core(
 
 pub(crate) async fn get_key_core(
     id: &str,
-    user_id: &str,
+    user_id: impl AsRef<str>,
     plugin: &ApiKeyPlugin,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<ApiKeyView> {
@@ -168,7 +168,7 @@ pub(crate) async fn get_key_core(
 }
 
 pub(crate) async fn list_keys_core(
-    user_id: &str,
+    user_id: impl AsRef<str>,
     plugin: &ApiKeyPlugin,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Vec<ApiKeyView>> {
@@ -180,7 +180,7 @@ pub(crate) async fn list_keys_core(
 
 pub(crate) async fn update_key_core(
     body: &UpdateKeyRequest,
-    user_id: &str,
+    user_id: impl AsRef<str>,
     plugin: &ApiKeyPlugin,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<ApiKeyView> {
@@ -244,7 +244,7 @@ pub(crate) async fn update_key_core(
 
 pub(crate) async fn delete_key_core(
     body: &DeleteKeyRequest,
-    user_id: &str,
+    user_id: impl AsRef<str>,
     plugin: &ApiKeyPlugin,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<serde_json::Value> {
@@ -294,7 +294,7 @@ pub(crate) async fn verify_key_core(
 }
 
 pub(crate) async fn delete_all_expired_core(
-    _user_id: &str,
+    _user_id: impl AsRef<str>,
     plugin: &ApiKeyPlugin,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<serde_json::Value> {

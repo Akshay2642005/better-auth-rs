@@ -97,13 +97,16 @@ impl<S: AuthSchema> SessionManager<S> {
     }
 
     /// Delete all sessions for a user
-    pub async fn delete_user_sessions(&self, user_id: &str) -> AuthResult<()> {
+    pub async fn delete_user_sessions(&self, user_id: impl AsRef<str>) -> AuthResult<()> {
         self.database.delete_user_sessions(user_id).await?;
         Ok(())
     }
 
     /// Get all active sessions for a user
-    pub async fn list_user_sessions(&self, user_id: &str) -> AuthResult<Vec<S::Session>> {
+    pub async fn list_user_sessions(
+        &self,
+        user_id: impl AsRef<str>,
+    ) -> AuthResult<Vec<S::Session>> {
         let sessions = self.database.get_user_sessions(user_id).await?;
         let now = Utc::now();
 
@@ -130,8 +133,9 @@ impl<S: AuthSchema> SessionManager<S> {
     }
 
     /// Revoke all sessions for a user
-    pub async fn revoke_all_user_sessions(&self, user_id: &str) -> AuthResult<usize> {
+    pub async fn revoke_all_user_sessions(&self, user_id: impl AsRef<str>) -> AuthResult<usize> {
         // Get count of sessions before deletion for return value
+        let user_id = user_id.as_ref();
         let sessions = self.list_user_sessions(user_id).await?;
         let count = sessions.len();
 
@@ -142,7 +146,7 @@ impl<S: AuthSchema> SessionManager<S> {
     /// Revoke all sessions for a user except the current one
     pub async fn revoke_other_user_sessions(
         &self,
-        user_id: &str,
+        user_id: impl AsRef<str>,
         current_token: &str,
     ) -> AuthResult<usize> {
         let sessions = self.list_user_sessions(user_id).await?;

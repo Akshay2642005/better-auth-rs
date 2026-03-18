@@ -608,7 +608,7 @@ impl ApiKeyPlugin {
                 .rate_limiters
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .remove(api_key.id());
+                .remove(api_key.id().as_ref());
             return Err(ApiKeyValidationError::new(ApiKeyErrorCode::KeyExpired));
         }
 
@@ -637,7 +637,7 @@ impl ApiKeyPlugin {
                 .rate_limiters
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .remove(api_key.id());
+                .remove(api_key.id().as_ref());
             return Err(ApiKeyValidationError::new(ApiKeyErrorCode::UsageExceeded));
         }
 
