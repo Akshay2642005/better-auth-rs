@@ -5,7 +5,6 @@
 )]
 
 use std::borrow::Cow;
-use std::sync::Arc;
 
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHasher};
@@ -626,7 +625,7 @@ fn test_config() -> AuthConfig {
 
 async fn create_auth() -> BetterAuth<LegacySchema> {
     let config = test_config();
-    let store = SeaOrmStore::<LegacySchema>::new(Arc::new(config.clone()), test_database().await);
+    let store = SeaOrmStore::<LegacySchema>::new(config.clone(), test_database().await);
     BetterAuth::<LegacySchema>::new(config)
         .store(store)
         .plugin(EmailPasswordPlugin::new().enable_signup(true))
@@ -774,7 +773,7 @@ async fn legacy_numeric_schema_existing_user_can_sign_in() {
     let database = test_database().await;
     let legacy_user_id = seed_legacy_user(&database).await;
     let config = test_config();
-    let store = SeaOrmStore::<LegacySchema>::new(Arc::new(config.clone()), database);
+    let store = SeaOrmStore::<LegacySchema>::new(config.clone(), database);
     let auth = BetterAuth::<LegacySchema>::new(config)
         .store(store)
         .plugin(EmailPasswordPlugin::new().enable_signup(true))

@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "sqlite://better-auth-fullstack.db?mode=rwc".to_string());
     let database = Database::connect(&database_url).await?;
     auth_schema::run_app_migrations(&database).await?;
-    let store = SeaOrmStore::<auth_schema::AppAuthSchema>::new(Arc::new(config.clone()), database.clone());
+    let store = SeaOrmStore::<auth_schema::AppAuthSchema>::new(config.clone(), database.clone());
 
     let auth = Arc::new(
         BetterAuth::<auth_schema::AppAuthSchema>::new(config)

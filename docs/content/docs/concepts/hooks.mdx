@@ -29,7 +29,7 @@ impl SeaOrmHooks<AppAuthSchema> for AuditHook {
     }
 }
 
-let store = SeaOrmStore::<AppAuthSchema>::new(Arc::new(config.clone()), database)
+let store = SeaOrmStore::<AppAuthSchema>::new(config.clone(), database)
     .hook(AuditHook);
 
 let auth = BetterAuth::<AppAuthSchema>::new(config)
@@ -172,7 +172,7 @@ impl SeaOrmHooks<AppAuthSchema> for ProvisionWorkspaceHook {
     }
 }
 
-let store = SeaOrmStore::<AppAuthSchema>::new(Arc::new(config.clone()), database.clone())
+let store = SeaOrmStore::<AppAuthSchema>::new(config.clone(), database.clone())
     .hook(ProvisionWorkspaceHook { db: database });
 
 let auth = BetterAuth::<AppAuthSchema>::new(config)
@@ -186,7 +186,7 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
 Multiple hooks can be registered. They execute in registration order:
 
 ```rust
-let store = SeaOrmStore::<AppAuthSchema>::new(Arc::new(config.clone()), database)
+let store = SeaOrmStore::<AppAuthSchema>::new(config.clone(), database)
     .hook(AuditHook)
     .hook(NormalizeEmail)
     .hook(BlockDisposableEmails);

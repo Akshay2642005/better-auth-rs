@@ -13,10 +13,10 @@ use crate::types_org::{CreateOrganization, Organization, UpdateOrganization};
 
 use super::entities;
 use super::entities::organization::{ActiveModel, Column, Entity};
-use super::{AuthStore, map_db_err};
+use super::{SeaOrmStore, map_db_err};
 
 #[async_trait]
-impl<S> OrganizationStore for AuthStore<S>
+impl<S> OrganizationStore for SeaOrmStore<S>
 where
     S: AuthSchema + Send + Sync,
 {

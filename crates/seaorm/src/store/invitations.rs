@@ -12,10 +12,10 @@ use crate::schema::AuthSchema;
 use crate::types_org::{CreateInvitation, Invitation, InvitationStatus};
 
 use super::entities::invitation::{ActiveModel, Column, Entity};
-use super::{AuthStore, map_db_err};
+use super::{SeaOrmStore, map_db_err};
 
 #[async_trait]
-impl<S> InvitationStore for AuthStore<S>
+impl<S> InvitationStore for SeaOrmStore<S>
 where
     S: AuthSchema + Send + Sync,
 {

@@ -20,7 +20,7 @@ pub use schema::{
 };
 pub use sea_orm;
 pub use sea_orm::{Database, DatabaseConnection};
-pub use store::AuthStore as SeaOrmStore;
+pub use store::SeaOrmStore;
 
 #[doc(hidden)]
 pub use better_auth_core as __private_core;

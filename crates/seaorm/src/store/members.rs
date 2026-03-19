@@ -13,10 +13,10 @@ use crate::schema::AuthSchema;
 use crate::types_org::{CreateMember, Member};
 
 use super::entities::member::{ActiveModel, Column, Entity};
-use super::{AuthStore, map_db_err};
+use super::{SeaOrmStore, map_db_err};
 
 #[async_trait]
-impl<S> MemberStore for AuthStore<S>
+impl<S> MemberStore for SeaOrmStore<S>
 where
     S: AuthSchema + Send + Sync,
 {

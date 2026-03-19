@@ -464,7 +464,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let github_profile = Arc::new(Mutex::new(default_github_profile()));
     let social_id_token_valid = Arc::new(Mutex::new(true));
 
-    let store = SeaOrmStore::<TestSchema>::new(Arc::new(config.clone()), database);
+    let store = SeaOrmStore::<TestSchema>::new(config.clone(), database);
     let auth = Arc::new(
         AuthBuilder::<TestSchema>::new(config)
             .store(store)

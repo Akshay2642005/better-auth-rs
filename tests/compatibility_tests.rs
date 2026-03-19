@@ -14,7 +14,6 @@
 mod compat;
 
 use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
 
 use better_auth::{
     AuthBuilder, AuthConfig, BetterAuth,
@@ -134,7 +133,7 @@ async fn create_full_auth() -> BetterAuth<TestSchema> {
         .base_url("http://localhost:3000")
         .password_min_length(8);
 
-    let store = SeaOrmStore::<TestSchema>::new(Arc::new(config.clone()), test_database().await);
+    let store = SeaOrmStore::<TestSchema>::new(config.clone(), test_database().await);
 
     AuthBuilder::<TestSchema>::new(config)
         .store(store)

@@ -65,7 +65,7 @@ async fn create_test_auth_with_config(config: AuthConfig) -> Arc<BetterAuth<Test
         }
     }
 
-    let store = SeaOrmStore::<TestSchema>::new(Arc::new(config.clone()), test_database().await);
+    let store = SeaOrmStore::<TestSchema>::new(config.clone(), test_database().await);
     Arc::new(
         AuthBuilder::<TestSchema>::new(config)
             .store(store)

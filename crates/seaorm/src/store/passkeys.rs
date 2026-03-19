@@ -12,10 +12,10 @@ use crate::schema::AuthSchema;
 use crate::types::{CreatePasskey, Passkey};
 
 use super::entities::passkey::{ActiveModel, Column, Entity};
-use super::{AuthStore, map_db_err};
+use super::{SeaOrmStore, map_db_err};
 
 #[async_trait]
-impl<S> PasskeyStore for AuthStore<S>
+impl<S> PasskeyStore for SeaOrmStore<S>
 where
     S: AuthSchema + Send + Sync,
 {

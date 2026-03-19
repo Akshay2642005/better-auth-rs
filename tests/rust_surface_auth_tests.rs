@@ -10,7 +10,6 @@ use better_auth::plugins::EmailPasswordPlugin;
 use better_auth::prelude::{AuthRequest, AuthResponse, HttpMethod};
 use better_auth::{AuthBuilder, AuthConfig, AuthResult, BetterAuth};
 use better_auth_seaorm::{Database, DatabaseConnection, SeaOrmStore};
-use std::sync::Arc;
 
 type TestSchema = better_auth_seaorm::store::__private_test_support::bundled_schema::BundledSchema;
 
@@ -56,7 +55,7 @@ async fn test_database() -> DatabaseConnection {
 
 async fn build_auth_with_route_plugin() -> BetterAuth<TestSchema> {
     let config = test_config();
-    let store = SeaOrmStore::<TestSchema>::new(Arc::new(config.clone()), test_database().await);
+    let store = SeaOrmStore::<TestSchema>::new(config.clone(), test_database().await);
     AuthBuilder::<TestSchema>::new(config)
         .store(store)
         .plugin(EmailPasswordPlugin::new().enable_signup(true))
@@ -71,7 +70,7 @@ async fn build_auth_with_route_plugin() -> BetterAuth<TestSchema> {
 #[tokio::test]
 async fn test_builder_rejects_invalid_config() {
     let config = AuthConfig::default();
-    let store = SeaOrmStore::<TestSchema>::new(Arc::new(config.clone()), test_database().await);
+    let store = SeaOrmStore::<TestSchema>::new(config.clone(), test_database().await);
     let result = BetterAuth::<TestSchema>::new(config)
         .store(store)
         .build()
@@ -108,7 +107,7 @@ async fn test_routes_lists_plugin_routes_only() {
 #[tokio::test]
 async fn test_disabled_path_blocks_direct_dispatch() {
     let config = test_config().disabled_path("/ok");
-    let store = SeaOrmStore::<TestSchema>::new(Arc::new(config.clone()), test_database().await);
+    let store = SeaOrmStore::<TestSchema>::new(config.clone(), test_database().await);
     let auth = BetterAuth::<TestSchema>::new(config)
         .store(store)
         .build()

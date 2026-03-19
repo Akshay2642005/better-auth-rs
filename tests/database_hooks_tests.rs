@@ -34,7 +34,7 @@ async fn test_database() -> DatabaseConnection {
 }
 
 async fn test_store(config: &AuthConfig) -> SeaOrmStore<TestSchema> {
-    SeaOrmStore::<TestSchema>::new(Arc::new(config.clone()), test_database().await)
+    SeaOrmStore::<TestSchema>::new(config.clone(), test_database().await)
 }
 
 fn signup_request(email: &str) -> AuthRequest {
@@ -289,14 +289,13 @@ async fn onboarding_hook_can_provision_app_data_with_the_shared_transaction() {
 
     let tx_seen = Arc::new(AtomicBool::new(false));
     let config = test_config();
-    let store = SeaOrmStore::<TestSchema>::new(Arc::new(config.clone()), database.clone()).hook(
-        OnboardingHook {
+    let store =
+        SeaOrmStore::<TestSchema>::new(config.clone(), database.clone()).hook(OnboardingHook {
             service: ProvisioningService {
                 db: database.clone(),
                 tx_seen: tx_seen.clone(),
             },
-        },
-    );
+        });
     let auth = AuthBuilder::<TestSchema>::new(config)
         .store(store)
         .plugin(EmailPasswordPlugin::new())

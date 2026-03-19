@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .base_url("http://localhost:3000")
         .password_min_length(8);
     let database = Database::connect("sqlite::memory:").await?;
-    let store = SeaOrmStore::<AppAuthSchema>::new(Arc::new(config.clone()), database);
+    let store = SeaOrmStore::<AppAuthSchema>::new(config.clone(), database);
 
     // 2. Build
     let auth = BetterAuth::<AppAuthSchema>::new(config)

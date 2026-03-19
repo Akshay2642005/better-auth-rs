@@ -10,10 +10,10 @@ use crate::schema::AuthSchema;
 use crate::types::{CreateTwoFactor, TwoFactor};
 
 use super::entities::two_factor::{ActiveModel, Column, Entity};
-use super::{AuthStore, map_db_err};
+use super::{SeaOrmStore, map_db_err};
 
 #[async_trait]
-impl<S> TwoFactorStore for AuthStore<S>
+impl<S> TwoFactorStore for SeaOrmStore<S>
 where
     S: AuthSchema + Send + Sync,
 {

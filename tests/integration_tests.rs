@@ -1291,7 +1291,7 @@ mod postgres_tests {
             .base_url("http://localhost:3000")
             .password_min_length(6);
 
-        let store = SeaOrmStore::<TestSchema>::new(Arc::new(config.clone()), database);
+        let store = SeaOrmStore::<TestSchema>::new(config.clone(), database);
         let auth = BetterAuth::<TestSchema>::new(config)
             .store(store)
             .plugin(EmailPasswordPlugin::new().enable_signup(true))

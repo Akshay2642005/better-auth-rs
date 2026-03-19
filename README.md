@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = Database::connect("sqlite::memory:").await?;
     let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
         .base_url("http://localhost:3000");
-    let store = SeaOrmStore::<AppAuthSchema>::new(Arc::new(config.clone()), database);
+    let store = SeaOrmStore::<AppAuthSchema>::new(config.clone(), database);
 
     let auth = BetterAuth::<AppAuthSchema>::new(
             config,

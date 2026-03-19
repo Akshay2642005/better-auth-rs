@@ -11,9 +11,9 @@ use crate::error::AuthResult;
 use crate::schema::{AuthSchema, SeaOrmAccountModel};
 use crate::types::{CreateAccount, UpdateAccount};
 
-use super::{AuthStore, cancelled_by_hook, map_db_err};
+use super::{SeaOrmStore, cancelled_by_hook, map_db_err};
 
-impl<S> AuthStore<S>
+impl<S> SeaOrmStore<S>
 where
     S: AuthSchema,
     S::Account: SeaOrmAccountModel,
@@ -59,7 +59,7 @@ where
 }
 
 #[async_trait]
-impl<S> AccountStore<S> for AuthStore<S>
+impl<S> AccountStore<S> for SeaOrmStore<S>
 where
     S: AuthSchema + Send + Sync,
     S::Account: SeaOrmAccountModel,

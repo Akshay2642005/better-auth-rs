@@ -163,7 +163,7 @@ async fn test_database() -> DatabaseConnection {
 }
 
 async fn test_store(config: &AuthConfig) -> SeaOrmStore<TestSchema> {
-    SeaOrmStore::<TestSchema>::new(Arc::new(config.clone()), test_database().await)
+    SeaOrmStore::<TestSchema>::new(config.clone(), test_database().await)
 }
 
 pub async fn create_test_auth() -> TestAuth {

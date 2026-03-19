@@ -11,9 +11,9 @@ use crate::error::{AuthError, AuthResult};
 use crate::schema::{AuthSchema, SeaOrmSessionModel};
 use crate::types::CreateSession;
 
-use super::{AuthStore, cancelled_by_hook, map_db_err};
+use super::{SeaOrmStore, cancelled_by_hook, map_db_err};
 
-impl<S> AuthStore<S>
+impl<S> SeaOrmStore<S>
 where
     S: AuthSchema,
     S::Session: SeaOrmSessionModel,
@@ -73,7 +73,7 @@ where
 }
 
 #[async_trait]
-impl<S> SessionStore<S> for AuthStore<S>
+impl<S> SessionStore<S> for SeaOrmStore<S>
 where
     S: AuthSchema + Send + Sync,
     S::Session: SeaOrmSessionModel,

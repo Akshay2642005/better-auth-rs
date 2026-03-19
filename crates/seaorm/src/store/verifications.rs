@@ -9,10 +9,10 @@ use crate::error::AuthResult;
 use crate::schema::{AuthSchema, SeaOrmVerificationModel};
 use crate::types::CreateVerification;
 
-use super::{AuthStore, cancelled_by_hook, map_db_err};
+use super::{SeaOrmStore, cancelled_by_hook, map_db_err};
 
 #[async_trait]
-impl<S> VerificationStore<S> for AuthStore<S>
+impl<S> VerificationStore<S> for SeaOrmStore<S>
 where
     S: AuthSchema + Send + Sync,
     S::Verification: SeaOrmVerificationModel,

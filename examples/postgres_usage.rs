@@ -667,8 +667,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
         .base_url("http://localhost:3000")
         .password_min_length(8);
-    let store =
-        SeaOrmStore::<AppSchema>::new(std::sync::Arc::new(config.clone()), database.clone());
+    let store = SeaOrmStore::<AppSchema>::new(config.clone(), database.clone());
 
     let auth = BetterAuth::<AppSchema>::new(config)
         .store(store)

@@ -12,10 +12,10 @@ use crate::schema::AuthSchema;
 use crate::types::{ApiKey, CreateApiKey, UpdateApiKey};
 
 use super::entities::api_key::{ActiveModel, Column, Entity};
-use super::{AuthStore, map_db_err, parse_optional_rfc3339, to_i32, to_optional_i32};
+use super::{SeaOrmStore, map_db_err, parse_optional_rfc3339, to_i32, to_optional_i32};
 
 #[async_trait]
-impl<S> ApiKeyStore for AuthStore<S>
+impl<S> ApiKeyStore for SeaOrmStore<S>
 where
     S: AuthSchema + Send + Sync,
 {

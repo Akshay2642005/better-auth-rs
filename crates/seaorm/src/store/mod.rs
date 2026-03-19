@@ -41,17 +41,17 @@ use crate::hooks::{SeaOrmHookContext, SeaOrmHooks, current_request_hook_context}
 use crate::schema::{AuthSchema, SeaOrmAccountModel, SeaOrmSessionModel, SeaOrmUserModel};
 
 #[derive(Clone)]
-pub struct AuthStore<S: AuthSchema> {
+pub struct SeaOrmStore<S: AuthSchema> {
     config: Arc<AuthConfig>,
     db: DatabaseConnection,
     hooks: Vec<Arc<dyn SeaOrmHooks<S>>>,
     _schema: PhantomData<S>,
 }
 
-impl<S: AuthSchema> AuthStore<S> {
-    pub fn new(config: Arc<AuthConfig>, db: DatabaseConnection) -> Self {
+impl<S: AuthSchema> SeaOrmStore<S> {
+    pub fn new(config: impl Into<Arc<AuthConfig>>, db: DatabaseConnection) -> Self {
         Self {
-            config,
+            config: config.into(),
             db,
             hooks: Vec::new(),
             _schema: PhantomData,
@@ -98,7 +98,7 @@ impl<S: AuthSchema> AuthStore<S> {
 }
 
 struct SeaOrmTransaction<'a, S: AuthSchema> {
-    store: &'a AuthStore<S>,
+    store: &'a SeaOrmStore<S>,
     tx: &'a DatabaseTransaction,
 }
 
@@ -134,7 +134,7 @@ where
 }
 
 #[async_trait]
-impl<S> TransactionStore<S> for AuthStore<S>
+impl<S> TransactionStore<S> for SeaOrmStore<S>
 where
     S: AuthSchema,
     S::User: SeaOrmUserModel,

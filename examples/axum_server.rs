@@ -155,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "sqlite://better-auth-axum.db?mode=rwc".to_string());
     let database = Database::connect(&database_url).await?;
     run_app_migrations(&database).await?;
-    let store = SeaOrmStore::<AppAuthSchema>::new(Arc::new(config.clone()), database.clone());
+    let store = SeaOrmStore::<AppAuthSchema>::new(config.clone(), database.clone());
 
     let auth = Arc::new(
         BetterAuth::<AppAuthSchema>::new(config)
