@@ -327,15 +327,15 @@ where
             .ok_or_else(|| AuthError::Unauthenticated.into_response())?;
 
         let session = auth
-            .database()
+            .store()
             .get_session(&token)
             .await
             .map_err(IntoResponse::into_response)?
             .ok_or_else(|| AuthError::SessionNotFound.into_response())?;
 
         let user = auth
-            .database()
-            .get_user_by_id(session.user_id())
+            .store()
+            .get_user_by_id(&session.user_id())
             .await
             .map_err(IntoResponse::into_response)?
             .ok_or_else(|| AuthError::UserNotFound.into_response())?;

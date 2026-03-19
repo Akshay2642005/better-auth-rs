@@ -603,7 +603,7 @@ impl ApiKeyPlugin {
             && chrono::Utc::now() > expires_at
         {
             // Delete expired key and evict its cached rate limiter
-            let _ = ctx.database.delete_api_key(api_key.id()).await;
+            let _ = ctx.database.delete_api_key(&api_key.id()).await;
             let _ = self
                 .rate_limiters
                 .lock()
@@ -632,7 +632,7 @@ impl ApiKeyPlugin {
             && api_key.refill_amount().is_none()
         {
             // Usage exhausted, no refill configured -- delete key and evict cache
-            let _ = ctx.database.delete_api_key(api_key.id()).await;
+            let _ = ctx.database.delete_api_key(&api_key.id()).await;
             let _ = self
                 .rate_limiters
                 .lock()
@@ -683,7 +683,7 @@ impl ApiKeyPlugin {
 
         let updated = ctx
             .database
-            .update_api_key(api_key.id(), update)
+            .update_api_key(&api_key.id(), update)
             .await
             .map_err(|_| ApiKeyValidationError::new(ApiKeyErrorCode::FailedToUpdateApiKey))?;
 

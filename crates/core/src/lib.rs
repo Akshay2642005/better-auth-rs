@@ -32,7 +32,7 @@ pub mod utils;
 pub mod wire;
 
 // Re-export commonly used items
-pub use better_auth_macros::{AuthEntity, AuthSchema, PluginConfig};
+pub use better_auth_macros::{AuthSchema, PluginConfig};
 pub use config::{
     AccountConfig, AccountLinkingConfig, AdvancedConfig, AdvancedDatabaseConfig, Argon2Config,
     AuthConfig, CookieAttributes, CookieCacheConfig, CookieCacheStrategy, CookieOverride,
@@ -47,22 +47,16 @@ pub use entity::{
 pub use error::{
     AuthError, AuthResult, DatabaseError, validate_request_body, validation_error_response,
 };
-pub use hooks::{
-    DatabaseHookContext, DatabaseHooks, HookControl, RequestHookContext, with_request_hook_context,
-    with_request_hook_context_value,
-};
+pub use hooks::{RequestHookContext, with_request_hook_context, with_request_hook_context_value};
 pub use middleware::{
     BodyLimitConfig, BodyLimitMiddleware, CorsConfig, CorsMiddleware, CsrfConfig, CsrfMiddleware,
     EndpointRateLimit, Middleware, RateLimitConfig, RateLimitMiddleware,
 };
 pub use openapi::{OpenApiBuilder, OpenApiInfo, OpenApiOperation, OpenApiResponse, OpenApiSpec};
 pub use plugin::{AuthContext, AuthInitContext, AuthPlugin, AuthRoute, BeforeRequestAction};
-pub use schema::{
-    AuthAccountModel, AuthSchema, AuthSessionModel, AuthUserModel, AuthVerificationModel,
-};
-pub use sea_orm;
+pub use schema::AuthSchema;
 pub use session::SessionManager;
-pub use store::{AuthStore, CacheAdapter, MemoryCacheAdapter};
+pub use store::{AuthStore, AuthTransaction, CacheAdapter, MemoryCacheAdapter, transaction};
 pub use types::{
     ApiKey, AuthRequest, AuthResponse, CodeMessageResponse, CreateAccount, CreateApiKey,
     CreateInvitation, CreateMember, CreateOrganization, CreatePasskey, CreateSession,

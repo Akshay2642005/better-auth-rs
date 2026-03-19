@@ -11,7 +11,7 @@ workspace = true
 
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/api"]
+members = ["crates/core", "crates/api", "crates/derive", "crates/seaorm", "crates/seaorm-macros"]
 exclude = ["examples/sqlx-custom-entities", "examples/fullstack/backend", "compat-tests/rust-server"]
 
 [workspace.package]
@@ -25,6 +25,7 @@ repository = "https://github.com/better-auth-rs/better-auth-rs"
 better-auth-core = { version = "0.10.0", path = "crates/core" }
 better-auth-api = { version = "0.10.0", path = "crates/api" }
 better-auth-macros = { version = "0.10.0", path = "crates/derive", package = "better-auth-macros" }
+better-auth-seaorm = { version = "0.10.0", path = "crates/seaorm" }
 
 # Asynchronous runtime
 tokio = { version = "1.0", features = ["full"] }
@@ -124,6 +125,7 @@ url = { workspace = true, optional = true }
 redis = { workspace = true, optional = true }
 
 [dev-dependencies]
+better-auth-seaorm = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
 serde_yaml = "0.9"
 tower-http = { version = "0.6", features = ["cors"] }

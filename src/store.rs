@@ -1,13 +1,7 @@
-//! Storage-related database handles, migrations, cache adapters, and advanced
-//! SeaORM re-exports.
+//! Storage traits and cache adapters used by Better Auth.
 
-pub use better_auth_core::sea_orm::{Database, DatabaseConnection};
 #[cfg(feature = "redis-cache")]
 pub use better_auth_core::store::RedisAdapter;
-pub use better_auth_core::store::{CacheAdapter, MemoryCacheAdapter};
-
-/// Advanced SeaORM re-exports for applications that need lower-level traits
-/// and query types.
-pub mod sea_orm {
-    pub use better_auth_core::sea_orm::*;
-}
+pub use better_auth_core::store::{
+    AuthStore, AuthTransaction, CacheAdapter, MemoryCacheAdapter, transaction,
+};

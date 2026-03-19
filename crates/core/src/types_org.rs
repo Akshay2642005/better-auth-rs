@@ -4,7 +4,6 @@ use std::borrow::Cow;
 use uuid::Uuid;
 
 use crate::entity::{AuthInvitation, AuthMember, AuthOrganization};
-use crate::store::sea_orm::entities;
 
 fn serialize_json_option_as_string<S>(
     value: &Option<serde_json::Value>,
@@ -244,20 +243,6 @@ impl<T: AuthOrganization> From<&T> for Organization {
     }
 }
 
-impl From<&entities::organization::Model> for Organization {
-    fn from(model: &entities::organization::Model) -> Self {
-        Self {
-            id: model.id.clone(),
-            name: model.name.clone(),
-            slug: model.slug.clone(),
-            logo: model.logo.clone(),
-            metadata: Some(model.metadata.clone()),
-            created_at: model.created_at,
-            updated_at: model.updated_at,
-        }
-    }
-}
-
 impl AuthOrganization for Organization {
     fn id(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.id)
@@ -312,18 +297,6 @@ impl<T: AuthMember> From<&T> for Member {
     }
 }
 
-impl From<&entities::member::Model> for Member {
-    fn from(model: &entities::member::Model) -> Self {
-        Self {
-            id: model.id.clone(),
-            organization_id: model.organization_id.clone(),
-            user_id: model.user_id.clone(),
-            role: model.role.clone(),
-            created_at: model.created_at,
-        }
-    }
-}
-
 impl AuthInvitation for Invitation {
     fn id(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.id)
@@ -362,21 +335,6 @@ impl<T: AuthInvitation> From<&T> for Invitation {
             inviter_id: invitation.inviter_id().into_owned(),
             expires_at: invitation.expires_at(),
             created_at: invitation.created_at(),
-        }
-    }
-}
-
-impl From<&entities::invitation::Model> for Invitation {
-    fn from(model: &entities::invitation::Model) -> Self {
-        Self {
-            id: model.id.clone(),
-            organization_id: model.organization_id.clone(),
-            email: model.email.clone(),
-            role: model.role.clone(),
-            status: InvitationStatus::from(model.status.clone()),
-            inviter_id: model.inviter_id.clone(),
-            expires_at: model.expires_at,
-            created_at: model.created_at,
         }
     }
 }

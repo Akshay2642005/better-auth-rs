@@ -53,7 +53,7 @@ pub async fn get_credential_account<S: better_auth_core::AuthSchema>(
 ) -> AuthResult<Option<S::Account>> {
     Ok(ctx
         .database
-        .get_user_accounts(user_id)
+        .get_user_accounts(user_id.as_ref())
         .await?
         .into_iter()
         .find(|account| account.provider_id() == "credential"))

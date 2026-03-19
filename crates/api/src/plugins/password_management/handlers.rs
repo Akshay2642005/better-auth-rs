@@ -119,7 +119,7 @@ pub(crate) async fn reset_password_core(
         let _ = ctx
             .database
             .update_account(
-                account.id(),
+                &account.id(),
                 UpdateAccount {
                     password: Some(password_hash),
                     ..Default::default()
@@ -144,7 +144,7 @@ pub(crate) async fn reset_password_core(
             .await?;
     }
 
-    ctx.database.delete_verification(verification.id()).await?;
+    ctx.database.delete_verification(&verification.id()).await?;
 
     if let Some(callback) = &config.on_password_reset
         && let Some(user) = ctx.database.get_user_by_id(&user_id).await?
@@ -249,7 +249,7 @@ pub(crate) async fn change_password_core(
     let _ = ctx
         .database
         .update_account(
-            credential_account.id(),
+            &credential_account.id(),
             UpdateAccount {
                 password: Some(password_hash),
                 ..Default::default()
@@ -258,7 +258,7 @@ pub(crate) async fn change_password_core(
         .await?;
 
     let new_token = if body.revoke_other_sessions == Some(true) {
-        ctx.database.delete_user_sessions(user.id()).await?;
+        ctx.database.delete_user_sessions(&user.id()).await?;
         let session = ctx
             .session_manager()
             .create_session(user, meta.ip_address.clone(), meta.user_agent.clone())
@@ -272,7 +272,7 @@ pub(crate) async fn change_password_core(
         token: new_token.clone(),
         user: ctx
             .database
-            .get_user_by_id(user.id())
+            .get_user_by_id(&user.id())
             .await?
             .map(|user| UserView::from(&user))
             .ok_or(AuthError::UserNotFound)?,

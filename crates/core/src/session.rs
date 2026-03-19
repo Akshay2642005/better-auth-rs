@@ -11,7 +11,7 @@ use crate::types::CreateSession;
 /// Session manager handles session creation, validation, and cleanup
 pub struct SessionManager<S: AuthSchema> {
     config: Arc<AuthConfig>,
-    database: Arc<AuthStore<S>>,
+    database: Arc<dyn AuthStore<S>>,
 }
 
 impl<S: AuthSchema> Clone for SessionManager<S> {
@@ -24,7 +24,7 @@ impl<S: AuthSchema> Clone for SessionManager<S> {
 }
 
 impl<S: AuthSchema> SessionManager<S> {
-    pub fn new(config: Arc<AuthConfig>, database: Arc<AuthStore<S>>) -> Self {
+    pub fn new(config: Arc<AuthConfig>, database: Arc<dyn AuthStore<S>>) -> Self {
         Self { config, database }
     }
 
@@ -98,7 +98,7 @@ impl<S: AuthSchema> SessionManager<S> {
 
     /// Delete all sessions for a user
     pub async fn delete_user_sessions(&self, user_id: impl AsRef<str>) -> AuthResult<()> {
-        self.database.delete_user_sessions(user_id).await?;
+        self.database.delete_user_sessions(user_id.as_ref()).await?;
         Ok(())
     }
 
@@ -107,7 +107,7 @@ impl<S: AuthSchema> SessionManager<S> {
         &self,
         user_id: impl AsRef<str>,
     ) -> AuthResult<Vec<S::Session>> {
-        let sessions = self.database.get_user_sessions(user_id).await?;
+        let sessions = self.database.get_user_sessions(user_id.as_ref()).await?;
         let now = Utc::now();
 
         // Filter out expired sessions
@@ -216,26 +216,25 @@ impl<S: AuthSchema> SessionManager<S> {
 mod tests {
     use super::*;
     use crate::entity::AuthSession;
-    use crate::sea_orm::Database;
-    use crate::store::AuthStore;
-    use crate::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
     use crate::types::AuthRequest;
     use crate::types::HttpMethod;
     use crate::wire::SessionView;
+    use better_auth_seaorm::store::__private_test_support::bundled_schema::BundledSchema;
+    use better_auth_seaorm::{Database, SeaOrmStore};
     use chrono::Duration;
 
     fn test_config() -> Arc<AuthConfig> {
         Arc::new(AuthConfig::new("test-secret-min-32-chars-1234567"))
     }
 
-    async fn test_database() -> Arc<AuthStore<BundledSchema>> {
+    async fn test_database() -> Arc<dyn crate::store::AuthStore<BundledSchema>> {
         let database = Database::connect("sqlite::memory:")
             .await
             .expect("sqlite test database should connect");
-        crate::store::sea_orm::__private_test_support::migrator::run_migrations(&database)
+        better_auth_seaorm::store::__private_test_support::migrator::run_migrations(&database)
             .await
             .expect("sqlite test migrations should run");
-        Arc::new(AuthStore::<BundledSchema>::new(test_config(), database))
+        Arc::new(SeaOrmStore::<BundledSchema>::new(test_config(), database))
     }
 
     fn test_manager() -> SessionManager<BundledSchema> {

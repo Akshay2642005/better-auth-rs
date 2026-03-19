@@ -22,13 +22,13 @@ Use `.axum_router()` when `Arc<BetterAuth<YourSchema>>` is the router state:
 
 ```rust,ignore
 use better_auth::{AuthConfig, AuthSchema, BetterAuth};
-use better_auth::store::Database;
 use better_auth::plugins::{
     EmailPasswordPlugin, SessionManagementPlugin,
     PasswordManagementPlugin, AccountManagementPlugin,
 };
 use better_auth::integrations::axum::AxumIntegration;
 use axum::Router;
+use better_auth_seaorm::{Database, SeaOrmStore};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -36,10 +36,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
         .base_url("http://localhost:8080");
     let database = Database::connect("sqlite::memory:").await?;
+    let store = SeaOrmStore::<AppAuthSchema>::new(Arc::new(config.clone()), database);
 
     let auth = Arc::new(
         BetterAuth::<AppAuthSchema>::new(config)
-            .database(database)
+            .store(store)
             .plugin(EmailPasswordPlugin::new().enable_signup(true))
             .plugin(SessionManagementPlugin::new())
             .plugin(PasswordManagementPlugin::new())
@@ -73,7 +74,7 @@ use better_auth::{AuthConfig, BetterAuth};
 use better_auth::integrations::axum::{AxumIntegration, CurrentSession};
 use better_auth::plugins::{EmailPasswordPlugin, SessionManagementPlugin};
 use better_auth::prelude::AuthUser;
-use better_auth::store::{Database, DatabaseConnection};
+use better_auth_seaorm::{Database, DatabaseConnection, SeaOrmStore};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -99,13 +100,13 @@ async fn profile(session: CurrentSession<AppAuthSchema>) -> Json<serde_json::Val
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = Database::connect("sqlite::memory:").await?;
+    let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
+        .base_url("http://localhost:8080");
+    let store = SeaOrmStore::<AppAuthSchema>::new(Arc::new(config.clone()), database.clone());
 
     let auth = Arc::new(
-        BetterAuth::<AppAuthSchema>::new(
-            AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
-                .base_url("http://localhost:8080"),
-        )
-        .database(database.clone())
+        BetterAuth::<AppAuthSchema>::new(config)
+        .store(store)
         .plugin(EmailPasswordPlugin::new().enable_signup(true))
         .plugin(SessionManagementPlugin::new())
         .build()

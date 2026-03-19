@@ -6,7 +6,6 @@ use crate::config::AuthConfig;
 use crate::email::EmailProvider;
 use crate::entity::AuthSession;
 use crate::error::{AuthError, AuthResult};
-use crate::hooks::DatabaseHooks;
 use crate::schema::AuthSchema;
 #[cfg(test)]
 use crate::session::SessionManager;
@@ -14,11 +13,9 @@ use crate::store::AuthStore;
 use crate::types::{AuthRequest, AuthResponse, HttpMethod};
 
 type MetadataMap = HashMap<String, serde_json::Value>;
-type DatabaseHookList<S> = Vec<Arc<dyn DatabaseHooks<S>>>;
 
-pub struct AuthInitParts<S: AuthSchema> {
+pub struct AuthInitParts {
     pub metadata: MetadataMap,
-    pub database_hooks: DatabaseHookList<S>,
     pub email_provider: Option<Arc<dyn EmailProvider>>,
 }
 
@@ -179,16 +176,15 @@ pub struct AuthRoute {
 /// Initialization context passed to plugin setup.
 pub struct AuthInitContext<S: AuthSchema> {
     pub config: Arc<AuthConfig>,
-    pub database: Arc<AuthStore<S>>,
+    pub database: Arc<dyn AuthStore<S>>,
     pub email_provider: Option<Arc<dyn EmailProvider>>,
     pub metadata: MetadataMap,
-    database_hooks: DatabaseHookList<S>,
 }
 
 /// Context passed to plugin methods.
 pub struct AuthContext<S: AuthSchema> {
     pub config: Arc<AuthConfig>,
-    pub database: Arc<AuthStore<S>>,
+    pub database: Arc<dyn AuthStore<S>>,
     pub email_provider: Option<Arc<dyn EmailProvider>>,
     pub metadata: MetadataMap,
 }
@@ -224,14 +220,13 @@ impl AuthRoute {
 }
 
 impl<S: AuthSchema> AuthInitContext<S> {
-    pub fn new(config: Arc<AuthConfig>, database: Arc<AuthStore<S>>) -> Self {
+    pub fn new(config: Arc<AuthConfig>, database: Arc<dyn AuthStore<S>>) -> Self {
         let email_provider = config.email_provider.clone();
         Self {
             config,
             database,
             email_provider,
             metadata: MetadataMap::new(),
-            database_hooks: Vec::new(),
         }
     }
 
@@ -243,21 +238,16 @@ impl<S: AuthSchema> AuthInitContext<S> {
         self.metadata.get(key)
     }
 
-    pub fn register_database_hook<H: DatabaseHooks<S> + 'static>(&mut self, hook: H) {
-        self.database_hooks.push(Arc::new(hook));
-    }
-
-    pub fn into_parts(self) -> AuthInitParts<S> {
+    pub fn into_parts(self) -> AuthInitParts {
         AuthInitParts {
             metadata: self.metadata,
-            database_hooks: self.database_hooks,
             email_provider: self.email_provider,
         }
     }
 }
 
 impl<S: AuthSchema> AuthContext<S> {
-    pub fn new(config: Arc<AuthConfig>, database: Arc<AuthStore<S>>) -> Self {
+    pub fn new(config: Arc<AuthConfig>, database: Arc<dyn AuthStore<S>>) -> Self {
         let email_provider = config.email_provider.clone();
         Self {
             config,
@@ -269,7 +259,7 @@ impl<S: AuthSchema> AuthContext<S> {
 
     pub fn with_metadata(
         config: Arc<AuthConfig>,
-        database: Arc<AuthStore<S>>,
+        database: Arc<dyn AuthStore<S>>,
         metadata: MetadataMap,
     ) -> Self {
         let email_provider = config.email_provider.clone();
@@ -311,7 +301,7 @@ impl<S: AuthSchema> AuthContext<S> {
 
         if let Some(token) = session_manager.extract_session_token(req)
             && let Some(session) = session_manager.get_session(&token).await?
-            && let Some(user) = self.database.get_user_by_id(session.user_id()).await?
+            && let Some(user) = self.database.get_user_by_id(&session.user_id()).await?
         {
             return Ok((user, session));
         }
@@ -324,18 +314,17 @@ impl<S: AuthSchema> AuthContext<S> {
 mod tests {
     use super::*;
     use crate::entity::AuthUser;
-    use crate::sea_orm::Database;
-    use crate::store::AuthStore;
-    use crate::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
+    use better_auth_seaorm::store::__private_test_support::bundled_schema::BundledSchema;
+    use better_auth_seaorm::{Database, SeaOrmStore};
 
-    async fn test_database() -> Arc<AuthStore<BundledSchema>> {
+    async fn test_database() -> Arc<dyn crate::store::AuthStore<BundledSchema>> {
         let database = Database::connect("sqlite::memory:")
             .await
             .expect("sqlite test database should connect");
-        crate::store::sea_orm::__private_test_support::migrator::run_migrations(&database)
+        better_auth_seaorm::store::__private_test_support::migrator::run_migrations(&database)
             .await
             .expect("sqlite test migrations should run");
-        Arc::new(AuthStore::<BundledSchema>::new(
+        Arc::new(SeaOrmStore::<BundledSchema>::new(
             Arc::new(AuthConfig::new("test-secret-min-32-chars-1234567")),
             database,
         ))

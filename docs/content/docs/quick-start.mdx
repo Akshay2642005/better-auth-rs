@@ -11,10 +11,11 @@ For a complete app-owned SeaORM schema setup, start with the [Axum Integration](
 
 ```rust,ignore
 use better_auth::{AuthConfig, BetterAuth};
-use better_auth::store::Database;
 use better_auth::plugins::{EmailPasswordPlugin, SessionManagementPlugin};
 use better_auth::prelude::{AuthRequest, HttpMethod};
+use better_auth_seaorm::{Database, SeaOrmStore};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,10 +24,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .base_url("http://localhost:3000")
         .password_min_length(8);
     let database = Database::connect("sqlite::memory:").await?;
+    let store = SeaOrmStore::<AppAuthSchema>::new(Arc::new(config.clone()), database);
 
     // 2. Build
     let auth = BetterAuth::<AppAuthSchema>::new(config)
-        .database(database)
+        .store(store)
         .plugin(EmailPasswordPlugin::new().enable_signup(true))
         .plugin(SessionManagementPlugin::new())
         .build()

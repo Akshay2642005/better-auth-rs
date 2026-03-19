@@ -27,10 +27,11 @@ better-auth = { version = "0.10", features = ["axum"] }
 ```
 
 ```rust,ignore
-use better_auth::{AuthConfig, AuthEntity, AuthSchema, BetterAuth};
-use better_auth::store::Database;
+use better_auth::{AuthConfig, AuthSchema, BetterAuth};
 use better_auth::plugins::EmailPasswordPlugin;
-use sea_orm::entity::prelude::*;
+use better_auth_seaorm::{AuthEntity, Database, SeaOrmStore};
+use better_auth_seaorm::sea_orm::entity::prelude::*;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, serde::Serialize, DeriveEntityModel, AuthEntity)]
 #[auth(role = "user")]
@@ -64,12 +65,14 @@ pub struct AppAuthSchema;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = Database::connect("sqlite::memory:").await?;
+    let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
+        .base_url("http://localhost:3000");
+    let store = SeaOrmStore::<AppAuthSchema>::new(Arc::new(config.clone()), database);
 
     let auth = BetterAuth::<AppAuthSchema>::new(
-            AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
-                .base_url("http://localhost:3000"),
+            config,
         )
-        .database(database)
+        .store(store)
         .plugin(EmailPasswordPlugin::new().enable_signup(true))
         .build()
         .await?;

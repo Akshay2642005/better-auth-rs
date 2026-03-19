@@ -556,7 +556,7 @@ async fn process_oauth_sign_in(
             let _ = ctx
                 .database
                 .update_account(
-                    existing_account.id(),
+                    &existing_account.id(),
                     UpdateAccount {
                         access_token: token_bundle.access_token.clone(),
                         refresh_token: token_bundle.refresh_token.clone(),
@@ -573,7 +573,7 @@ async fn process_oauth_sign_in(
 
         let mut user = ctx
             .database
-            .get_user_by_id(existing_account.user_id())
+            .get_user_by_id(&existing_account.user_id())
             .await
             .map_err(|error| error.to_string())?
             .ok_or_else(|| "user not found".to_string())?;
@@ -587,7 +587,7 @@ async fn process_oauth_sign_in(
             user = ctx
                 .database
                 .update_user(
-                    user.id(),
+                    &user.id(),
                     UpdateUser {
                         email_verified: Some(true),
                         ..Default::default()
@@ -601,7 +601,7 @@ async fn process_oauth_sign_in(
             user = ctx
                 .database
                 .update_user(
-                    user.id(),
+                    &user.id(),
                     UpdateUser {
                         name: user_info.name.clone(),
                         image: user_info.image.clone(),
@@ -706,7 +706,7 @@ async fn process_oauth_sign_in(
             linked_user = ctx
                 .database
                 .update_user(
-                    linked_user.id(),
+                    &linked_user.id(),
                     UpdateUser {
                         email_verified: Some(true),
                         ..Default::default()
@@ -720,7 +720,7 @@ async fn process_oauth_sign_in(
             linked_user =
                 ctx.database
                     .update_user(
-                        linked_user.id(),
+                        &linked_user.id(),
                         UpdateUser {
                             name: user_info.name.clone(),
                             image: user_info.image.clone(),
@@ -858,7 +858,7 @@ async fn complete_link_social(
         let _ = ctx
             .database
             .update_account(
-                existing_account.id(),
+                &existing_account.id(),
                 UpdateAccount {
                     access_token: token_bundle.access_token,
                     refresh_token: token_bundle.refresh_token,
@@ -1005,7 +1005,7 @@ async fn link_with_id_token_core(
         return Err(AuthError::forbidden("User email not found"));
     }
 
-    let existing_accounts = ctx.database.get_user_accounts(session.user_id()).await?;
+    let existing_accounts = ctx.database.get_user_accounts(&session.user_id()).await?;
     if existing_accounts.iter().any(|account| {
         account.provider_id() == body.provider && account.account_id() == response.user.id
     }) {
@@ -1020,7 +1020,7 @@ async fn link_with_id_token_core(
 
     let current_user = ctx
         .database
-        .get_user_by_id(session.user_id())
+        .get_user_by_id(&session.user_id())
         .await?
         .ok_or(AuthError::UserNotFound)?;
     let current_email = current_user
@@ -1072,7 +1072,7 @@ async fn link_with_id_token_core(
         let _ = ctx
             .database
             .update_user(
-                session.user_id(),
+                &session.user_id(),
                 UpdateUser {
                     name: response.user.name.clone(),
                     image: response.user.image.clone(),
@@ -1158,7 +1158,7 @@ async fn link_social_core(
 
     let user = ctx
         .database
-        .get_user_by_id(session.user_id())
+        .get_user_by_id(&session.user_id())
         .await?
         .ok_or(AuthError::UserNotFound)?;
     let email = user
@@ -1215,7 +1215,7 @@ pub(crate) async fn get_access_token_core(
     let accounts = if cookie_matches {
         Vec::new()
     } else {
-        ctx.database.get_user_accounts(session.user_id()).await?
+        ctx.database.get_user_accounts(&session.user_id()).await?
     };
     let db_account = (!cookie_matches)
         .then(|| {
@@ -1315,7 +1315,7 @@ pub(crate) async fn get_access_token_core(
             let _ = ctx
                 .database
                 .update_account(
-                    account.id(),
+                    &account.id(),
                     UpdateAccount {
                         access_token: tokens.access_token,
                         refresh_token: tokens.refresh_token,
@@ -1410,7 +1410,7 @@ pub(crate) async fn refresh_token_core(
     let accounts = if cookie_matches {
         Vec::new()
     } else {
-        ctx.database.get_user_accounts(session.user_id()).await?
+        ctx.database.get_user_accounts(&session.user_id()).await?
     };
     let db_account = (!cookie_matches)
         .then(|| find_account_for_provider(&accounts, provider_name, body.account_id.as_deref()))
@@ -1451,7 +1451,7 @@ pub(crate) async fn refresh_token_core(
         let _ = ctx
             .database
             .update_account(
-                account.id(),
+                &account.id(),
                 UpdateAccount {
                     access_token: tokens.access_token,
                     refresh_token: tokens.refresh_token,
@@ -1751,7 +1751,7 @@ pub(crate) async fn handle_callback(
 
             let payload: OAuthStatePayload = serde_json::from_str(verification.value())
                 .map_err(|error| AuthError::internal(format!("Invalid state payload: {error}")))?;
-            ctx.database.delete_verification(verification.id()).await?;
+            ctx.database.delete_verification(&verification.id()).await?;
             payload
         }
         better_auth_core::OAuthStateStrategy::Cookie => {

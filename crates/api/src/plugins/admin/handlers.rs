@@ -345,7 +345,7 @@ pub(crate) async fn remove_user_core(
 
     let accounts = ctx.database.get_user_accounts(&body.user_id).await?;
     for account in &accounts {
-        ctx.database.delete_account(account.id()).await?;
+        ctx.database.delete_account(&account.id()).await?;
     }
 
     ctx.database.delete_user(&body.user_id).await?;
@@ -401,7 +401,7 @@ pub(crate) async fn set_user_password_core(
                 };
                 let _ = ctx
                     .database
-                    .update_account(account.id(), account_update)
+                    .update_account(&account.id(), account_update)
                     .await?;
                 break;
             }

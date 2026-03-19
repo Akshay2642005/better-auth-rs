@@ -1,5 +1,3 @@
-//! Schema traits and derive macros for app-owned auth entities.
+//! Schema traits and derive macros for app-owned auth models.
 
-pub use better_auth_core::schema::{
-    AuthAccountModel, AuthSchema, AuthSessionModel, AuthUserModel, AuthVerificationModel,
-};
+pub use better_auth_core::schema::AuthSchema;

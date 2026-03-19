@@ -124,7 +124,7 @@ pub(crate) async fn generate_register_options_core(
         .await?;
 
     // Build excludeCredentials from existing passkeys
-    let existing_passkeys = ctx.database.list_passkeys_by_user(user.id()).await?;
+    let existing_passkeys = ctx.database.list_passkeys_by_user(&user.id()).await?;
     let exclude_credentials: Vec<serde_json::Value> = existing_passkeys
         .iter()
         .map(|pk| {
@@ -280,7 +280,7 @@ pub(crate) async fn generate_authenticate_options_core<U: AuthUser>(
 
     // If user is provided, build allowCredentials from their passkeys
     let allow_credentials: Vec<serde_json::Value> = if let Some(user) = maybe_user {
-        let passkeys = ctx.database.list_passkeys_by_user(user.id()).await?;
+        let passkeys = ctx.database.list_passkeys_by_user(&user.id()).await?;
         passkeys
             .iter()
             .map(|pk| {
@@ -363,7 +363,7 @@ pub(crate) async fn verify_authentication_core(
     // Look up the user
     let user = ctx
         .database
-        .get_user_by_id(passkey.user_id())
+        .get_user_by_id(&passkey.user_id())
         .await?
         .ok_or(AuthError::UserNotFound)?;
 
@@ -374,7 +374,7 @@ pub(crate) async fn verify_authentication_core(
         .ok_or_else(|| AuthError::internal("Passkey counter overflow"))?;
     let _ = ctx
         .database
-        .update_passkey_counter(passkey.id(), new_counter)
+        .update_passkey_counter(&passkey.id(), new_counter)
         .await?;
 
     // Create a session
@@ -395,7 +395,7 @@ pub(crate) async fn list_user_passkeys_core(
     user: &impl AuthUser,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Vec<PasskeyView>> {
-    let passkeys = ctx.database.list_passkeys_by_user(user.id()).await?;
+    let passkeys = ctx.database.list_passkeys_by_user(&user.id()).await?;
     Ok(passkeys.iter().map(PasskeyView::from).collect())
 }
 

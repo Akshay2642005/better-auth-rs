@@ -172,7 +172,7 @@ pub(crate) async fn list_keys_core(
     plugin: &ApiKeyPlugin,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Vec<ApiKeyView>> {
-    let keys = ctx.database.list_api_keys_by_user(user_id).await?;
+    let keys = ctx.database.list_api_keys_by_user(user_id.as_ref()).await?;
     let views: Vec<ApiKeyView> = keys.iter().map(ApiKeyView::from).collect();
     plugin.maybe_delete_expired(ctx).await;
     Ok(views)

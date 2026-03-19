@@ -216,7 +216,7 @@ async fn enable_core(
     let _ = ctx
         .database
         .update_user(
-            user.id(),
+            &user.id(),
             UpdateUser {
                 two_factor_enabled: Some(true),
                 ..Default::default()
@@ -237,12 +237,12 @@ async fn disable_core(
 ) -> AuthResult<StatusResponse> {
     verify_user_password(ctx, user, &body.password).await?;
 
-    ctx.database.delete_two_factor(user.id()).await?;
+    ctx.database.delete_two_factor(&user.id()).await?;
 
     let _ = ctx
         .database
         .update_user(
-            user.id(),
+            &user.id(),
             UpdateUser {
                 two_factor_enabled: Some(false),
                 ..Default::default()
@@ -263,7 +263,7 @@ async fn get_totp_uri_core(
 
     let two_factor = ctx
         .database
-        .get_two_factor_by_user_id(user.id())
+        .get_two_factor_by_user_id(&user.id())
         .await?
         .ok_or_else(|| AuthError::not_found("Two-factor authentication not enabled"))?;
 
@@ -294,7 +294,7 @@ async fn generate_backup_codes_core(
 
     let _ = ctx
         .database
-        .update_two_factor_backup_codes(user.id(), &hashed_codes)
+        .update_two_factor_backup_codes(&user.id(), &hashed_codes)
         .await?;
 
     Ok(BackupCodesResponse {
@@ -353,7 +353,7 @@ async fn verify_totp_core(
 ) -> AuthResult<(VerifyTotpResponse<UserView>, String)> {
     let two_factor = ctx
         .database
-        .get_two_factor_by_user_id(user.id())
+        .get_two_factor_by_user_id(&user.id())
         .await?
         .ok_or_else(|| AuthError::not_found("Two-factor authentication not enabled"))?;
 
@@ -453,7 +453,7 @@ async fn verify_otp_core(
 
     // Clean up verifications
     ctx.database
-        .delete_verification(otp_verification.id())
+        .delete_verification(&otp_verification.id())
         .await?;
     ctx.database.delete_verification(verification_id).await?;
 
@@ -475,7 +475,7 @@ async fn verify_backup_code_core(
 ) -> AuthResult<(VerifyBackupCodeResponse<UserView, SessionView>, String)> {
     let two_factor = ctx
         .database
-        .get_two_factor_by_user_id(user.id())
+        .get_two_factor_by_user_id(&user.id())
         .await?
         .ok_or_else(|| AuthError::not_found("Two-factor authentication not enabled"))?;
 
@@ -510,7 +510,7 @@ async fn verify_backup_code_core(
 
     let _ = ctx
         .database
-        .update_two_factor_backup_codes(user.id(), &updated_codes_json)
+        .update_two_factor_backup_codes(&user.id(), &updated_codes_json)
         .await?;
 
     // Create session

@@ -30,7 +30,7 @@ pub(crate) async fn create_organization_core(
     }
 
     if let Some(limit) = config.organization_limit {
-        let user_orgs = ctx.database.list_user_organizations(user.id()).await?;
+        let user_orgs = ctx.database.list_user_organizations(&user.id()).await?;
         if user_orgs.len() >= limit {
             return Err(AuthError::bad_request(format!(
                 "Organization limit of {} reached",
@@ -85,7 +85,7 @@ pub(crate) async fn update_organization_core(
 
     let member = ctx
         .database
-        .get_member(&org_id, user.id())
+        .get_member(&org_id, &user.id())
         .await?
         .ok_or_else(|| AuthError::forbidden("Not a member of this organization"))?;
 
@@ -134,7 +134,7 @@ pub(crate) async fn delete_organization_core(
 
     let member = ctx
         .database
-        .get_member(&body.organization_id, user.id())
+        .get_member(&body.organization_id, &user.id())
         .await?
         .ok_or_else(|| AuthError::forbidden("Not a member of this organization"))?;
 
@@ -160,7 +160,7 @@ pub(crate) async fn list_organizations_core(
     user: &impl AuthUser,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Vec<OrganizationView>> {
-    let organizations = ctx.database.list_user_organizations(user.id()).await?;
+    let organizations = ctx.database.list_user_organizations(&user.id()).await?;
     Ok(organizations.iter().map(OrganizationView::from).collect())
 }
 
@@ -180,7 +180,7 @@ pub(crate) async fn get_full_organization_core(
 
     let _ = ctx
         .database
-        .get_member(&org_id, user.id())
+        .get_member(&org_id, &user.id())
         .await?
         .ok_or_else(|| AuthError::forbidden("Not a member of this organization"))?;
 
@@ -194,7 +194,7 @@ pub(crate) async fn get_full_organization_core(
     let mut members = Vec::with_capacity(members_raw.len());
 
     for member in &members_raw {
-        if let Some(user_info) = ctx.database.get_user_by_id(member.user_id()).await? {
+        if let Some(user_info) = ctx.database.get_user_by_id(&member.user_id()).await? {
             members.push(MemberResponse::from_member_and_user(member, &user_info));
         }
     }
@@ -244,7 +244,7 @@ pub(crate) async fn set_active_organization_core(
     if let Some(ref oid) = org_id {
         let _ = ctx
             .database
-            .get_member(oid, user.id())
+            .get_member(oid, &user.id())
             .await?
             .ok_or_else(|| AuthError::forbidden("Not a member of this organization"))?;
     }
@@ -265,7 +265,7 @@ pub(crate) async fn leave_organization_core(
 ) -> AuthResult<SuccessResponse> {
     let member = ctx
         .database
-        .get_member(&body.organization_id, user.id())
+        .get_member(&body.organization_id, &user.id())
         .await?
         .ok_or_else(|| AuthError::forbidden("Not a member of this organization"))?;
 
@@ -286,7 +286,7 @@ pub(crate) async fn leave_organization_core(
         }
     }
 
-    ctx.database.delete_member(member.id()).await?;
+    ctx.database.delete_member(&member.id()).await?;
 
     if session.active_organization_id() == Some(&body.organization_id) {
         let _ = ctx

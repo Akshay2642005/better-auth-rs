@@ -2,23 +2,21 @@ use std::sync::Arc;
 
 use better_auth_core::{
     AuthConfig, AuthContext, AuthError, AuthInitContext, AuthPlugin, AuthRequest, AuthResponse,
-    AuthResult, AuthSchema, AuthStore, BeforeRequestAction, DatabaseHooks, EmailProvider,
-    HttpMethod, OkResponse, OpenApiBuilder, OpenApiSpec, SessionManager, UpdateUser,
-    UpdateUserRequest, core_paths,
+    AuthResult, AuthSchema, AuthStore, BeforeRequestAction, EmailProvider, HttpMethod, OkResponse,
+    OpenApiBuilder, OpenApiSpec, SessionManager, UpdateUser, UpdateUserRequest, core_paths,
     entity::{AuthSession, AuthUser},
     hooks::{RequestHookContext, with_request_hook_context_value},
     middleware::{
         self, BodyLimitConfig, BodyLimitMiddleware, CorsConfig, CorsMiddleware, CsrfConfig,
         CsrfMiddleware, Middleware, RateLimitConfig, RateLimitMiddleware,
     },
-    sea_orm::DatabaseConnection,
 };
 
 pub struct BetterAuth<S: AuthSchema> {
     config: Arc<AuthConfig>,
     plugins: Vec<Box<dyn AuthPlugin<S>>>,
     middlewares: Vec<Box<dyn Middleware>>,
-    database: Arc<AuthStore<S>>,
+    store: Arc<dyn AuthStore<S>>,
     session_manager: SessionManager<S>,
     context: AuthContext<S>,
 }
@@ -26,8 +24,7 @@ pub struct BetterAuth<S: AuthSchema> {
 /// Initial builder for configuring BetterAuth.
 pub struct AuthBuilder<S: AuthSchema> {
     config: AuthConfig,
-    database: Option<DatabaseConnection>,
-    database_hooks: Vec<Arc<dyn DatabaseHooks<S>>>,
+    store: Option<Arc<dyn AuthStore<S>>>,
     plugins: Vec<Box<dyn AuthPlugin<S>>>,
     csrf_config: Option<CsrfConfig>,
     rate_limit_config: Option<RateLimitConfig>,
@@ -40,8 +37,7 @@ impl<S: AuthSchema> AuthBuilder<S> {
     pub fn new(config: AuthConfig) -> Self {
         Self {
             config,
-            database: None,
-            database_hooks: Vec::new(),
+            store: None,
             plugins: Vec::new(),
             csrf_config: None,
             rate_limit_config: None,
@@ -51,12 +47,18 @@ impl<S: AuthSchema> AuthBuilder<S> {
         }
     }
 
-    /// Set the SeaORM connection handle for auth persistence.
-    ///
-    /// Clone the same [`DatabaseConnection`] into the rest of your application
-    /// state when Better Auth and app tables share one database.
-    pub fn database(mut self, database: DatabaseConnection) -> Self {
-        self.database = Some(database);
+    /// Set the shared auth store implementation.
+    pub fn store<T>(mut self, store: T) -> Self
+    where
+        T: AuthStore<S> + 'static,
+    {
+        self.store = Some(Arc::new(store));
+        self
+    }
+
+    /// Set the shared auth store implementation using an existing [`Arc`].
+    pub fn store_arc(mut self, store: Arc<dyn AuthStore<S>>) -> Self {
+        self.store = Some(store);
         self
     }
 
@@ -102,56 +104,31 @@ impl<S: AuthSchema> AuthBuilder<S> {
         self
     }
 
-    /// Add a database lifecycle hook for the built-in auth store.
-    pub fn database_hook<H: DatabaseHooks<S> + 'static>(mut self, hook: H) -> Self {
-        self.database_hooks.push(Arc::new(hook));
-        self
-    }
-
-    /// Add multiple database lifecycle hooks for the built-in auth store.
-    pub fn database_hooks<I, H>(mut self, hooks: I) -> Self
-    where
-        I: IntoIterator<Item = H>,
-        H: DatabaseHooks<S> + 'static,
-    {
-        self.database_hooks.extend(
-            hooks
-                .into_iter()
-                .map(|hook| Arc::new(hook) as Arc<dyn DatabaseHooks<S>>),
-        );
-        self
-    }
-
     /// Build the BetterAuth instance.
     pub async fn build(self) -> AuthResult<BetterAuth<S>> {
         // Validate configuration
         self.config.validate()?;
 
         let config = Arc::new(self.config);
-        let database = self
-            .database
-            .ok_or_else(|| AuthError::config("Database connection not configured"))?;
+        let store = self
+            .store
+            .ok_or_else(|| AuthError::config("Auth store not configured"))?;
 
-        let init_database = Arc::new(AuthStore::new(config.clone(), database.clone()));
-        let mut init_context = AuthInitContext::new(config.clone(), init_database);
+        let mut init_context = AuthInitContext::new(config.clone(), store.clone());
 
-        // Initialize all plugins and collect plugin-provided database hooks.
+        // Initialize all plugins.
         for plugin in &self.plugins {
             plugin.on_init(&mut init_context).await?;
         }
 
-        let mut init_parts = init_context.into_parts();
-        init_parts.database_hooks.extend(self.database_hooks);
-        let database = Arc::new(
-            AuthStore::new(config.clone(), database).with_hooks(init_parts.database_hooks),
-        );
+        let init_parts = init_context.into_parts();
 
         // Create session manager
-        let session_manager = SessionManager::new(config.clone(), database.clone());
+        let session_manager = SessionManager::new(config.clone(), store.clone());
 
         // Create context
         let context =
-            AuthContext::with_metadata(config.clone(), database.clone(), init_parts.metadata);
+            AuthContext::with_metadata(config.clone(), store.clone(), init_parts.metadata);
 
         // Build middleware chain (order matters: body limit → rate limit → CSRF → CORS → custom)
         let mut middlewares: Vec<Box<dyn Middleware>> = vec![
@@ -174,7 +151,7 @@ impl<S: AuthSchema> AuthBuilder<S> {
             config,
             plugins: self.plugins,
             middlewares,
-            database,
+            store,
             session_manager,
             context,
         })
@@ -298,14 +275,9 @@ impl<S: AuthSchema> BetterAuth<S> {
         &self.config
     }
 
-    /// Get the shared SeaORM connection handle used by Better Auth.
-    pub fn database_connection(&self) -> &DatabaseConnection {
-        self.database.connection()
-    }
-
-    #[doc(hidden)]
-    pub fn database(&self) -> &Arc<AuthStore<S>> {
-        &self.database
+    /// Get the shared auth store used by Better Auth.
+    pub fn store(&self) -> &Arc<dyn AuthStore<S>> {
+        &self.store
     }
 
     /// Get the session manager.
@@ -445,8 +417,8 @@ impl<S: AuthSchema> BetterAuth<S> {
         };
 
         _ = self
-            .database
-            .update_user(current_user.id(), update_user)
+            .store
+            .update_user(&current_user.id(), update_user)
             .await?;
 
         let mut response =
@@ -470,7 +442,7 @@ impl<S: AuthSchema> BetterAuth<S> {
     async fn extract_current_user(&self, req: &AuthRequest) -> AuthResult<S::User> {
         // Fast path: virtual session injected by before_request hook
         if let Some(uid) = req.virtual_user_id() {
-            let user = self.database.get_user_by_id(uid).await?;
+            let user = self.store.get_user_by_id(uid).await?;
             return user.ok_or(AuthError::UserNotFound);
         }
 
@@ -485,7 +457,7 @@ impl<S: AuthSchema> BetterAuth<S> {
             .await?
             .ok_or(AuthError::SessionNotFound)?;
 
-        let user = self.database.get_user_by_id(session.user_id()).await?;
+        let user = self.store.get_user_by_id(&session.user_id()).await?;
 
         user.ok_or(AuthError::UserNotFound)
     }

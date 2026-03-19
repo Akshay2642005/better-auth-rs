@@ -323,65 +323,58 @@ pub(crate) async fn sign_up_core(
     let database = ctx.database.clone();
     let transaction_database = database.clone();
 
-    database
-        .transaction(move |tx| {
-            let database = transaction_database.clone();
-            Box::pin(async move {
-                let user = database.create_user_in_tx(tx, create_user).await?;
+    better_auth_core::store::transaction(database.as_ref(), move |tx| {
+        let _database = transaction_database.clone();
+        Box::pin(async move {
+            let user = tx.create_user(create_user).await?;
 
-                let _ = database
-                    .create_account_in_tx(
-                        tx,
-                        CreateAccount {
-                            user_id: user.id().to_string(),
-                            account_id: user.id().to_string(),
-                            provider_id: "credential".to_string(),
-                            access_token: None,
-                            refresh_token: None,
-                            id_token: None,
-                            access_token_expires_at: None,
-                            refresh_token_expires_at: None,
-                            scope: None,
-                            password: Some(password_hash.clone()),
-                        },
-                    )
+            let _ = tx
+                .create_account(CreateAccount {
+                    user_id: user.id().to_string(),
+                    account_id: user.id().to_string(),
+                    provider_id: "credential".to_string(),
+                    access_token: None,
+                    refresh_token: None,
+                    id_token: None,
+                    access_token_expires_at: None,
+                    refresh_token_expires_at: None,
+                    scope: None,
+                    password: Some(password_hash.clone()),
+                })
+                .await?;
+
+            if auto_sign_in {
+                let session = tx
+                    .create_session(CreateSession {
+                        user_id: user.id().to_string(),
+                        expires_at: chrono::Utc::now() + expires_in,
+                        ip_address,
+                        user_agent,
+                        impersonated_by: None,
+                        active_organization_id: None,
+                    })
                     .await?;
+                let token = session.token().to_string();
 
-                if auto_sign_in {
-                    let session = database
-                        .create_session_in_tx(
-                            tx,
-                            CreateSession {
-                                user_id: user.id().to_string(),
-                                expires_at: chrono::Utc::now() + expires_in,
-                                ip_address,
-                                user_agent,
-                                impersonated_by: None,
-                                active_organization_id: None,
-                            },
-                        )
-                        .await?;
-                    let token = session.token().to_string();
-
-                    Ok((
-                        SignUpResponse {
-                            token: Some(token.clone()),
-                            user: UserView::from(&user),
-                        },
-                        Some(token),
-                    ))
-                } else {
-                    Ok((
-                        SignUpResponse {
-                            token: None,
-                            user: UserView::from(&user),
-                        },
-                        None,
-                    ))
-                }
-            })
+                Ok((
+                    SignUpResponse {
+                        token: Some(token.clone()),
+                        user: UserView::from(&user),
+                    },
+                    Some(token),
+                ))
+            } else {
+                Ok((
+                    SignUpResponse {
+                        token: None,
+                        user: UserView::from(&user),
+                    },
+                    None,
+                ))
+            }
         })
-        .await
+    })
+    .await
 }
 
 /// Shared sign-in logic after user lookup: verify password, check 2FA, create session.
@@ -397,7 +390,7 @@ async fn sign_in_with_user_core(
     // Verify password
     let stored_hash = ctx
         .database
-        .get_user_accounts(user.id())
+        .get_user_accounts(&user.id())
         .await?
         .into_iter()
         .find(|account| account.provider_id() == "credential" && account.password().is_some())
@@ -703,7 +696,7 @@ mod tests {
             .unwrap();
         let stored_hash = ctx
             .database
-            .get_user_accounts(user.id())
+            .get_user_accounts(&user.id())
             .await
             .unwrap()
             .into_iter()

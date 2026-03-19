@@ -203,7 +203,7 @@ where
                 let updated_user = ctx
                     .database
                     .update_user(
-                        user.id(),
+                        &user.id(),
                         UpdateUser {
                             email: Some(update_to.to_string()),
                             email_verified: Some(true),
@@ -236,7 +236,7 @@ where
                 let updated_user = ctx
                     .database
                     .update_user(
-                        user.id(),
+                        &user.id(),
                         UpdateUser {
                             email: Some(update_to.to_string()),
                             email_verified: Some(false),
@@ -301,7 +301,7 @@ where
     let updated_user = ctx
         .database
         .update_user(
-            user.id(),
+            &user.id(),
             UpdateUser {
                 email_verified: Some(true),
                 ..Default::default()

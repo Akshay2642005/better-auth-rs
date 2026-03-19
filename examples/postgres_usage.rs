@@ -10,13 +10,13 @@ use better_auth::prelude::{
     AuthAccount, AuthRequest, AuthResponse, AuthSession, AuthUser, AuthVerification, CreateAccount,
     CreateSession, CreateUser, CreateVerification, HttpMethod, UpdateAccount, UpdateUser,
 };
-use better_auth::store::sea_orm;
-use better_auth::store::sea_orm::entity::prelude::*;
-use better_auth::store::sea_orm::{ActiveValue::NotSet, ActiveValue::Set, ConnectionTrait, Schema};
-use better_auth::store::{Database, DatabaseConnection};
-use better_auth::{
-    AuthAccountModel, AuthConfig, AuthError, AuthResult, AuthSchema, AuthSessionModel,
-    AuthUserModel, AuthVerificationModel, BetterAuth,
+use better_auth::{AuthConfig, AuthError, AuthResult, AuthSchema, BetterAuth};
+use better_auth_seaorm::sea_orm;
+use better_auth_seaorm::sea_orm::entity::prelude::*;
+use better_auth_seaorm::sea_orm::{ActiveValue::NotSet, ActiveValue::Set, ConnectionTrait, Schema};
+use better_auth_seaorm::{
+    AuthAccountModel, AuthSessionModel, AuthUserModel, AuthVerificationModel, Database,
+    DatabaseConnection, SeaOrmStore,
 };
 use chrono::{DateTime, Utc};
 use rand::rngs::OsRng;
@@ -667,9 +667,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
         .base_url("http://localhost:3000")
         .password_min_length(8);
+    let store =
+        SeaOrmStore::<AppSchema>::new(std::sync::Arc::new(config.clone()), database.clone());
 
     let auth = BetterAuth::<AppSchema>::new(config)
-        .database(database.clone())
+        .store(store)
         .plugin(EmailPasswordPlugin::new().enable_signup(true))
         .plugin(PasswordManagementPlugin::new())
         .plugin(SessionManagementPlugin::new())

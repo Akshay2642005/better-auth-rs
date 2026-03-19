@@ -33,7 +33,7 @@ pub(crate) async fn invite_member_core(
 
     let member = ctx
         .database
-        .get_member(&org_id, user.id())
+        .get_member(&org_id, &user.id())
         .await?
         .ok_or_else(|| AuthError::forbidden("Not a member of this organization"))?;
 
@@ -72,7 +72,7 @@ pub(crate) async fn invite_member_core(
     if let Some(existing_user) = ctx.database.get_user_by_email(&body.email).await?
         && ctx
             .database
-            .get_member(&org_id, existing_user.id())
+            .get_member(&org_id, &existing_user.id())
             .await?
             .is_some()
     {
@@ -120,16 +120,19 @@ pub(crate) async fn get_invitation_core(
 
     let organization = ctx
         .database
-        .get_organization_by_id(invitation.organization_id())
+        .get_organization_by_id(&invitation.organization_id())
         .await?
         .ok_or_else(|| AuthError::not_found("Organization not found"))?;
 
-    let inviter_email =
-        if let Some(inviter) = ctx.database.get_user_by_id(invitation.inviter_id()).await? {
-            inviter.email().map(|s| s.to_string())
-        } else {
-            None
-        };
+    let inviter_email = if let Some(inviter) = ctx
+        .database
+        .get_user_by_id(&invitation.inviter_id())
+        .await?
+    {
+        inviter.email().map(|s| s.to_string())
+    } else {
+        None
+    };
 
     Ok(GetInvitationResponse {
         invitation: InvitationView::from(&invitation),
@@ -150,7 +153,7 @@ pub(crate) async fn list_invitations_core(
 
     let _ = ctx
         .database
-        .get_member(&org_id, user.id())
+        .get_member(&org_id, &user.id())
         .await?
         .ok_or_else(|| AuthError::forbidden("Not a member of this organization"))?;
 
@@ -213,7 +216,7 @@ pub(crate) async fn accept_invitation_core(
     if let Some(limit) = config.membership_limit {
         let members = ctx
             .database
-            .list_organization_members(invitation.organization_id())
+            .list_organization_members(invitation.organization_id().as_ref())
             .await?;
         if members.len() >= limit {
             return Err(AuthError::bad_request(
@@ -224,13 +227,13 @@ pub(crate) async fn accept_invitation_core(
 
     if ctx
         .database
-        .get_member(invitation.organization_id(), user.id())
+        .get_member(invitation.organization_id().as_ref(), &user.id())
         .await?
         .is_some()
     {
         let _ = ctx
             .database
-            .update_invitation_status(invitation.id(), InvitationStatus::Accepted)
+            .update_invitation_status(&invitation.id(), InvitationStatus::Accepted)
             .await?;
         return Err(AuthError::bad_request(
             "Already a member of this organization",
@@ -247,7 +250,7 @@ pub(crate) async fn accept_invitation_core(
 
     let updated_invitation = ctx
         .database
-        .update_invitation_status(invitation.id(), InvitationStatus::Accepted)
+        .update_invitation_status(&invitation.id(), InvitationStatus::Accepted)
         .await?;
 
     let _ = ctx
@@ -294,7 +297,7 @@ pub(crate) async fn reject_invitation_core(
 
     let _ = ctx
         .database
-        .update_invitation_status(invitation.id(), InvitationStatus::Rejected)
+        .update_invitation_status(&invitation.id(), InvitationStatus::Rejected)
         .await?;
 
     Ok(SuccessResponse { success: true })
@@ -314,7 +317,7 @@ pub(crate) async fn cancel_invitation_core(
 
     let member = ctx
         .database
-        .get_member(invitation.organization_id(), user.id())
+        .get_member(invitation.organization_id().as_ref(), &user.id())
         .await?
         .ok_or_else(|| AuthError::forbidden("Not a member of this organization"))?;
 
@@ -338,7 +341,7 @@ pub(crate) async fn cancel_invitation_core(
 
     let _ = ctx
         .database
-        .update_invitation_status(invitation.id(), InvitationStatus::Canceled)
+        .update_invitation_status(&invitation.id(), InvitationStatus::Canceled)
         .await?;
 
     Ok(SuccessResponse { success: true })

@@ -1,6 +1,5 @@
-//! Database hook interfaces and request-hook utilities.
+//! Request-hook utilities shared across Better Auth integrations.
 
 pub use better_auth_core::hooks::{
-    DatabaseHookContext, DatabaseHooks, HookControl, RequestHookContext, with_request_hook_context,
-    with_request_hook_context_value,
+    RequestHookContext, with_request_hook_context, with_request_hook_context_value,
 };

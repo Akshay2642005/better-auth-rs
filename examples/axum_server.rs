@@ -3,11 +3,11 @@ use axum::{Json as AxumJson, Router, response::IntoResponse, routing::get};
 use better_auth::integrations::axum::{AxumIntegration, CurrentSession, OptionalSession};
 use better_auth::plugins::{EmailPasswordPlugin, SessionManagementPlugin};
 use better_auth::prelude::AuthUser;
-use better_auth::store::sea_orm;
-use better_auth::store::sea_orm::entity::prelude::*;
-use better_auth::store::sea_orm::{ConnectionTrait, Schema};
-use better_auth::store::{Database, DatabaseConnection};
-use better_auth::{AuthConfig, AuthEntity, AuthSchema, BetterAuth};
+use better_auth::{AuthConfig, AuthSchema, BetterAuth};
+use better_auth_seaorm::sea_orm;
+use better_auth_seaorm::sea_orm::entity::prelude::*;
+use better_auth_seaorm::sea_orm::{ConnectionTrait, Schema};
+use better_auth_seaorm::{AuthEntity, Database, DatabaseConnection, SeaOrmStore};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
@@ -155,10 +155,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "sqlite://better-auth-axum.db?mode=rwc".to_string());
     let database = Database::connect(&database_url).await?;
     run_app_migrations(&database).await?;
+    let store = SeaOrmStore::<AppAuthSchema>::new(Arc::new(config.clone()), database.clone());
 
     let auth = Arc::new(
         BetterAuth::<AppAuthSchema>::new(config)
-            .database(database.clone())
+            .store(store)
             .plugin(EmailPasswordPlugin::new().enable_signup(true))
             .plugin(SessionManagementPlugin::new())
             .build()

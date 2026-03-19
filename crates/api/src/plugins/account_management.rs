@@ -62,7 +62,7 @@ pub(crate) async fn list_accounts_core(
     user: &impl AuthUser,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Vec<AccountResponse>> {
-    let accounts = ctx.database.get_user_accounts(user.id()).await?;
+    let accounts = ctx.database.get_user_accounts(&user.id()).await?;
 
     let filtered: Vec<AccountResponse> = accounts
         .iter()
@@ -97,7 +97,7 @@ pub(crate) async fn unlink_account_core(
     account_id: Option<&str>,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<StatusResponse> {
-    let accounts = ctx.database.get_user_accounts(user.id()).await?;
+    let accounts = ctx.database.get_user_accounts(&user.id()).await?;
 
     let allow_unlinking_all = ctx.config.account.account_linking.allow_unlinking_all;
 
@@ -139,7 +139,7 @@ pub(crate) async fn unlink_account_core(
         })
         .ok_or_else(|| AuthError::not_found("No account found with this provider"))?;
 
-    ctx.database.delete_account(account_to_remove.id()).await?;
+    ctx.database.delete_account(&account_to_remove.id()).await?;
 
     Ok(StatusResponse { status: true })
 }

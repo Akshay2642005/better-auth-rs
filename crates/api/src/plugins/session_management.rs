@@ -124,7 +124,7 @@ pub(crate) async fn revoke_sessions_core(
     user_id: impl AsRef<str>,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<StatusResponse> {
-    ctx.database.delete_user_sessions(user_id).await?;
+    ctx.database.delete_user_sessions(user_id.as_ref()).await?;
     Ok(StatusResponse { status: true })
 }
 

@@ -99,18 +99,17 @@ mod tests {
     async fn test_missing_provider_returns_error() {
         use crate::config::AuthConfig;
         use crate::plugin::AuthContext;
-        use crate::sea_orm::Database;
-        use crate::store::AuthStore;
-        use crate::store::sea_orm::__private_test_support::bundled_schema::BundledSchema;
+        use better_auth_seaorm::store::__private_test_support::bundled_schema::BundledSchema;
+        use better_auth_seaorm::{Database, SeaOrmStore};
 
         let config = Arc::new(AuthConfig::new("test-secret-key-at-least-32-chars-long"));
         let database = Database::connect("sqlite::memory:")
             .await
             .expect("sqlite test database should connect");
-        crate::store::sea_orm::__private_test_support::migrator::run_migrations(&database)
+        better_auth_seaorm::store::__private_test_support::migrator::run_migrations(&database)
             .await
             .expect("sqlite test migrations should run");
-        let database = Arc::new(AuthStore::<BundledSchema>::new(config.clone(), database));
+        let database = Arc::new(SeaOrmStore::<BundledSchema>::new(config.clone(), database));
         let ctx = AuthContext::new(config, database);
 
         let result = ctx.email_provider();

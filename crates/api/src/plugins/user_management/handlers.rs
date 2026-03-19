@@ -65,7 +65,7 @@ pub(crate) async fn change_email_core(
             email: Some(new_email),
             ..Default::default()
         };
-        let _ = ctx.database.update_user(user.id(), update_user).await?;
+        let _ = ctx.database.update_user(&user.id(), update_user).await?;
 
         return Ok(StatusResponse { status: true });
     }
@@ -124,7 +124,7 @@ pub(crate) async fn delete_user_core(
     if let Some(password) = body.password.as_deref() {
         let account = ctx
             .database
-            .get_user_accounts(user.id())
+            .get_user_accounts(&user.id())
             .await?
             .into_iter()
             .find(|account| account.provider_id() == "credential" && account.password().is_some())
@@ -217,7 +217,7 @@ pub(crate) async fn delete_user_callback_core(
         }
 
         perform_user_deletion(current_user, config, ctx).await?;
-        ctx.database.delete_verification(verification.id()).await?;
+        ctx.database.delete_verification(&verification.id()).await?;
 
         return Ok(SuccessMessageResponse {
             success: true,
@@ -240,14 +240,14 @@ async fn perform_user_deletion(
         hook.before_delete(&user_info).await?;
     }
 
-    ctx.database.delete_user_sessions(user.id()).await?;
+    ctx.database.delete_user_sessions(&user.id()).await?;
 
-    let accounts = ctx.database.get_user_accounts(user.id()).await?;
+    let accounts = ctx.database.get_user_accounts(&user.id()).await?;
     for account in &accounts {
-        ctx.database.delete_account(account.id()).await?;
+        ctx.database.delete_account(&account.id()).await?;
     }
 
-    ctx.database.delete_user(user.id()).await?;
+    ctx.database.delete_user(&user.id()).await?;
 
     if let Some(ref hook) = config.delete_user.after_delete
         && let Err(error) = hook.after_delete(&user_info).await
