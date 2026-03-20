@@ -2,7 +2,7 @@ use chrono::{Duration, Utc};
 
 use better_auth_core::entity::{AuthAccount, AuthSession, AuthUser};
 use better_auth_core::wire::{SessionView, UserView};
-use better_auth_core::{AuthContext, AuthError, AuthResult, ListUsersParams, PASSWORD_HASH_KEY};
+use better_auth_core::{AuthContext, AuthError, AuthResult, ListUsersParams};
 use better_auth_core::{CreateAccount, CreateSession, UpdateUser};
 
 use crate::plugins::StatusResponse;
@@ -44,34 +44,15 @@ pub(crate) async fn create_user_core(
         return Err(AuthError::conflict("A user with this email already exists"));
     }
 
-    if body.password.len() < ctx.config.password.min_length {
-        return Err(AuthError::bad_request(format!(
-            "Password must be at least {} characters long",
-            ctx.config.password.min_length
-        )));
-    }
-
-    let password_hash = better_auth_core::hash_password(None, &body.password).await?;
-
     let role = body
         .role
         .clone()
         .unwrap_or_else(|| config.default_user_role.clone());
 
-    let metadata_value = body.data.clone().unwrap_or(serde_json::json!({}));
-    let metadata = if let serde_json::Value::Object(mut obj) = metadata_value {
-        let _ = obj.insert(
-            PASSWORD_HASH_KEY.to_string(),
-            serde_json::json!(password_hash),
-        );
+    let metadata = if let Some(serde_json::Value::Object(obj)) = body.data.clone() {
         serde_json::Value::Object(obj)
     } else {
-        let mut obj = serde_json::Map::new();
-        let _ = obj.insert(
-            PASSWORD_HASH_KEY.to_string(),
-            serde_json::json!(password_hash),
-        );
-        serde_json::Value::Object(obj)
+        serde_json::json!({})
     };
 
     let create_user = better_auth_core::CreateUser::new()
@@ -83,21 +64,28 @@ pub(crate) async fn create_user_core(
 
     let user = ctx.database.create_user(create_user).await?;
 
-    let _ = ctx
-        .database
-        .create_account(CreateAccount {
-            user_id: user.id().to_string(),
-            account_id: user.id().to_string(),
-            provider_id: "credential".to_string(),
-            access_token: None,
-            refresh_token: None,
-            id_token: None,
-            access_token_expires_at: None,
-            refresh_token_expires_at: None,
-            scope: None,
-            password: Some(password_hash),
-        })
-        .await?;
+    if let Some(password) = body
+        .password
+        .as_deref()
+        .filter(|password| !password.is_empty())
+    {
+        let password_hash = better_auth_core::hash_password(None, password).await?;
+        let _ = ctx
+            .database
+            .create_account(CreateAccount {
+                user_id: user.id().to_string(),
+                account_id: user.id().to_string(),
+                provider_id: "credential".to_string(),
+                access_token: None,
+                refresh_token: None,
+                id_token: None,
+                access_token_expires_at: None,
+                refresh_token_expires_at: None,
+                scope: None,
+                password: Some(password_hash),
+            })
+            .await?;
+    }
 
     Ok(UserResponse {
         user: UserView::from(&user),
@@ -363,64 +351,20 @@ pub(crate) async fn set_user_password_core(
         )));
     }
 
-    let user = ctx
-        .database
-        .get_user_by_id(&body.user_id)
-        .await?
-        .ok_or_else(|| AuthError::not_found("User not found"))?;
-
     let password_hash = better_auth_core::hash_password(None, &body.new_password).await?;
 
-    let mut metadata = user.metadata().clone();
-    if let Some(obj) = metadata.as_object_mut() {
-        let _ = obj.insert(
-            PASSWORD_HASH_KEY.to_string(),
-            serde_json::json!(password_hash),
-        );
-    } else {
-        return Err(AuthError::bad_request(
-            "User metadata must be a JSON object to store password hash",
-        ));
-    }
-
-    let update = UpdateUser {
-        metadata: Some(metadata),
-        ..Default::default()
-    };
-    let _ = ctx.database.update_user(&body.user_id, update).await?;
-
     let accounts = ctx.database.get_user_accounts(&body.user_id).await?;
-    let has_credential = accounts.iter().any(|a| a.provider_id() == "credential");
-
-    if has_credential {
-        for account in &accounts {
-            if account.provider_id() == "credential" {
-                let account_update = better_auth_core::UpdateAccount {
-                    password: Some(password_hash.clone()),
-                    ..Default::default()
-                };
-                let _ = ctx
-                    .database
-                    .update_account(&account.id(), account_update)
-                    .await?;
-                break;
-            }
-        }
-    } else {
+    if let Some(account) = accounts
+        .iter()
+        .find(|account| account.provider_id() == "credential")
+    {
+        let account_update = better_auth_core::UpdateAccount {
+            password: Some(password_hash),
+            ..Default::default()
+        };
         let _ = ctx
             .database
-            .create_account(CreateAccount {
-                user_id: body.user_id.clone(),
-                account_id: body.user_id.clone(),
-                provider_id: "credential".to_string(),
-                access_token: None,
-                refresh_token: None,
-                id_token: None,
-                access_token_expires_at: None,
-                refresh_token_expires_at: None,
-                scope: None,
-                password: Some(password_hash.clone()),
-            })
+            .update_account(&account.id(), account_update)
             .await?;
     }
 

@@ -203,7 +203,6 @@ pub struct CreateUser {
     pub name: Option<String>,
     pub image: Option<String>,
     pub email_verified: Option<bool>,
-    pub password: Option<String>,
     pub username: Option<String>,
     pub display_username: Option<String>,
     pub role: Option<String>,
@@ -281,7 +280,6 @@ impl CreateUser {
             name: None,
             image: None,
             email_verified: None,
-            password: None,
             username: None,
             display_username: None,
             role: None,
@@ -301,11 +299,6 @@ impl CreateUser {
 
     pub fn with_email_verified(mut self, verified: bool) -> Self {
         self.email_verified = Some(verified);
-        self
-    }
-
-    pub fn with_password(mut self, password: impl Into<String>) -> Self {
-        self.password = Some(password.into());
         self
     }
 
@@ -734,7 +727,6 @@ mod tests {
         let cu = CreateUser::new()
             .with_email("Test@Example.COM")
             .with_name("Test")
-            .with_password("pass123")
             .with_email_verified(true)
             .with_username("testuser")
             .with_role("admin")
@@ -743,7 +735,6 @@ mod tests {
         assert!(cu.id.is_none()); // ID generation is delegated to the model/store path
         assert_eq!(cu.email.as_deref(), Some("test@example.com"));
         assert_eq!(cu.name.as_deref(), Some("Test"));
-        assert_eq!(cu.password.as_deref(), Some("pass123"));
         assert_eq!(cu.email_verified, Some(true));
         assert_eq!(cu.username.as_deref(), Some("testuser"));
         assert_eq!(cu.role.as_deref(), Some("admin"));

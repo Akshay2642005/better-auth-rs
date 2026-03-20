@@ -15,9 +15,6 @@ use serde::Serialize;
 
 use crate::types::InvitationStatus;
 
-/// Metadata key used to store the password hash inside [`AuthUser::metadata()`].
-pub const PASSWORD_HASH_KEY: &str = "password_hash";
-
 /// Trait representing a user entity.
 ///
 /// The framework reads user fields through these getters. Custom types
@@ -38,13 +35,6 @@ pub trait AuthUser: Clone + Send + Sync + Serialize + std::fmt::Debug + 'static 
     fn ban_reason(&self) -> Option<&str>;
     fn ban_expires(&self) -> Option<DateTime<Utc>>;
     fn metadata(&self) -> &serde_json::Value;
-
-    /// Extract the stored password hash from the user metadata.
-    fn password_hash(&self) -> Option<&str> {
-        self.metadata()
-            .get(PASSWORD_HASH_KEY)
-            .and_then(|v| v.as_str())
-    }
 }
 
 /// Trait representing a session entity.

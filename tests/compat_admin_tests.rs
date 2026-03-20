@@ -279,7 +279,36 @@ async fn test_admin_set_user_password_user_not_found() {
     );
     let (status, _json) = send_request(&auth, req).await;
 
-    assert_eq!(status, 404, "missing user should get 404");
+    assert_eq!(status, 200, "missing user should no-op with success");
+}
+
+#[tokio::test]
+async fn test_admin_create_user_without_password_skips_credential_account() {
+    let auth = create_test_auth().await;
+    let admin_token = setup_admin(&auth).await;
+
+    let req = post_json_with_auth(
+        "/admin/create-user",
+        json!({
+            "email": "passwordless@test.com",
+            "name": "Passwordless User"
+        }),
+        &admin_token,
+    );
+    let (status, json) = send_request(&auth, req).await;
+
+    assert_eq!(
+        status, 200,
+        "create-user without password should succeed: {}",
+        json
+    );
+    let user_id = json["user"]["id"].as_str().unwrap();
+
+    let accounts = auth.store().get_user_accounts(user_id).await.unwrap();
+    assert!(
+        accounts.is_empty(),
+        "passwordless admin create-user should not create a credential account"
+    );
 }
 
 // ---------------------------------------------------------------------------

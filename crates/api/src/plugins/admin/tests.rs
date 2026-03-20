@@ -297,6 +297,31 @@ async fn test_create_user_creates_credential_account() {
 
 // Upstream reference: packages/better-auth/src/plugins/admin/admin.test.ts :: describe("Admin plugin") and packages/better-auth/src/plugins/admin/routes.ts; adapted to the Rust admin plugin handlers.
 #[tokio::test]
+async fn test_create_user_without_password_skips_credential_account() {
+    let (ctx, _admin, admin_session, _user, _user_session) = create_admin_context().await;
+    let plugin = AdminPlugin::new();
+
+    let req = make_request(
+        HttpMethod::Post,
+        "/admin/create-user",
+        &admin_session.token,
+        Some(serde_json::json!({
+            "email": "passwordless@example.com",
+            "name": "Passwordless User"
+        })),
+    );
+
+    let resp = plugin.on_request(&req, &ctx).await.unwrap().unwrap();
+    assert_eq!(resp.status, 200);
+    let body = json_body(&resp);
+    let user_id = body["user"]["id"].as_str().unwrap();
+
+    let accounts = ctx.database.get_user_accounts(user_id).await.unwrap();
+    assert!(accounts.is_empty());
+}
+
+// Upstream reference: packages/better-auth/src/plugins/admin/admin.test.ts :: describe("Admin plugin") and packages/better-auth/src/plugins/admin/routes.ts; adapted to the Rust admin plugin handlers.
+#[tokio::test]
 async fn test_create_user_duplicate_email_rejected() {
     let (ctx, _admin, admin_session, _user, _user_session) = create_admin_context().await;
     let plugin = AdminPlugin::new();
@@ -1150,6 +1175,44 @@ async fn test_set_user_password_updates_account() {
 
 // Upstream reference: packages/better-auth/src/plugins/admin/admin.test.ts :: describe("Admin plugin") and packages/better-auth/src/plugins/admin/routes.ts; adapted to the Rust admin plugin handlers.
 #[tokio::test]
+async fn test_set_user_password_does_not_create_credential_account() {
+    let (ctx, _admin, admin_session, _user, _user_session) = create_admin_context().await;
+    let plugin = AdminPlugin::new();
+
+    let req = make_request(
+        HttpMethod::Post,
+        "/admin/create-user",
+        &admin_session.token,
+        Some(serde_json::json!({
+            "email": "passwordless@example.com",
+            "name": "Passwordless User"
+        })),
+    );
+    let resp = plugin.on_request(&req, &ctx).await.unwrap().unwrap();
+    let body = json_body(&resp);
+    let user_id = body["user"]["id"].as_str().unwrap().to_string();
+
+    let req = make_request(
+        HttpMethod::Post,
+        "/admin/set-user-password",
+        &admin_session.token,
+        Some(serde_json::json!({
+            "userId": user_id,
+            "newPassword": "newpassword456"
+        })),
+    );
+
+    let resp = plugin.on_request(&req, &ctx).await.unwrap().unwrap();
+    assert_eq!(resp.status, 200);
+    let body = json_body(&resp);
+    assert_eq!(body["status"], true);
+
+    let accounts_after = ctx.database.get_user_accounts(&user_id).await.unwrap();
+    assert!(accounts_after.is_empty());
+}
+
+// Upstream reference: packages/better-auth/src/plugins/admin/admin.test.ts :: describe("Admin plugin") and packages/better-auth/src/plugins/admin/routes.ts; adapted to the Rust admin plugin handlers.
+#[tokio::test]
 async fn test_set_user_password_too_short() {
     let (ctx, _admin, admin_session, user, _user_session) = create_admin_context().await;
     let plugin = AdminPlugin::new();
@@ -1184,8 +1247,10 @@ async fn test_set_password_nonexistent_user() {
         })),
     );
 
-    let result = plugin.on_request(&req, &ctx).await;
-    assert!(result.is_err());
+    let resp = plugin.on_request(&req, &ctx).await.unwrap().unwrap();
+    assert_eq!(resp.status, 200);
+    let body = json_body(&resp);
+    assert_eq!(body["status"], true);
 }
 
 // -----------------------------------------------------------------------

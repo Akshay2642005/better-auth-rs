@@ -44,7 +44,7 @@ pub use config::{
 pub use email::{ConsoleEmailProvider, EmailProvider};
 pub use entity::{
     AuthAccount, AuthApiKey, AuthInvitation, AuthMember, AuthOrganization, AuthPasskey,
-    AuthSession, AuthTwoFactor, AuthUser, AuthVerification, MemberUserView, PASSWORD_HASH_KEY,
+    AuthSession, AuthTwoFactor, AuthUser, AuthVerification, MemberUserView,
 };
 pub use error::{
     AuthError, AuthResult, DatabaseError, validate_request_body, validation_error_response,
