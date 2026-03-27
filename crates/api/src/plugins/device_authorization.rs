@@ -1,10 +1,16 @@
+use chrono::{DateTime, Utc};
+use rand::{Rng, distributions::Alphanumeric};
+use serde::{Deserialize, Serialize};
+use validator::Validate;
+
+use better_auth_core::adapters::DatabaseAdapter;
+use better_auth_core::entity::AuthUser;
 use better_auth_core::{
-    AuthContext, AuthError, AuthRequest, AuthResponse, AuthResult, DatabaseAdapter,
+    AuthContext, AuthError, AuthRequest, AuthResponse, AuthResult, AuthSession, AuthVerification,
+    CreateVerification,
 };
 
-pub struct DeviceAuthorizationPlugin {
-    config: DeviceAuthorizationConfig,
-}
+use super::StatusResponse;
 
 #[derive(Debug, Clone, better_auth_core::PluginConfig)]
 #[plugin(name = "DeviceAuthorizationPlugin")]
@@ -22,8 +28,12 @@ pub struct DeviceAuthorizationConfig {
     pub expires_in: i64,
 }
 
+pub struct DeviceAuthorizationPlugin {
+    config: DeviceAuthorizationConfig,
+}
+
 better_auth_core::impl_auth_plugin! {
-    DeviceAuthorizationPlugin, "device-authorization";
+    DeviceAuthorizationPlugin, "device-flow";
     routes {
         post "/device/code" => handle_code, "device_code";
         post "/device/token" => handle_token, "device_token";
@@ -32,52 +42,314 @@ better_auth_core::impl_auth_plugin! {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DeviceAuthorizationRecord {
+    device_code: String,
+    user_code: String,
+    client_id: String,
+    scope: Option<String>,
+    status: DeviceStatus,
+    user_id: Option<String>,
+    expires_at: DateTime<Utc>,
+    last_polled_at: Option<DateTime<Utc>>,
+    interval: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum DeviceStatus {
+    Pending,
+    Approved,
+    Denied,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredVerification {
+    code: String,
+    data: DeviceAuthorizationRecord,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+struct DeviceCodeRequest {
+    #[validate(length(min = 1))]
+    client_id: String,
+    scope: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+struct DeviceTokenRequest {
+    device_code: String,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+struct ApproveRequest {
+    #[serde(rename = "userCode")]
+    user_code: String,
+}
+
+#[derive(Debug, Serialize)]
+struct DeviceCodeResponse {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    expires_in: i64,
+    interval: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct DeviceTokenResponse {
+    access_token: String,
+}
+
 // ---------------------------------------------------------------------------
 // Core functions — framework-agnostic business logic
+// ---------------------------------------------------------------------------
+
+async fn create_device_code_core<DB: DatabaseAdapter>(
+    client_id: String,
+    scope: Option<String>,
+    ctx: &AuthContext<DB>,
+    config: &DeviceAuthorizationConfig,
+) -> AuthResult<DeviceCodeResponse> {
+    let device_code: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(40)
+        .map(char::from)
+        .collect();
+
+    let user_code: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(8)
+        .map(char::from)
+        .collect::<String>()
+        .to_uppercase();
+
+    let expires_at = Utc::now() + chrono::Duration::seconds(config.expires_in);
+
+    let record = DeviceAuthorizationRecord {
+        device_code: device_code.clone(),
+        user_code: user_code.clone(),
+        client_id,
+        scope,
+        status: DeviceStatus::Pending,
+        user_id: None,
+        expires_at,
+        last_polled_at: None,
+        interval: config.interval,
+    };
+
+    // device_code index
+    ctx.database
+        .create_verification(CreateVerification {
+            identifier: "device_code".to_string(),
+            value: device_code.clone(),
+            expires_at,
+        })
+        .await?;
+
+    // user_code index (stores full payload)
+    ctx.database
+        .create_verification(CreateVerification {
+            identifier: "user_code".to_string(),
+            value: serde_json::to_string(&StoredVerification {
+                code: user_code.clone(),
+                data: record,
+            })?,
+            expires_at,
+        })
+        .await?;
+
+    Ok(DeviceCodeResponse {
+        device_code,
+        user_code,
+        verification_uri: config.verification_uri.clone(),
+        expires_in: config.expires_in,
+        interval: config.interval,
+    })
+}
+
+async fn poll_device_token_core<DB: DatabaseAdapter>(
+    device_code: String,
+    ctx: &AuthContext<DB>,
+) -> AuthResult<DeviceTokenResponse> {
+    let record = ctx
+        .database
+        .get_verification("device_code", &device_code)
+        .await?
+        .ok_or_else(|| AuthError::bad_request("invalid_grant"))?;
+
+    let stored: StoredVerification = serde_json::from_str(record.value())?;
+    let data = stored.data;
+
+    if data.expires_at < Utc::now() {
+        return Err(AuthError::bad_request("expired_token"));
+    }
+    if let Some(last) = data.last_polled_at {
+        if (Utc::now() - last).num_seconds() < data.interval {
+            return Err(AuthError::bad_request("slow_down"));
+        }
+    } else if Utc::now() < data.expires_at {
+        return Err(AuthError::bad_request("authorization_pending"));
+    }
+
+    match data.status {
+        DeviceStatus::Pending => Err(AuthError::bad_request("authorization_pending")),
+        DeviceStatus::Denied => Err(AuthError::bad_request("access_denied")),
+        DeviceStatus::Approved => {
+            let user_id = data.user_id.unwrap();
+
+            let user = ctx
+                .database
+                .get_user_by_id(&user_id)
+                .await?
+                .ok_or_else(|| AuthError::internal("User not found"))?;
+
+            let session = ctx
+                .session_manager()
+                .create_session(&user, None, None)
+                .await?;
+
+            Ok(DeviceTokenResponse {
+                access_token: session.token().to_string(),
+            })
+        }
+    }
+}
+
+async fn approve_device_core<DB: DatabaseAdapter>(
+    user: &DB::User,
+    user_code: &str,
+    ctx: &AuthContext<DB>,
+) -> AuthResult<StatusResponse> {
+    let record = ctx
+        .database
+        .consume_verification("user_code", user_code)
+        .await?
+        .ok_or_else(|| AuthError::not_found("Invalid code"))?;
+
+    let mut stored: StoredVerification = serde_json::from_str(record.value())?;
+
+    stored.data.status = DeviceStatus::Approved;
+    stored.data.user_id = Some(user.id().to_string());
+
+    let value = serde_json::to_string(&stored)?;
+
+    ctx.database
+        .create_verification(CreateVerification {
+            identifier: "device_code".to_string(),
+            value,
+            expires_at: stored.data.expires_at,
+        })
+        .await?;
+
+    Ok(StatusResponse { status: true })
+}
+
+async fn deny_device_core<DB: DatabaseAdapter>(
+    user_code: &str,
+    ctx: &AuthContext<DB>,
+) -> AuthResult<StatusResponse> {
+    let record = ctx
+        .database
+        .consume_verification("user_code", user_code)
+        .await?
+        .ok_or_else(|| AuthError::not_found("Invalid code"))?;
+
+    let mut stored: StoredVerification = serde_json::from_str(record.value())?;
+
+    stored.data.status = DeviceStatus::Denied;
+
+    ctx.database
+        .create_verification(CreateVerification {
+            identifier: "device_code".to_string(),
+            value: serde_json::to_string(&stored)?,
+            expires_at: stored.data.expires_at,
+        })
+        .await?;
+
+    Ok(StatusResponse { status: true })
+}
+
+// ---------------------------------------------------------------------------
+// Old handler methods — delegate to core functions
 // ---------------------------------------------------------------------------
 
 impl DeviceAuthorizationPlugin {
     async fn handle_code<DB: DatabaseAdapter>(
         &self,
-        _req: &AuthRequest,
-        _ctx: &AuthContext<DB>,
+        req: &AuthRequest,
+        ctx: &AuthContext<DB>,
     ) -> AuthResult<AuthResponse> {
         if !self.config.enabled {
-            return Err(AuthError::not_found("Not Found"));
+            return Err(AuthError::not_found("Not found"));
         }
-        todo!()
+
+        let body: DeviceCodeRequest = match better_auth_core::validate_request_body(req) {
+            Ok(v) => v,
+            Err(resp) => return Ok(resp),
+        };
+
+        let resp = create_device_code_core(body.client_id, body.scope, ctx, &self.config).await?;
+
+        Ok(AuthResponse::json(200, &resp)?)
     }
 
     async fn handle_token<DB: DatabaseAdapter>(
         &self,
-        _req: &AuthRequest,
-        _ctx: &AuthContext<DB>,
+        req: &AuthRequest,
+        ctx: &AuthContext<DB>,
     ) -> AuthResult<AuthResponse> {
         if !self.config.enabled {
-            return Err(AuthError::not_found("Not Found"));
+            return Err(AuthError::not_found("Not found"));
         }
-        todo!()
+
+        let body: DeviceTokenRequest = match better_auth_core::validate_request_body(req) {
+            Ok(v) => v,
+            Err(resp) => return Ok(resp),
+        };
+
+        let resp = poll_device_token_core(body.device_code, ctx).await?;
+
+        Ok(AuthResponse::json(200, &resp)?)
     }
 
     async fn handle_approve<DB: DatabaseAdapter>(
         &self,
-        _req: &AuthRequest,
-        _ctx: &AuthContext<DB>,
+        req: &AuthRequest,
+        ctx: &AuthContext<DB>,
     ) -> AuthResult<AuthResponse> {
         if !self.config.enabled {
-            return Err(AuthError::not_found("Not Found"));
+            return Err(AuthError::not_found("Not found"));
         }
-        todo!()
+
+        let (user, _) = ctx.require_session(req).await?;
+
+        let body: ApproveRequest = match better_auth_core::validate_request_body(req) {
+            Ok(v) => v,
+            Err(resp) => return Ok(resp),
+        };
+
+        let resp = approve_device_core(&user, &body.user_code, ctx).await?;
+
+        Ok(AuthResponse::json(200, &resp)?)
     }
 
     async fn handle_deny<DB: DatabaseAdapter>(
         &self,
-        _req: &AuthRequest,
-        _ctx: &AuthContext<DB>,
+        req: &AuthRequest,
+        ctx: &AuthContext<DB>,
     ) -> AuthResult<AuthResponse> {
         if !self.config.enabled {
-            return Err(AuthError::not_found("Not Found"));
+            return Err(AuthError::not_found("Not found"));
         }
-        todo!()
+
+        let body: ApproveRequest = match better_auth_core::validate_request_body(req) {
+            Ok(v) => v,
+            Err(resp) => return Ok(resp),
+        };
+
+        let resp = deny_device_core(&body.user_code, ctx).await?;
+
+        Ok(AuthResponse::json(200, &resp)?)
     }
 }
