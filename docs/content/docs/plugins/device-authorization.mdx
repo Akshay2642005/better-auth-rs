@@ -53,7 +53,7 @@ The optional `scope` value is stored with the device authorization record so app
 
 ## API Endpoints
 
-The Device Authorization plugin exposes 4 endpoints. For full request/response details, see the [OpenAPI Reference](/docs/reference/openapi/default).
+The Device Authorization plugin exposes 4 endpoints. The request and response shapes documented below are the current reference for this plugin.
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
@@ -133,4 +133,3 @@ Once a device code is successfully exchanged, it is consumed and cannot be reuse
 | `401` | `/device/approve` or `/device/deny` was called without a valid session |
 | `404` | The supplied `userCode` was not found |
 | `404` | The plugin is disabled and the device endpoints are not available |
-
