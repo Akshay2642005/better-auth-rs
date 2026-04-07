@@ -67,6 +67,7 @@ Better Auth RS ships with a rich set of plugins. Enable only what you need:
 | **Two-Factor** | TOTP-based 2FA with backup codes |
 | **Passkey** | WebAuthn passkey authentication |
 | **API Key** | API key generation, rotation, and revocation |
+| **Device Authorization** | Device flow for TVs, consoles, CLIs, and other input-constrained clients |
 | **Admin** | User management and administrative operations |
 
 > See the [Plugins documentation](docs/content/docs/concepts/plugins.mdx) for usage details.
@@ -96,7 +97,7 @@ Detailed guides and API reference are available in the [`docs/`](docs/) director
 - [Quick Start](docs/content/docs/quick-start.mdx)
 - **Authentication** — [Email/Password](docs/content/docs/authentication/email-password.mdx) · [Sessions](docs/content/docs/authentication/sessions.mdx) · [Email Verification](docs/content/docs/authentication/email-verification.mdx)
 - **Concepts** — [Configuration](docs/content/docs/concepts/configuration.mdx) · [Database](docs/content/docs/concepts/database.mdx) · [Plugins](docs/content/docs/concepts/plugins.mdx) · [Middleware](docs/content/docs/concepts/middleware.mdx) · [Hooks](docs/content/docs/concepts/hooks.mdx)
-- **Plugins** — [OAuth](docs/content/docs/plugins/oauth.mdx) · [Organization](docs/content/docs/plugins/organization.mdx) · [Two-Factor](docs/content/docs/plugins/two-factor.mdx) · [Passkey](docs/content/docs/plugins/passkey.mdx) · [API Key](docs/content/docs/plugins/api-key.mdx) · [Admin](docs/content/docs/plugins/admin.mdx)
+- **Plugins** — [OAuth](docs/content/docs/plugins/oauth.mdx) · [Organization](docs/content/docs/plugins/organization.mdx) · [Two-Factor](docs/content/docs/plugins/two-factor.mdx) · [Passkey](docs/content/docs/plugins/passkey.mdx) · [API Key](docs/content/docs/plugins/api-key.mdx) · [Admin](docs/content/docs/plugins/admin.mdx) · [Device Authorization](docs/content/docs/plugins/device-authorization.mdx)
 - **Reference** — [API Routes](docs/content/docs/reference/api-routes.mdx) · [Configuration Options](docs/content/docs/reference/configuration-options.mdx) · [Errors](docs/content/docs/reference/errors.mdx) · [Security](docs/content/docs/reference/security.mdx) · [OpenAPI](docs/content/docs/reference/openapi.mdx)
 - **Integrations** — [Axum](docs/content/docs/integrations/axum.mdx)
 

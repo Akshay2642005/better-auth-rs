@@ -27,6 +27,7 @@ Better Auth uses a plugin system to compose authentication features. Each plugin
 | `AdminPlugin` | User management, banning, impersonation, and role management | [Admin Plugin](/docs/plugins/admin) |
 | `ApiKeyPlugin` | API key creation, validation, rate limiting, and usage tracking | [API Key Plugin](/docs/plugins/api-key) |
 | `PasskeyPlugin` | WebAuthn / FIDO2 passwordless authentication | [Passkey Plugin](/docs/plugins/passkey) |
+| `DeviceAuthorizationPlugin` | Device authorization flow for  CLIs, and other limited-input devices | [Device Authorization Plugin](/docs/plugins/device-authorization) |
 
 ## Registering Plugins
 
@@ -40,6 +41,105 @@ let auth = BetterAuth::new(config)
     .plugin(PasswordManagementPlugin::new())
     .build()
     .await?;
+```
+
+## Device Authorization (DeviceAuthorizationPlugin)
+
+The `DeviceAuthorizationPlugin` implements a device authorization flow for clients that cannot easily complete an interactive sign-in flow, such as TVs, game consoles, smart displays, and terminal apps.
+
+The plugin is disabled by default. When enabled, it issues a short `user_code` plus a longer `device_code`, lets a signed-in user approve or deny the request on another device, and returns a Better Auth session token from the polling endpoint once approved.
+
+### Setup
+
+```rust
+use better_auth::plugins::DeviceAuthorizationPlugin;
+
+let auth = BetterAuth::new(config)
+    .database(database)
+    .plugin(
+        DeviceAuthorizationPlugin::new()
+            .enabled(true)
+            .verification_uri("/device")
+            .interval(5)
+            .expires_in(1800)
+    )
+    .build()
+    .await?;
+```
+
+### Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | `bool` | `false` | Enables the device authorization endpoints |
+| `verification_uri` | `String` | `"/device"` | URL or path the user should open to enter the `user_code` |
+| `interval` | `i64` | `5` | Minimum polling interval in seconds for `/device/token` |
+| `expires_in` | `i64` | `1800` | Lifetime in seconds for the device authorization request |
+
+### Flow
+
+1. The device client calls `POST /device/code` with a `client_id` and optional `scope`.
+2. The API returns `device_code`, `user_code`, `verification_uri`, `expires_in`, and `interval`.
+3. The user opens `verification_uri` on another device, signs in if needed, and enters the `user_code`.
+4. Your verification UI calls `POST /device/approve` or `POST /device/deny` with the `userCode`.
+5. The original device polls `POST /device/token` with the `device_code` until the request is approved or denied.
+6. On approval, `/device/token` returns an `access_token` containing a Better Auth session token.
+
+The optional `scope` value is stored with the device authorization record so applications can keep track of the requested scope, but the plugin currently creates a standard Better Auth session on approval.
+
+### Endpoints
+
+All routes are relative to the auth mount point.
+
+| Endpoint | Method | Auth | Request Body | Response |
+|----------|--------|------|--------------|----------|
+| `/device/code` | POST | No | `{ "client_id": "living-room-tv", "scope": "openid profile" }` | `{ "device_code", "user_code", "verification_uri", "expires_in", "interval" }` |
+| `/device/token` | POST | No | `{ "device_code": "..." }` | `{ "access_token": "session_..." }` after approval |
+| `/device/approve` | POST | Yes | `{ "userCode": "AB12CD34" }` | `{ "status": true }` |
+| `/device/deny` | POST | Yes | `{ "userCode": "AB12CD34" }` | `{ "status": true }` |
+
+### Polling Behavior and Errors
+
+The `/device/token` endpoint uses the current device authorization state to guide the client:
+
+| Status | Condition |
+|--------|-----------|
+| `400 authorization_pending` | The user has not approved or denied the request yet |
+| `400 slow_down` | The client polled faster than the configured `interval` |
+| `400 access_denied` | The user explicitly denied the request |
+| `400 invalid_grant` | The `device_code` is unknown, expired, or has already been consumed |
+| `401` | `/device/approve` or `/device/deny` was called without a valid session |
+| `404 Invalid code` | The supplied `userCode` was not found |
+
+### Example
+
+Issue a device code:
+
+```json
+{
+  "client_id": "living-room-tv",
+  "scope": "openid profile"
+}
+```
+
+Example response:
+
+```json
+{
+  "device_code": "a-long-random-device-code",
+  "user_code": "AB12CD34",
+  "verification_uri": "/device",
+  "expires_in": 1800,
+  "interval": 5
+}
+```
+
+Approve the request from a signed-in browser session:
+
+```json
+{
+  "userCode": "AB12CD34"
+}
 ```
 
 ## The AuthPlugin Trait

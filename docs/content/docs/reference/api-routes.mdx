@@ -142,6 +142,15 @@ For interactive API documentation with request/response schemas, see the [OpenAP
 | POST | `/api-key/delete` | Yes | Delete an API key |
 | GET | `/api-key/list` | Yes | List user's API keys |
 
+## Device Authorization (DeviceAuthorizationPlugin)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/device/code` | No | Issue a `device_code` and `user_code` for a limited-input client |
+| POST | `/device/token` | No | Poll device authorization state and exchange an approved code for a session token |
+| POST | `/device/approve` | Yes | Approve a pending device authorization request |
+| POST | `/device/deny` | Yes | Deny a pending device authorization request |
+
 ## Passkey / WebAuthn (PasskeyPlugin)
 
 | Method | Path | Auth | Description |
