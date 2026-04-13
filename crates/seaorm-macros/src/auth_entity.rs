@@ -13,7 +13,14 @@ enum Role {
 
 fn found_crate_tokens(name: &str) -> Option<TokenStream> {
     match crate_name(name).ok()? {
-        FoundCrate::Itself => Some(quote!(crate)),
+        FoundCrate::Itself => {
+            // `Itself` means the Cargo.toml that triggered compilation lists
+            // this crate as its own package name.  Examples and integration
+            // tests compile as separate binaries that link the crate
+            // externally, so `crate::` would be wrong — use the extern name.
+            let ident = Ident::new(&name.replace('-', "_"), Span::call_site());
+            Some(quote!(::#ident))
+        }
         FoundCrate::Name(name) => {
             let ident = Ident::new(&name, Span::call_site());
             Some(quote!(::#ident))
