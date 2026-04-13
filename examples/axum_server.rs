@@ -35,6 +35,9 @@ mod user {
         pub metadata: Json,
         pub created_at: DateTimeUtc,
         pub updated_at: DateTimeUtc,
+        // Extra app-specific fields — AuthEntity sets these to NotSet on
+        // creation; populate via DB defaults or ActiveModelBehavior.
+        pub locale: Option<String>,
     }
 
     #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
