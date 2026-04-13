@@ -526,7 +526,12 @@ dependencies = [
 name = "better-auth-cli"
 version = "0.10.0"
 dependencies = [
+ "better-auth-schema-registry",
  "clap",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -565,6 +570,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "better-auth-schema-registry"
+version = "0.10.0"
+
+[[package]]
 name = "better-auth-seaorm"
 version = "0.10.0"
 dependencies = [
@@ -585,6 +594,7 @@ dependencies = [
 name = "better-auth-seaorm-macros"
 version = "0.10.0"
 dependencies = [
+ "better-auth-schema-registry",
  "proc-macro-crate",
  "proc-macro2",
  "quote",

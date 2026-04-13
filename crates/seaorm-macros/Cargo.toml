@@ -13,6 +13,7 @@ workspace = true
 proc-macro = true
 
 [dependencies]
+better-auth-schema-registry = { workspace = true }
 proc-macro-crate = "3"
 proc-macro2 = { workspace = true }
 quote = { workspace = true }

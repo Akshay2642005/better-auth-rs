@@ -11,7 +11,7 @@ workspace = true
 
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/api", "crates/derive", "crates/seaorm", "crates/seaorm-macros", "crates/cli"]
+members = ["crates/core", "crates/api", "crates/derive", "crates/seaorm", "crates/seaorm-macros", "crates/schema-registry", "crates/cli"]
 exclude = ["examples/sqlx-custom-entities", "examples/fullstack/backend", "compat-tests/rust-server"]
 
 [workspace.package]
@@ -26,6 +26,8 @@ better-auth-core = { version = "0.10.0", path = "crates/core" }
 better-auth-api = { version = "0.10.0", path = "crates/api" }
 better-auth-macros = { version = "0.10.0", path = "crates/derive", package = "better-auth-macros" }
 better-auth-seaorm = { version = "0.10.0", path = "crates/seaorm" }
+better-auth-schema-registry = { version = "0.10.0", path = "crates/schema-registry" }
+prettyplease = "0.2"
 
 # Asynchronous runtime
 tokio = { version = "1.0", features = ["full"] }

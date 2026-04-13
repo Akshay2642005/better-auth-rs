@@ -15,11 +15,20 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Generate the auth schema file with SeaORM entity definitions
+    /// Generate the auth schema file with SeaORM entity definitions.
+    ///
+    /// By default generates core-only entities. Use --plugins to include
+    /// plugin-specific fields (e.g. username, admin ban fields).
     Generate {
-        /// Write output to a file instead of stdout
+        /// Write output to a file instead of stdout.
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Comma-separated list of plugins whose fields to include.
+        /// Available: username, two-factor, admin, organization.
+        /// Use "all" to include every plugin's fields.
+        #[arg(short, long, value_delimiter = ',')]
+        plugins: Vec<String>,
     },
 }
 
@@ -27,8 +36,17 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Generate { output } => {
-            let schema = generate::auth_schema();
+        Command::Generate { output, plugins } => {
+            let plugins = if plugins.iter().any(|p| p == "all") {
+                generate::list_plugins()
+                    .into_iter()
+                    .map(String::from)
+                    .collect()
+            } else {
+                plugins
+            };
+
+            let schema = generate::generate_schema(&plugins);
 
             match output {
                 Some(path) => {
@@ -39,7 +57,7 @@ fn main() {
                         eprintln!("failed to create directory {}: {e}", parent.display());
                         process::exit(1);
                     }
-                    if let Err(e) = fs::write(&path, schema) {
+                    if let Err(e) = fs::write(&path, &schema) {
                         eprintln!("failed to write {}: {e}", path.display());
                         process::exit(1);
                     }

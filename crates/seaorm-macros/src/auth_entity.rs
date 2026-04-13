@@ -1,15 +1,8 @@
+use better_auth_schema_registry::{self as registry, EntityRole};
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, LitStr};
-
-#[derive(Clone, Copy)]
-enum Role {
-    User,
-    Session,
-    Account,
-    Verification,
-}
 
 fn found_crate_tokens(name: &str) -> Option<TokenStream> {
     match crate_name(name).ok()? {
@@ -49,76 +42,6 @@ fn resolve_roots() -> (TokenStream, TokenStream) {
     }
 }
 
-/// Fields that are truly required — the macro errors if these are missing.
-fn core_fields(role: Role) -> &'static [&'static str] {
-    match role {
-        Role::User => &[
-            "id",
-            "name",
-            "email",
-            "email_verified",
-            "image",
-            "created_at",
-            "updated_at",
-        ],
-        Role::Session => &[
-            "id",
-            "expires_at",
-            "token",
-            "created_at",
-            "updated_at",
-            "ip_address",
-            "user_agent",
-            "user_id",
-            "active",
-        ],
-        Role::Account => &[
-            "id",
-            "account_id",
-            "provider_id",
-            "user_id",
-            "access_token",
-            "refresh_token",
-            "id_token",
-            "access_token_expires_at",
-            "refresh_token_expires_at",
-            "scope",
-            "password",
-            "created_at",
-            "updated_at",
-        ],
-        Role::Verification => &[
-            "id",
-            "identifier",
-            "value",
-            "expires_at",
-            "created_at",
-            "updated_at",
-        ],
-    }
-}
-
-/// Fields added by plugins — the macro adapts to their presence.
-fn plugin_fields(role: Role) -> &'static [&'static str] {
-    match role {
-        Role::User => &[
-            "username",           // username plugin
-            "display_username",   // username plugin
-            "two_factor_enabled", // two-factor plugin
-            "role",               // admin plugin
-            "banned",             // admin plugin
-            "ban_reason",         // admin plugin
-            "ban_expires",        // admin plugin
-            "metadata",           // admin plugin
-        ],
-        Role::Session => &[
-            "impersonated_by",        // admin plugin
-            "active_organization_id", // organization plugin
-        ],
-        Role::Account | Role::Verification => &[],
-    }
-}
-
 pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
     let (seaorm_root, core_root) = resolve_roots();
     let role = match parse_role(input) {
@@ -149,8 +72,8 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
         .filter_map(|field| field.ident.clone())
         .collect();
 
-    let core = core_fields(role);
-    let plugin = plugin_fields(role);
+    let core = registry::core_field_names(role);
+    let plugin = registry::plugin_field_names(role);
 
     // Validate core fields are present
     if let Some(missing) = core
@@ -179,10 +102,12 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
     let ident = &input.ident;
 
     match role {
-        Role::User => gen_user(ident, &has, &extra_not_set, &seaorm_root, &core_root),
-        Role::Session => gen_session(ident, &has, &extra_not_set, &seaorm_root, &core_root),
-        Role::Account => gen_account(ident, &extra_not_set, &seaorm_root, &core_root),
-        Role::Verification => gen_verification(ident, &extra_not_set, &seaorm_root, &core_root),
+        EntityRole::User => gen_user(ident, &has, &extra_not_set, &seaorm_root, &core_root),
+        EntityRole::Session => gen_session(ident, &has, &extra_not_set, &seaorm_root, &core_root),
+        EntityRole::Account => gen_account(ident, &extra_not_set, &seaorm_root, &core_root),
+        EntityRole::Verification => {
+            gen_verification(ident, &extra_not_set, &seaorm_root, &core_root)
+        }
     }
 }
 
@@ -712,7 +637,7 @@ fn gen_verification(
     }
 }
 
-fn parse_role(input: &DeriveInput) -> Result<Role, syn::Error> {
+fn parse_role(input: &DeriveInput) -> Result<EntityRole, syn::Error> {
     let mut parsed = None;
     for attr in &input.attrs {
         if !attr.path().is_ident("auth") {
@@ -723,10 +648,10 @@ fn parse_role(input: &DeriveInput) -> Result<Role, syn::Error> {
                 let value = meta.value()?;
                 let role: LitStr = value.parse()?;
                 parsed = Some(match role.value().as_str() {
-                    "user" => Role::User,
-                    "session" => Role::Session,
-                    "account" => Role::Account,
-                    "verification" => Role::Verification,
+                    "user" => EntityRole::User,
+                    "session" => EntityRole::Session,
+                    "account" => EntityRole::Account,
+                    "verification" => EntityRole::Verification,
                     _ => {
                         return Err(syn::Error::new_spanned(
                             role,
