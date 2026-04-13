@@ -32,13 +32,12 @@ fn main() {
 
             match output {
                 Some(path) => {
-                    if let Some(parent) = path.parent() {
-                        if !parent.exists() {
-                            if let Err(e) = fs::create_dir_all(parent) {
-                                eprintln!("failed to create directory {}: {e}", parent.display());
-                                process::exit(1);
-                            }
-                        }
+                    if let Some(parent) = path.parent()
+                        && !parent.exists()
+                        && let Err(e) = fs::create_dir_all(parent)
+                    {
+                        eprintln!("failed to create directory {}: {e}", parent.display());
+                        process::exit(1);
                     }
                     if let Err(e) = fs::write(&path, schema) {
                         eprintln!("failed to write {}: {e}", path.display());
