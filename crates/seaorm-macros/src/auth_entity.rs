@@ -84,8 +84,19 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
     }
 
     let ident = &input.ident;
+
+    // Extra fields: present in the struct but not in the required set.
+    // These get `ActiveValue::NotSet` in generated `new_active()`.
+    let extra_not_set: Vec<_> = idents
+        .iter()
+        .filter(|ident| !role_fields.iter().any(|req| ident == req))
+        .map(|field| {
+            quote! { #field: #seaorm_root::sea_orm::ActiveValue::NotSet }
+        })
+        .collect();
+
     match role {
-        Role::User => quote! {
+        Role::User => { let extras = &extra_not_set; quote! {
             impl #core_root::entity::AuthUser for #ident {
                 fn id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.id) }
                 fn email(&self) -> Option<&str> { self.email.as_deref() }
@@ -142,6 +153,7 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
                         metadata: #seaorm_root::sea_orm::ActiveValue::Set(create_user.metadata.unwrap_or(::serde_json::json!({}))),
                         created_at: #seaorm_root::sea_orm::ActiveValue::Set(now),
                         updated_at: #seaorm_root::sea_orm::ActiveValue::Set(now),
+                        #(#extras,)*
                     }
                 }
 
@@ -195,8 +207,8 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
                     active.updated_at = #seaorm_root::sea_orm::ActiveValue::Set(now);
                 }
             }
-        },
-        Role::Session => quote! {
+        }},
+        Role::Session => { let extras = &extra_not_set; quote! {
             impl #core_root::entity::AuthSession for #ident {
                 fn id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.id) }
                 fn expires_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.expires_at }
@@ -251,6 +263,7 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
                         impersonated_by: #seaorm_root::sea_orm::ActiveValue::Set(create_session.impersonated_by),
                         active_organization_id: #seaorm_root::sea_orm::ActiveValue::Set(create_session.active_organization_id),
                         active: #seaorm_root::sea_orm::ActiveValue::Set(true),
+                        #(#extras,)*
                     }
                 }
 
@@ -275,8 +288,8 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
                     active.active_organization_id = #seaorm_root::sea_orm::ActiveValue::Set(organization_id);
                 }
             }
-        },
-        Role::Account => quote! {
+        }},
+        Role::Account => { let extras = &extra_not_set; quote! {
             impl #core_root::entity::AuthAccount for #ident {
                 fn id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.id) }
                 fn account_id(&self) -> &str { &self.account_id }
@@ -333,6 +346,7 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
                         password: #seaorm_root::sea_orm::ActiveValue::Set(create_account.password),
                         created_at: #seaorm_root::sea_orm::ActiveValue::Set(now),
                         updated_at: #seaorm_root::sea_orm::ActiveValue::Set(now),
+                        #(#extras,)*
                     }
                 }
 
@@ -365,8 +379,8 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
                     active.updated_at = #seaorm_root::sea_orm::ActiveValue::Set(now);
                 }
             }
-        },
-        Role::Verification => quote! {
+        }},
+        Role::Verification => { let extras = &extra_not_set; quote! {
             impl #core_root::entity::AuthVerification for #ident {
                 fn id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.id) }
                 fn identifier(&self) -> &str { &self.identifier }
@@ -405,10 +419,11 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
                         expires_at: #seaorm_root::sea_orm::ActiveValue::Set(verification.expires_at),
                         created_at: #seaorm_root::sea_orm::ActiveValue::Set(now),
                         updated_at: #seaorm_root::sea_orm::ActiveValue::Set(now),
+                        #(#extras,)*
                     }
                 }
             }
-        },
+        }},
     }
 }
 
