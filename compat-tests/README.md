@@ -54,6 +54,7 @@ bun test tests/phase3
 bun test tests/phase4
 bun test tests/phase5
 bun test tests/phase6
+bun test tests/phase7
 ```
 
 ### `compat-tests/rust-server/`
@@ -72,6 +73,7 @@ cargo test --test client_compat_tests phase3_client_compat -- --ignored --nocapt
 cargo test --test client_compat_tests phase4_client_compat -- --ignored --nocapture
 cargo test --test client_compat_tests phase5_client_compat -- --ignored --nocapture
 cargo test --test client_compat_tests phase6_client_compat -- --ignored --nocapture
+cargo test --test client_compat_tests phase7_client_compat -- --ignored --nocapture
 cargo test --test client_compat_tests full_client_compat -- --ignored --nocapture
 ```
 
@@ -91,5 +93,6 @@ bash compat-tests/client-tests/run-against-both.sh phase3
 bash compat-tests/client-tests/run-against-both.sh phase4
 bash compat-tests/client-tests/run-against-both.sh phase5
 bash compat-tests/client-tests/run-against-both.sh phase6
+bash compat-tests/client-tests/run-against-both.sh phase7
 bash compat-tests/client-tests/run-against-both.sh all
 ```

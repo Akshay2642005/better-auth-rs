@@ -89,6 +89,8 @@ pub struct CreateOrganizationRequest {
     pub slug: String,
     pub logo: Option<String>,
     pub metadata: Option<serde_json::Value>,
+    #[serde(rename = "keepCurrentActiveOrganization")]
+    pub keep_current_active_organization: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -141,6 +143,12 @@ pub struct GetFullOrganizationQuery {
     pub organization_id: Option<String>,
     #[serde(rename = "organizationSlug")]
     pub organization_slug: Option<String>,
+    #[serde(
+        default,
+        rename = "membersLimit",
+        deserialize_with = "deserialize_optional_usize_from_string"
+    )]
+    pub members_limit: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -433,7 +441,10 @@ impl BasicMemberResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{NullableStringField, SetActiveOrganizationRequest};
+    use super::{
+        CreateOrganizationRequest, GetFullOrganizationQuery, NullableStringField,
+        SetActiveOrganizationRequest,
+    };
 
     #[test]
     fn set_active_request_distinguishes_missing_from_null() {
@@ -457,5 +468,32 @@ mod tests {
             value.organization_id,
             NullableStringField::Value(ref organization_id) if organization_id == "org-123"
         ));
+    }
+
+    #[test]
+    fn create_organization_request_deserializes_keep_current_active_organization() {
+        let request: CreateOrganizationRequest = serde_json::from_value(serde_json::json!({
+            "name": "Acme",
+            "slug": "acme",
+            "keepCurrentActiveOrganization": true
+        }))
+        .expect("request should deserialize");
+
+        assert_eq!(request.keep_current_active_organization, Some(true));
+    }
+
+    #[test]
+    fn get_full_organization_query_deserializes_members_limit_from_string_or_number() {
+        let string_limit: GetFullOrganizationQuery = serde_json::from_value(serde_json::json!({
+            "membersLimit": "1"
+        }))
+        .expect("string limit should deserialize");
+        let number_limit: GetFullOrganizationQuery = serde_json::from_value(serde_json::json!({
+            "membersLimit": 2
+        }))
+        .expect("number limit should deserialize");
+
+        assert_eq!(string_limit.members_limit, Some(1));
+        assert_eq!(number_limit.members_limit, Some(2));
     }
 }

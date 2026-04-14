@@ -9,8 +9,8 @@ use crate::error::{AuthError, AuthResult};
 use crate::schema::AuthSchema;
 use crate::store::{
     AccountStore, ApiKeyStore, AuthStore, AuthTransaction, ConsumeApiKeyResult, DeviceCodeStore,
-    InvitationStore, MemberStore, OrganizationStore, PasskeyStore, SessionStore, TransactionStore,
-    TwoFactorStore, UserStore, VerificationStore,
+    InvitationStore, ListOrganizationMembersParams, MemberStore, OrganizationStore, PasskeyStore,
+    SessionStore, TransactionStore, TwoFactorStore, UserStore, VerificationStore,
 };
 use crate::types::{
     ApiKey, CreateAccount, CreateApiKey, CreateDeviceCode, CreateInvitation, CreateMember,
@@ -105,6 +105,14 @@ impl UserStore<BundledSchema> for MemoryStore {
 
     async fn get_user_by_id(&self, id: &str) -> AuthResult<Option<UserView>> {
         Ok(self.lock().users.get(id).cloned())
+    }
+
+    async fn list_users_by_ids(&self, ids: &[String]) -> AuthResult<Vec<UserView>> {
+        let state = self.lock();
+        Ok(ids
+            .iter()
+            .filter_map(|id| state.users.get(id).cloned())
+            .collect())
     }
 
     async fn get_user_by_email(&self, email: &str) -> AuthResult<Option<UserView>> {
@@ -458,6 +466,9 @@ impl OrganizationStore for MemoryStore {
     async fn get_organization_by_slug(&self, _slug: &str) -> AuthResult<Option<Organization>> {
         Ok(None)
     }
+    async fn list_organizations_by_ids(&self, _ids: &[String]) -> AuthResult<Vec<Organization>> {
+        Ok(Vec::new())
+    }
     async fn update_organization(
         &self,
         _id: &str,
@@ -497,6 +508,12 @@ impl MemberStore for MemoryStore {
     async fn list_organization_members(&self, _org_id: &str) -> AuthResult<Vec<Member>> {
         Ok(Vec::new())
     }
+    async fn query_organization_members(
+        &self,
+        _params: &ListOrganizationMembersParams,
+    ) -> AuthResult<(Vec<Member>, usize)> {
+        Ok((Vec::new(), 0))
+    }
     async fn count_organization_members(&self, _org_id: &str) -> AuthResult<i64> {
         Ok(0)
     }
@@ -529,6 +546,9 @@ impl InvitationStore for MemoryStore {
     }
     async fn list_organization_invitations(&self, _org_id: &str) -> AuthResult<Vec<Invitation>> {
         Ok(Vec::new())
+    }
+    async fn count_pending_organization_invitations(&self, _org_id: &str) -> AuthResult<i64> {
+        Ok(0)
     }
     async fn list_user_invitations(&self, _email: &str) -> AuthResult<Vec<Invitation>> {
         Ok(Vec::new())

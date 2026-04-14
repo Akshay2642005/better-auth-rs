@@ -54,6 +54,19 @@ where
             .map_err(map_db_err)
     }
 
+    async fn list_organizations_by_ids(&self, ids: &[String]) -> AuthResult<Vec<Organization>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        Entity::find()
+            .filter(Column::Id.is_in(ids.iter().cloned()))
+            .all(self.connection())
+            .await
+            .map(|models| models.iter().map(Organization::from).collect())
+            .map_err(map_db_err)
+    }
+
     async fn update_organization(
         &self,
         id: &str,

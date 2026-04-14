@@ -38,6 +38,11 @@ pub trait AuthTransaction<S: AuthSchema>: Send + Sync {
 pub trait UserStore<S: AuthSchema>: Send + Sync {
     async fn create_user(&self, create_user: CreateUser) -> AuthResult<S::User>;
     async fn get_user_by_id(&self, id: &str) -> AuthResult<Option<S::User>>;
+    /// Fetch multiple users by id.
+    ///
+    /// Implementations may return rows in any order. Callers must remap by id
+    /// when response order matters.
+    async fn list_users_by_ids(&self, ids: &[String]) -> AuthResult<Vec<S::User>>;
     async fn get_user_by_email(&self, email: &str) -> AuthResult<Option<S::User>>;
     async fn get_user_by_username(&self, username: &str) -> AuthResult<Option<S::User>>;
     async fn update_user(&self, id: &str, update: UpdateUser) -> AuthResult<S::User>;
@@ -103,11 +108,37 @@ pub trait VerificationStore<S: AuthSchema>: Send + Sync {
     async fn delete_expired_verifications(&self) -> AuthResult<usize>;
 }
 
+/// Query parameters for listing organization members.
+#[derive(Debug, Clone, Default)]
+pub struct ListOrganizationMembersParams {
+    /// Organization id whose members should be listed.
+    pub organization_id: String,
+    /// Maximum number of members to return.
+    pub limit: Option<usize>,
+    /// Number of matching members to skip before returning rows.
+    pub offset: Option<usize>,
+    /// Client-visible field name used for sorting.
+    pub sort_by: Option<String>,
+    /// Sort direction (`asc` or `desc`).
+    pub sort_direction: Option<String>,
+    /// Client-visible field name used for filtering.
+    pub filter_field: Option<String>,
+    /// Filter value paired with `filter_field`.
+    pub filter_value: Option<String>,
+    /// Filter operator (`eq`, `ne`, `contains`, `gt`, `gte`, `lt`, `lte`).
+    pub filter_operator: Option<String>,
+}
+
 #[async_trait]
 pub trait OrganizationStore: Send + Sync {
     async fn create_organization(&self, org: CreateOrganization) -> AuthResult<Organization>;
     async fn get_organization_by_id(&self, id: &str) -> AuthResult<Option<Organization>>;
     async fn get_organization_by_slug(&self, slug: &str) -> AuthResult<Option<Organization>>;
+    /// Fetch multiple organizations by id.
+    ///
+    /// Implementations may return rows in any order. Callers must remap by id
+    /// when response order matters.
+    async fn list_organizations_by_ids(&self, ids: &[String]) -> AuthResult<Vec<Organization>>;
     async fn update_organization(
         &self,
         id: &str,
@@ -125,6 +156,12 @@ pub trait MemberStore: Send + Sync {
     async fn update_member_role(&self, member_id: &str, role: &str) -> AuthResult<Member>;
     async fn delete_member(&self, member_id: &str) -> AuthResult<()>;
     async fn list_organization_members(&self, org_id: &str) -> AuthResult<Vec<Member>>;
+    /// Query organization members with filter, sort, and pagination applied in
+    /// the store when possible.
+    async fn query_organization_members(
+        &self,
+        params: &ListOrganizationMembersParams,
+    ) -> AuthResult<(Vec<Member>, usize)>;
     async fn count_organization_members(&self, org_id: &str) -> AuthResult<i64>;
     async fn count_organization_owners(&self, org_id: &str) -> AuthResult<i64>;
 }
@@ -144,6 +181,8 @@ pub trait InvitationStore: Send + Sync {
         status: InvitationStatus,
     ) -> AuthResult<Invitation>;
     async fn list_organization_invitations(&self, org_id: &str) -> AuthResult<Vec<Invitation>>;
+    /// Count still-pending, unexpired invitations for an organization.
+    async fn count_pending_organization_invitations(&self, org_id: &str) -> AuthResult<i64>;
     async fn list_user_invitations(&self, email: &str) -> AuthResult<Vec<Invitation>>;
 }
 

@@ -5,7 +5,7 @@ phase="all"
 
 for arg in "$@"; do
   case "$arg" in
-    phase0|phase1|phase2|phase3|phase4|phase5|phase6|all) phase="$arg" ;;
+    phase0|phase1|phase2|phase3|phase4|phase5|phase6|phase7|all) phase="$arg" ;;
     --skip-build) ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
@@ -19,6 +19,7 @@ case "$phase" in
   phase4) test_name="phase4_client_compat" ;;
   phase5) test_name="phase5_client_compat" ;;
   phase6) test_name="phase6_client_compat" ;;
+  phase7) test_name="phase7_client_compat" ;;
   all) test_name="full_client_compat" ;;
 esac
 

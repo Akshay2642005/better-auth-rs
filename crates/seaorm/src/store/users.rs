@@ -84,6 +84,23 @@ where
             .map_err(map_db_err)
     }
 
+    async fn list_users_by_ids(&self, ids: &[String]) -> AuthResult<Vec<S::User>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let user_ids = ids
+            .iter()
+            .map(|id| S::User::parse_id(id))
+            .collect::<AuthResult<Vec<_>>>()?;
+
+        <S::User as SeaOrmUserModel>::Entity::find()
+            .filter(<S::User as SeaOrmUserModel>::id_column().is_in(user_ids))
+            .all(self.connection())
+            .await
+            .map_err(map_db_err)
+    }
+
     async fn get_user_by_email(&self, email: &str) -> AuthResult<Option<S::User>> {
         let email = normalize_user_email(email);
         <S::User as SeaOrmUserModel>::Entity::find()

@@ -7,6 +7,7 @@ use better_auth_core::types::{
     AuthRequest, AuthResponse, CreateInvitation, CreateMember, InvitationStatus,
 };
 use better_auth_core::wire::InvitationView;
+use std::collections::HashMap;
 
 use super::{require_session, resolve_organization_id};
 use crate::plugins::organization::OrganizationConfig;
@@ -91,8 +92,8 @@ pub(crate) async fn invite_member_core(
     }
 
     if let Some(limit) = config.membership_limit {
-        let members = ctx.database.list_organization_members(&org_id).await?;
-        if members.len() >= limit {
+        let members = ctx.database.count_organization_members(&org_id).await? as usize;
+        if members >= limit {
             return Err(AuthError::bad_request(format!(
                 "Membership limit of {} reached",
                 limit
@@ -101,11 +102,10 @@ pub(crate) async fn invite_member_core(
     }
 
     if let Some(limit) = config.invitation_limit {
-        let invitations = ctx.database.list_organization_invitations(&org_id).await?;
-        let pending_count = invitations
-            .iter()
-            .filter(|invitation| invitation.is_pending())
-            .count();
+        let pending_count = ctx
+            .database
+            .count_pending_organization_invitations(&org_id)
+            .await? as usize;
         if pending_count >= limit {
             return Err(AuthError::bad_request(format!(
                 "Pending invitation limit of {} reached",
@@ -215,17 +215,25 @@ pub(crate) async fn list_user_invitations_core(
         .ok_or_else(|| AuthError::bad_request("User has no email"))?;
 
     let all_invitations = ctx.database.list_user_invitations(user_email).await?;
-    let mut pending = Vec::new();
+    let organization_ids = all_invitations
+        .iter()
+        .map(|invitation| invitation.organization_id().into_owned())
+        .collect::<Vec<_>>();
+    let organizations_by_id = ctx
+        .database
+        .list_organizations_by_ids(&organization_ids)
+        .await?
+        .into_iter()
+        .map(|organization| {
+            let organization_id = organization.id.clone();
+            (organization_id, organization)
+        })
+        .collect::<HashMap<_, _>>();
+    let mut pending = Vec::with_capacity(all_invitations.len());
 
     for invitation in all_invitations.iter() {
-        if !invitation.is_pending() || invitation.is_expired() {
-            continue;
-        }
-
-        let organization = ctx
-            .database
-            .get_organization_by_id(invitation.organization_id().as_ref())
-            .await?
+        let organization = organizations_by_id
+            .get(invitation.organization_id().as_ref())
             .ok_or_else(|| AuthError::bad_request("Organization not found"))?;
 
         pending.push(UserInvitationResponse {

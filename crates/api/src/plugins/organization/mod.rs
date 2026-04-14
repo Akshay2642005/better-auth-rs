@@ -117,7 +117,7 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for OrganizationPlugin {
                 handlers::org::handle_list_organizations(req, ctx).await?,
             )),
             (HttpMethod::Get, "/organization/get-full-organization") => Ok(Some(
-                handlers::org::handle_get_full_organization(req, ctx).await?,
+                handlers::org::handle_get_full_organization(req, ctx, &self.config).await?,
             )),
             (HttpMethod::Post, "/organization/check-slug") => {
                 Ok(Some(handlers::org::handle_check_slug(req, ctx).await?))

@@ -11,11 +11,13 @@ use crate::plugins::organization::types::{
 use better_auth_core::entity::{AuthMember, AuthOrganization, AuthSession, AuthUser};
 use better_auth_core::error::{AuthError, AuthResult};
 use better_auth_core::plugin::AuthContext;
+use better_auth_core::store::ListOrganizationMembersParams;
 use better_auth_core::types::{
     AuthRequest, AuthResponse, CreateMember, CreateOrganization, UpdateOrganization,
 };
 use better_auth_core::utils::cookie_utils::create_session_cookie;
 use better_auth_core::wire::InvitationView;
+use std::collections::HashMap;
 
 fn has_role(member: &impl AuthMember, role: &str) -> bool {
     member
@@ -187,6 +189,7 @@ pub(crate) async fn get_full_organization_core(
     query: &GetFullOrganizationQuery,
     user: &impl AuthUser,
     session: &impl AuthSession,
+    config: &OrganizationConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<Option<FullOrganizationResponse<OrganizationResponse, InvitationView>>> {
     let org_id = if let Some(slug) = query.organization_slug.as_deref() {
@@ -216,12 +219,32 @@ pub(crate) async fn get_full_organization_core(
         .await?
         .ok_or_else(|| AuthError::bad_request("Organization not found"))?;
 
-    let members_raw = ctx.database.list_organization_members(&org_id).await?;
+    let members_limit = query.members_limit.or(config.membership_limit);
+    let member_params = ListOrganizationMembersParams {
+        organization_id: org_id.clone(),
+        limit: members_limit,
+        ..Default::default()
+    };
+    let (members_raw, _) = ctx
+        .database
+        .query_organization_members(&member_params)
+        .await?;
+    let user_ids = members_raw
+        .iter()
+        .map(|member| member.user_id.clone())
+        .collect::<Vec<_>>();
+    let users_by_id = ctx
+        .database
+        .list_users_by_ids(&user_ids)
+        .await?
+        .into_iter()
+        .map(|user| (user.id().to_string(), user))
+        .collect::<HashMap<_, _>>();
     let mut members = Vec::with_capacity(members_raw.len());
 
     for member in &members_raw {
-        if let Some(user_info) = ctx.database.get_user_by_id(&member.user_id()).await? {
-            members.push(MemberResponse::from_member_and_user(member, &user_info));
+        if let Some(user_info) = users_by_id.get(&member.user_id) {
+            members.push(MemberResponse::from_member_and_user(member, user_info));
         }
     }
 
@@ -362,13 +385,15 @@ pub async fn handle_create_organization(
         Err(resp) => return Ok(resp),
     };
     let response = create_organization_core(&body, &user, config, ctx).await?;
-    let _ = ctx
-        .database
-        .update_session_active_organization(
-            session.token(),
-            Some(response.organization.id.as_str()),
-        )
-        .await?;
+    if !body.keep_current_active_organization.unwrap_or(false) {
+        let _ = ctx
+            .database
+            .update_session_active_organization(
+                session.token(),
+                Some(response.organization.id.as_str()),
+            )
+            .await?;
+    }
     Ok(AuthResponse::json(200, &response)?)
 }
 
@@ -422,10 +447,11 @@ pub async fn handle_list_organizations(
 pub async fn handle_get_full_organization(
     req: &AuthRequest,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
+    config: &OrganizationConfig,
 ) -> AuthResult<AuthResponse> {
     let (user, session) = require_session(req, ctx).await?;
     let query = parse_query::<GetFullOrganizationQuery>(&req.query);
-    let response = get_full_organization_core(&query, &user, &session, ctx).await?;
+    let response = get_full_organization_core(&query, &user, &session, config, ctx).await?;
     Ok(AuthResponse::json(200, &response)?)
 }
 
@@ -480,4 +506,193 @@ fn parse_query<T: Default + serde::de::DeserializeOwned>(
     let json_value =
         serde_json::to_value(query).unwrap_or(serde_json::Value::Object(Default::default()));
     serde_json::from_value(json_value).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use better_auth_core::types::{CreateOrganization, CreateUser, HttpMethod};
+    use chrono::Duration;
+
+    use crate::plugins::organization::OrganizationConfig;
+    use crate::plugins::test_helpers::{
+        create_auth_json_request_no_query, create_test_context, create_user,
+        create_user_and_session,
+    };
+
+    use super::{get_full_organization_core, handle_create_organization};
+    use crate::plugins::organization::types::GetFullOrganizationQuery;
+
+    fn test_config() -> OrganizationConfig {
+        OrganizationConfig {
+            allow_user_to_create_organization: true,
+            organization_limit: None,
+            membership_limit: Some(100),
+            creator_role: "owner".to_string(),
+            invitation_expires_in: 60 * 60 * 48,
+            invitation_limit: Some(100),
+            disable_organization_deletion: false,
+            roles: HashMap::new(),
+        }
+    }
+
+    fn test_user(email: &str, name: &str) -> CreateUser {
+        CreateUser {
+            email: Some(email.to_string()),
+            name: Some(name.to_string()),
+            ..CreateUser::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn create_organization_keeps_current_active_organization_when_requested() {
+        let ctx = create_test_context().await;
+        let config = test_config();
+        let (user, session) = create_user_and_session(
+            &ctx,
+            test_user("owner@example.com", "Owner"),
+            Duration::hours(1),
+        )
+        .await;
+        let existing = ctx
+            .database
+            .create_organization(CreateOrganization {
+                id: None,
+                name: "Existing".to_string(),
+                slug: "existing".to_string(),
+                logo: None,
+                metadata: None,
+            })
+            .await
+            .expect("organization should be created");
+        ctx.database
+            .update_session_active_organization(&session.token, Some(&existing.id))
+            .await
+            .expect("active organization should update");
+
+        let request = create_auth_json_request_no_query(
+            HttpMethod::Post,
+            "/organization/create",
+            Some(&session.token),
+            Some(serde_json::json!({
+                "name": "Next",
+                "slug": "next",
+                "keepCurrentActiveOrganization": true
+            })),
+        );
+
+        handle_create_organization(&request, &ctx, &config)
+            .await
+            .expect("request should succeed");
+
+        let updated_session = ctx
+            .database
+            .get_session(&session.token)
+            .await
+            .expect("session lookup should succeed")
+            .expect("session should exist");
+        assert_eq!(updated_session.active_organization_id, Some(existing.id));
+        assert_eq!(user.id, session.user_id);
+    }
+
+    #[tokio::test]
+    async fn create_organization_updates_active_organization_by_default() {
+        let ctx = create_test_context().await;
+        let config = test_config();
+        let (_, session) = create_user_and_session(
+            &ctx,
+            test_user("owner2@example.com", "Owner"),
+            Duration::hours(1),
+        )
+        .await;
+
+        let request = create_auth_json_request_no_query(
+            HttpMethod::Post,
+            "/organization/create",
+            Some(&session.token),
+            Some(serde_json::json!({
+                "name": "Created",
+                "slug": "created"
+            })),
+        );
+
+        let response = handle_create_organization(&request, &ctx, &config)
+            .await
+            .expect("request should succeed");
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.body).expect("response should be JSON");
+        let created_id = body["id"]
+            .as_str()
+            .expect("response should contain organization id");
+
+        let updated_session = ctx
+            .database
+            .get_session(&session.token)
+            .await
+            .expect("session lookup should succeed")
+            .expect("session should exist");
+        assert_eq!(
+            updated_session.active_organization_id.as_deref(),
+            Some(created_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn get_full_organization_respects_members_limit() {
+        let ctx = create_test_context().await;
+        let config = test_config();
+        let (user, session) = create_user_and_session(
+            &ctx,
+            test_user("owner3@example.com", "Owner"),
+            Duration::hours(1),
+        )
+        .await;
+        let organization = ctx
+            .database
+            .create_organization(CreateOrganization {
+                id: None,
+                name: "Team".to_string(),
+                slug: "team".to_string(),
+                logo: None,
+                metadata: None,
+            })
+            .await
+            .expect("organization should be created");
+        ctx.database
+            .create_member(better_auth_core::types::CreateMember {
+                organization_id: organization.id.clone(),
+                user_id: user.id.clone(),
+                role: config.creator_role.clone(),
+            })
+            .await
+            .expect("owner member should be created");
+
+        let extra_user = create_user(&ctx, test_user("member@example.com", "Member")).await;
+        ctx.database
+            .create_member(better_auth_core::types::CreateMember {
+                organization_id: organization.id.clone(),
+                user_id: extra_user.id.clone(),
+                role: "member".to_string(),
+            })
+            .await
+            .expect("extra member should be created");
+
+        let response = get_full_organization_core(
+            &GetFullOrganizationQuery {
+                organization_id: Some(organization.id.clone()),
+                organization_slug: None,
+                members_limit: Some(1),
+            },
+            &user,
+            &session,
+            &config,
+            &ctx,
+        )
+        .await
+        .expect("request should succeed")
+        .expect("organization should exist");
+
+        assert_eq!(response.members.len(), 1);
+    }
 }
