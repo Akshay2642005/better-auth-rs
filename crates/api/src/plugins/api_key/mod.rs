@@ -1,6 +1,6 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use rand::Rng as _;
+use rand::seq::SliceRandom;
 use sha2::{Digest, Sha256};
 use std::sync::Mutex;
 
@@ -322,7 +322,13 @@ impl ApiKeyPlugin {
         const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
         let mut rng = rand::thread_rng();
         let raw: String = (0..self.config.key_length)
-            .map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())] as char)
+            .map(|_| {
+                ALPHABET
+                    .choose(&mut rng)
+                    .copied()
+                    .map(char::from)
+                    .unwrap_or('a')
+            })
             .collect();
 
         let prefix = custom_prefix
