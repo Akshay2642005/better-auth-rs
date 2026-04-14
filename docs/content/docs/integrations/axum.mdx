@@ -20,7 +20,7 @@ tokio = { version = "1", features = ["full"] }
 
 Use `.axum_router()` when `Arc<BetterAuth<YourSchema>>` is the router state:
 
-```rust,ignore
+```rust
 use better_auth::{AuthConfig, AuthSchema, BetterAuth};
 use better_auth::plugins::{
     EmailPasswordPlugin, SessionManagementPlugin,
