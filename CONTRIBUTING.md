@@ -20,7 +20,8 @@ When sources disagree, trust them in this order:
 
 1. Runtime behavior of the TypeScript reference server in
    `compat-tests/reference-server/`
-2. TypeScript source in `/home/peron/dev/better-auth` when available
+2. TypeScript source in a local checkout of `better-auth@1.4.19` when
+   available
 3. Generated upstream OpenAPI profiles from the pinned published package
 4. Better Auth documentation
 
@@ -45,7 +46,7 @@ cd compat-tests/reference-server && bun install
 cd ../client-tests && bun install
 ```
 
-If `/home/peron/dev/better-auth` exists locally, use it to inspect
+You should have a local checkout of `better-auth@1.4.19` to inspect
 upstream behavior and source.
 
 ## Workflow
@@ -56,8 +57,8 @@ upstream behavior and source.
 4. Add or update tests in the same change
 5. Do not batch unrelated endpoint fixes into one commit
 
-Use `/home/peron/dev/platform` only as a downstream compatibility signal,
-not as the source of truth.
+Use any downstream compatibility target only as a downstream signal, not
+as the source of truth.
 
 ## Testing Strategy
 
