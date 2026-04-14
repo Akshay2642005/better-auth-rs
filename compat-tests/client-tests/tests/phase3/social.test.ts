@@ -11,6 +11,17 @@ function extractState(url: string | undefined) {
   return state;
 }
 
+function summarizeLocation(location: string | null) {
+  if (!location) {
+    throw new Error("missing redirect location");
+  }
+  const url = new URL(location, "http://compat.local");
+  return {
+    pathname: url.pathname,
+    params: Object.fromEntries(url.searchParams.entries()),
+  };
+}
+
 compatScenario("social sign-in rejects invalid callbackURL", async (ctx) => {
   const primary = ctx.actor();
   const signIn = await primary.client.signIn.social({
@@ -123,6 +134,51 @@ compatScenario("social sign-in with idToken returns token and session", async (c
 
   return {
     signIn: ctx.snapshot(signIn),
+    session: ctx.snapshot(session),
+  };
+});
+
+compatScenario("social callback POST redirects to GET and preserves TS param precedence", async (ctx) => {
+  const primary = ctx.actor();
+  const email = ctx.uniqueEmail("phase3-social-post-callback");
+  const sub = ctx.uniqueToken("phase3-google-post-callback-sub");
+  await ctx.setSocialProfile({
+    email,
+    sub,
+    name: "Phase 3 Google POST Callback User",
+    emailVerified: true,
+    idTokenValid: true,
+  });
+
+  const signIn = await primary.client.signIn.social({
+    provider: "google",
+    callbackURL: "/dashboard",
+  });
+  const state = extractState(signIn.data?.url);
+  const callbackPost = await ctx.rawRequest({
+    path: `/api/auth/callback/google?state=${encodeURIComponent(state)}`,
+    method: "POST",
+    json: {
+      code: "compat-code",
+      state: "body-state-should-lose",
+    },
+    redirect: "manual",
+  });
+  const redirect = summarizeLocation(callbackPost.location);
+  const callbackGet = await ctx.rawRequest({
+    path: callbackPost.location ?? "",
+    redirect: "manual",
+  });
+  const session = await primary.client.getSession();
+
+  return {
+    callbackPost: {
+      status: callbackPost.status,
+      locationPath: redirect.pathname,
+      usesQueryState: redirect.params.state === state,
+      keepsBodyCode: redirect.params.code === "compat-code",
+    },
+    callbackGet: ctx.snapshot(callbackGet),
     session: ctx.snapshot(session),
   };
 });

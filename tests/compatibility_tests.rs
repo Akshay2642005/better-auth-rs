@@ -94,6 +94,16 @@ fn completed_phase_reference_surface(
         "/link-social",
         "/list-accounts",
         "/unlink-account",
+        "/device/code",
+        "/device/token",
+        "/device",
+        "/device/approve",
+        "/device/deny",
+        "/api-key/create",
+        "/api-key/get",
+        "/api-key/list",
+        "/api-key/update",
+        "/api-key/delete",
     ]
     .into_iter()
     .map(|path| {
@@ -149,6 +159,7 @@ async fn create_full_auth() -> BetterAuth<TestSchema> {
         )
         .plugin(better_auth::plugins::AccountManagementPlugin::new())
         .plugin(better_auth::plugins::OAuthPlugin::new())
+        .plugin(better_auth::plugins::DeviceAuthorizationPlugin::new())
         .plugin(better_auth::plugins::TwoFactorPlugin::new())
         .plugin(better_auth::plugins::ApiKeyPlugin::builder().build())
         .build()
@@ -332,7 +343,7 @@ async fn test_completed_phase_surface_matches_reference_exactly() {
     );
 }
 
-/// Verify that the completed Phase 0-3 hot-path endpoints exist at all.
+/// Verify that the corrected completed Phase 0-5 endpoints exist at all.
 #[tokio::test]
 async fn test_completed_phase_endpoints_present() {
     let auth = create_full_auth().await;
@@ -364,6 +375,16 @@ async fn test_completed_phase_endpoints_present() {
         ("post", "/unlink-account"),
         ("post", "/change-email"),
         ("get", "/delete-user/callback"),
+        ("post", "/device/code"),
+        ("post", "/device/token"),
+        ("get", "/device"),
+        ("post", "/device/approve"),
+        ("post", "/device/deny"),
+        ("post", "/api-key/create"),
+        ("get", "/api-key/get"),
+        ("get", "/api-key/list"),
+        ("post", "/api-key/update"),
+        ("post", "/api-key/delete"),
     ];
 
     let mut missing = Vec::new();

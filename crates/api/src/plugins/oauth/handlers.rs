@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use base64::Engine;
 use chrono::{Duration, Utc};
 use rand::distributions::Alphanumeric;
@@ -1650,7 +1652,7 @@ pub(crate) async fn handle_callback(
     let default_error_url = format!("{}/error", auth_base_url(ctx));
     let meta = better_auth_core::RequestMeta::from_request(req);
 
-    let mut merged = req.query.clone();
+    let mut merged = HashMap::new();
     if req.method() == &better_auth_core::HttpMethod::Post {
         if let Some(body) = &req.body
             && !body.is_empty()
@@ -1681,6 +1683,10 @@ pub(crate) async fn handle_callback(
             merged.extend(parsed_body);
         }
 
+        // Match the TS callback route: POST body seeds the redirect, but
+        // explicit query parameters win over conflicting body fields.
+        merged.extend(req.query.clone());
+
         let mut params = url::form_urlencoded::Serializer::new(String::new());
         let mut pairs: Vec<_> = merged.iter().collect();
         pairs.sort_by(|(left, _), (right, _)| left.cmp(right));
@@ -1694,6 +1700,8 @@ pub(crate) async fn handle_callback(
             params.finish()
         )));
     }
+
+    let merged = req.query.clone();
 
     let error = merged.get("error").cloned();
     let state_param = match merged.get("state").cloned() {
