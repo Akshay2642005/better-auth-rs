@@ -156,6 +156,11 @@ path = "scripts/sync_better_auth_openapi.rs"
 name = "openapi_alignment_report"
 path = "scripts/openapi_alignment_report.rs"
 
+[[bin]]
+name = "generate_docs_openapi"
+path = "scripts/generate_docs_openapi.rs"
+required-features = ["seaorm2"]
+
 [workspace.lints.clippy]
 allow_attributes = "warn"
 allow_attributes_without_reason = "warn"

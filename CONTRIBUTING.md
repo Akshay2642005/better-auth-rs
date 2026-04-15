@@ -60,6 +60,19 @@ upstream behavior and source.
 Use any downstream compatibility target only as a downstream signal, not
 as the source of truth.
 
+## Docs OpenAPI
+
+The docs site consumes a committed schema artifact at `docs/better-auth.json`.
+That file should reflect the Rust runtime, not an upstream TypeScript export.
+
+When the documented v1 route surface changes, regenerate the docs OpenAPI
+artifacts with:
+
+```bash
+cargo run --bin generate_docs_openapi --features seaorm2
+cd docs && bun scripts/generate-openapi.mts
+```
+
 ## Testing Strategy
 
 There are three layers:
