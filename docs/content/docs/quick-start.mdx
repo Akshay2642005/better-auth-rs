@@ -15,7 +15,6 @@ use better_auth::plugins::{EmailPasswordPlugin, SessionManagementPlugin};
 use better_auth::prelude::{AuthRequest, HttpMethod};
 use better_auth::seaorm::{Database, SeaOrmStore};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,30 +42,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "name": "Test User"
     });
 
-    let response = auth.handle_request(AuthRequest {
-        method: HttpMethod::Post,
-        path: "/sign-up/email".to_string(),
-        headers: HashMap::from([
-            ("content-type".to_string(), "application/json".to_string()),
-        ]),
-        body: Some(serde_json::to_vec(&body)?),
-        query: HashMap::new(),
-    }).await?;
+    let response = auth
+        .handle_request(AuthRequest::from_parts(
+            HttpMethod::Post,
+            "/sign-up/email",
+            HashMap::from([(
+                "content-type".to_string(),
+                "application/json".to_string(),
+            )]),
+            Some(serde_json::to_vec(&body)?),
+            HashMap::new(),
+        ))
+        .await?;
 
     let data: serde_json::Value = serde_json::from_slice(&response.body)?;
     let token = data["token"].as_str().unwrap();
     println!("Signed up: {}", data["user"]["email"]);
 
     // 4. Use the session token
-    let response = auth.handle_request(AuthRequest {
-        method: HttpMethod::Get,
-        path: "/get-session".to_string(),
-        headers: HashMap::from([
-            ("authorization".to_string(), format!("Bearer {}", token)),
-        ]),
-        body: None,
-        query: HashMap::new(),
-    }).await?;
+    let response = auth
+        .handle_request(AuthRequest::from_parts(
+            HttpMethod::Get,
+            "/get-session",
+            HashMap::from([(
+                "authorization".to_string(),
+                format!("Bearer {}", token),
+            )]),
+            None,
+            HashMap::new(),
+        ))
+        .await?;
 
     let session: serde_json::Value = serde_json::from_slice(&response.body)?;
     println!("Session user: {}", session["user"]["email"]);

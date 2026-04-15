@@ -9,6 +9,10 @@ This roadmap tracks the pinned upstream TypeScript surface plus exposed
 Rust plugin routes we intend to keep. Public routes not present in
 upstream TS should be removed.
 
+For the v1 release, phases 0-12 are the supported completion target.
+Later phases remain tracked here, but they are follow-up/community work
+unless explicitly pulled back into core scope.
+
 Phases are ordered so that each one only depends on capabilities from
 earlier phases. A phase is complete when every endpoint in it has
 Rust-side tests and dual-server (TS-vs-Rust) comparison coverage.
@@ -95,8 +99,11 @@ Test suites, scripts, and source comments reference these phase numbers
 
 **Phase 12 — Two-factor recovery:**
 `/two-factor/generate-backup-codes`,
-`/two-factor/view-backup-codes`,
-`/two-factor/verify-backup-code`
+`/two-factor/verify-backup-code`,
+plus server-only backup-code retrieval via
+`TwoFactorPlugin::view_backup_codes(...)` (matching TS
+`auth.api.viewBackupCodes`; no public `/two-factor/view-backup-codes`
+route in the pinned compat surface)
 
 **Phase 13 — JWT surface:**
 When `jwt()` is enabled:

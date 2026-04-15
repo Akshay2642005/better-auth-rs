@@ -33,6 +33,10 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
 | `origin` | `String` | request `Origin` header | Expected origin for WebAuthn responses |
 | `challenge_ttl_secs` | `i64` | `300` (5 min) | Challenge expiration in seconds |
 
+<Callout>
+`rp_id` must be an effective domain of `origin`. This is enforced by `webauthn-rs`, so combinations like `rp_id = "example.com"` with `origin = "https://other.test"` are rejected during configuration.
+</Callout>
+
 ## How It Works
 
 ### Registration Flow

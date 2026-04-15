@@ -23,8 +23,8 @@ cargo run --manifest-path examples/fullstack/backend/Cargo.toml
 
 # Terminal 2 — start the Next.js frontend (port 3000)
 cd examples/fullstack/frontend
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 See [`examples/fullstack/README.md`](fullstack/README.md) for full details.

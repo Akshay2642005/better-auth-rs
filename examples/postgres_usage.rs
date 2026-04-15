@@ -131,8 +131,8 @@ mod user {
             Column::Email
         }
 
-        fn username_column() -> Self::Column {
-            Column::Username
+        fn username_column() -> Option<Self::Column> {
+            Some(Column::Username)
         }
 
         fn name_column() -> Self::Column {

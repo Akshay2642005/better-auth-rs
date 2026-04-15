@@ -850,7 +850,7 @@ async fn verify_backup_code_core(
     else {
         return Err(AuthError::authentication_failed("Invalid backup code"));
     };
-    backup_codes.remove(index);
+    let _ = backup_codes.remove(index);
 
     let encrypted = encrypt_value(&ctx.config.secret, &serde_json::to_string(&backup_codes)?)?;
     _ = ctx

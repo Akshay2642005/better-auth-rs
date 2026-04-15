@@ -2,6 +2,11 @@
 
 The most comprehensive authentication framework for Rust. Inspired by [Better Auth](https://www.better-auth.com/).
 
+The pinned compatibility target is `better-auth@1.4.19`. The v1 release
+scope covers phases 0-12 in [ROADMAP.md](ROADMAP.md), and the TypeScript
+runtime plus `better-auth/client` harness remain the source of truth for
+wire behavior.
+
 [![Crates.io](https://img.shields.io/crates/v/better-auth.svg)](https://crates.io/crates/better-auth)
 [![Documentation](https://docs.rs/better-auth/badge.svg)](https://docs.rs/better-auth)
 [![CI](https://github.com/better-auth-rs/better-auth-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/better-auth-rs/better-auth-rs/actions/workflows/ci.yml)

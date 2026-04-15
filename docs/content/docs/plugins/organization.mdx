@@ -94,7 +94,7 @@ let auth = BetterAuth::<AppAuthSchema>::new(auth_config)
 
 ## API Endpoints
 
-The Organization plugin exposes 18 endpoints. For full request/response details, see the [OpenAPI Reference](/docs/reference/openapi/organization).
+The Organization plugin exposes 21 endpoints. For full request/response details, see the [OpenAPI Reference](/docs/reference/openapi/organization).
 
 ### Organization CRUD
 
@@ -114,6 +114,7 @@ The Organization plugin exposes 18 endpoints. For full request/response details,
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/organization/get-active-member` | GET | Get current member record |
+| `/organization/get-active-member-role` | GET | Get the current member role |
 | `/organization/list-members` | GET | List organization members (with pagination) |
 | `/organization/remove-member` | POST | Remove a member (requires `member:delete`) |
 | `/organization/update-member-role` | POST | Update member role (requires `member:update`) |
