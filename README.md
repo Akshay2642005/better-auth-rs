@@ -28,7 +28,7 @@ wire behavior.
 
 ```toml
 [dependencies]
-better-auth = { version = "0.10", features = ["axum", "seaorm2"] }
+better-auth = { version = "1.0.0-alpha.1", features = ["axum", "seaorm2"] }
 ```
 
 Generate the schema scaffolding with the CLI:

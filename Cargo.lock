@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "better-auth"
-version = "0.10.0"
+version = "1.0.0-alpha.1"
 dependencies = [
  "argon2",
  "async-trait",
@@ -547,7 +547,7 @@ dependencies = [
 
 [[package]]
 name = "better-auth-api"
-version = "0.10.0"
+version = "1.0.0-alpha.1"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -582,7 +582,7 @@ dependencies = [
 
 [[package]]
 name = "better-auth-cli"
-version = "0.10.0"
+version = "1.0.0-alpha.1"
 dependencies = [
  "better-auth-schema-registry",
  "clap",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "better-auth-core"
-version = "0.10.0"
+version = "1.0.0-alpha.1"
 dependencies = [
  "argon2",
  "async-trait",
@@ -620,7 +620,7 @@ dependencies = [
 
 [[package]]
 name = "better-auth-macros"
-version = "0.10.0"
+version = "1.0.0-alpha.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -629,11 +629,11 @@ dependencies = [
 
 [[package]]
 name = "better-auth-schema-registry"
-version = "0.10.0"
+version = "1.0.0-alpha.1"
 
 [[package]]
 name = "better-auth-seaorm"
-version = "0.10.0"
+version = "1.0.0-alpha.1"
 dependencies = [
  "async-trait",
  "better-auth-core",
@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "better-auth-seaorm-macros"
-version = "0.10.0"
+version = "1.0.0-alpha.1"
 dependencies = [
  "better-auth-schema-registry",
  "proc-macro-crate",
