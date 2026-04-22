@@ -39,19 +39,19 @@ fn docs_use_current_minor_version_and_canonical_paths() {
             || readme.contains(&format!("better-auth = \"{expected_full}\""))
             || readme.contains(&format!("version = \"{expected_minor}\""))
             || readme.contains(&format!("version = \"{expected_full}\"")),
-        "README should use the current minor crate version",
+        "README should use the current minor or full crate version",
     );
     assert!(
         installation.contains(&format!("better-auth = \"{expected_minor}\""))
             || installation.contains(&format!("better-auth = \"{expected_full}\""))
             || installation.contains(&format!("version = \"{expected_minor}\""))
             || installation.contains(&format!("version = \"{expected_full}\"")),
-        "installation guide should use the current minor crate version",
+        "installation guide should use the current minor or full crate version",
     );
     assert!(
         axum.contains(&format!("better-auth = {{ version = \"{expected_minor}\""))
             || axum.contains(&format!("better-auth = {{ version = \"{expected_full}\"")),
-        "axum guide should use the current minor crate version",
+        "axum guide should use the current minor or full crate version",
     );
 
     for text in [&readme, &quick_start, &axum] {
