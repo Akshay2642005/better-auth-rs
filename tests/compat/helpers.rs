@@ -436,6 +436,34 @@ pub async fn send_request(auth: &TestAuth, req: AuthRequest) -> (u16, Value) {
     (status, json)
 }
 
+/// Strip markup and normalize whitespace so tests can assert on rendered text.
+pub fn html_text_content(html: &str) -> String {
+    let mut text = String::with_capacity(html.len());
+    let mut in_tag = false;
+    let mut pending_space = false;
+
+    for ch in html.chars() {
+        match ch {
+            '<' => {
+                in_tag = true;
+                pending_space = !text.is_empty();
+            }
+            '>' => in_tag = false,
+            _ if in_tag => {}
+            _ if ch.is_whitespace() => pending_space = !text.is_empty(),
+            _ => {
+                if pending_space {
+                    text.push(' ');
+                    pending_space = false;
+                }
+                text.push(ch);
+            }
+        }
+    }
+
+    text.trim().to_string()
+}
+
 pub async fn signup_user(
     auth: &TestAuth,
     email: &str,

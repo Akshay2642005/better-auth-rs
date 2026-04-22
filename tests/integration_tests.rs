@@ -375,8 +375,8 @@ async fn test_error_endpoint() {
     let (status, response_data) = send_request(&auth, get_request("/error")).await;
     assert_eq!(status, 200);
     let html = response_data.as_str().unwrap_or_default();
-    assert!(html.contains("CODE:"));
-    assert!(html.contains("UNKNOWN"));
+    let text = html_text_content(html);
+    assert!(text.contains("CODE: UNKNOWN"));
 }
 
 /// Integration test for POST /get-session remaining unavailable publicly
