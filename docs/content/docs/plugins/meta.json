@@ -5,6 +5,7 @@
     "organization",
     "admin",
     "api-key",
-    "passkey"
+    "passkey",
+    "device-authorization"
   ]
 }
