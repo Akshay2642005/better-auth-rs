@@ -1422,3 +1422,29 @@ async fn test_axum_complete_workflow() {
     let response = router.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn test_axum_update_user_role_ignored_without_admin_plugin() {
+    let auth = create_test_auth().await;
+    let router = create_test_router(auth.clone());
+    let (_user, token) = create_test_user(router.clone()).await;
+
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/auth/update-user")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::from(json!({"role": "admin"}).to_string()))
+        .unwrap();
+
+    let response = router.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+
+    let data: Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    assert_eq!(data["message"], "No fields to update");
+    assert!(data.get("code").is_none(), "{data}");
+}
