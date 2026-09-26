@@ -470,6 +470,37 @@ pub struct UpdateUserRequest {
     pub metadata: Option<serde_json::Value>,
 }
 
+impl UpdateUserRequest {
+    /// Wire keys upstream core marks `input: false`.
+    ///
+    /// Rejected on every request; stripped before deserialization so they can
+    /// never reach the store.
+    pub const NON_WRITABLE_CORE_FIELDS: [&'static str; 1] = ["emailVerified"];
+
+    /// Wire keys upstream marks `input: false` only via a plugin schema, so
+    /// they are *rejected* only when that plugin is installed — but are
+    /// stripped unconditionally, exactly like upstream's silent ignore.
+    pub const NON_WRITABLE_PLUGIN_FIELDS: [&'static str; 5] = [
+        "role",
+        "banned",
+        "banReason",
+        "banExpires",
+        "twoFactorEnabled",
+    ];
+
+    /// JS truthiness, mirroring upstream's `if (data[key])` gate in
+    /// `parseInputData`: `null`/`false`/`0`/`""` are skipped, not rejected.
+    pub fn is_js_truthy(value: &serde_json::Value) -> bool {
+        match value {
+            serde_json::Value::Null => false,
+            serde_json::Value::Bool(b) => *b,
+            serde_json::Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+            serde_json::Value::String(s) => !s.is_empty(),
+            serde_json::Value::Array(_) | serde_json::Value::Object(_) => true,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct UpdateUserResponse<U: Serialize> {
     pub user: U,
