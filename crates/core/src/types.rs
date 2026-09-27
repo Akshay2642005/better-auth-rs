@@ -477,16 +477,32 @@ impl UpdateUserRequest {
     /// never reach the store.
     pub const NON_WRITABLE_CORE_FIELDS: [&'static str; 1] = ["emailVerified"];
 
-    /// Wire keys upstream marks `input: false` only via a plugin schema, so
-    /// they are *rejected* only when that plugin is installed — but are
-    /// stripped unconditionally, exactly like upstream's silent ignore.
-    pub const NON_WRITABLE_PLUGIN_FIELDS: [&'static str; 5] = [
-        "role",
-        "banned",
-        "banReason",
-        "banExpires",
-        "twoFactorEnabled",
-    ];
+    /// Wire keys the Admin plugin's user schema marks `input: false`.
+    pub const NON_WRITABLE_ADMIN_FIELDS: [&'static str; 4] =
+        ["role", "banned", "banReason", "banExpires"];
+
+    /// Wire keys the Two-Factor plugin's user schema marks `input: false`.
+    pub const NON_WRITABLE_TWO_FACTOR_FIELDS: [&'static str; 1] = ["twoFactorEnabled"];
+
+    /// Every plugin-contributed non-writable key, regardless of which plugin
+    /// owns it. Stripped before deserialization, exactly like upstream's
+    /// silent ignore when the owning plugin is absent.
+    pub fn is_plugin_non_writable(key: &str) -> bool {
+        Self::NON_WRITABLE_ADMIN_FIELDS.contains(&key)
+            || Self::NON_WRITABLE_TWO_FACTOR_FIELDS.contains(&key)
+    }
+
+    /// Whether `key` must be rejected on this request. Upstream only knows a
+    /// plugin-contributed `input: false` field when that plugin's schema is
+    /// installed, so each key is gated on its own plugin — not on either one.
+    pub fn is_denied_by_plugin(
+        key: &str,
+        admin_installed: bool,
+        two_factor_installed: bool,
+    ) -> bool {
+        (admin_installed && Self::NON_WRITABLE_ADMIN_FIELDS.contains(&key))
+            || (two_factor_installed && Self::NON_WRITABLE_TWO_FACTOR_FIELDS.contains(&key))
+    }
 
     /// JS truthiness, mirroring upstream's `if (data[key])` gate in
     /// `parseInputData`: `null`/`false`/`0`/`""` are skipped, not rejected.
