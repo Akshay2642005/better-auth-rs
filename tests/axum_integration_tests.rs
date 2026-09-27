@@ -8,7 +8,8 @@ use axum::{
 use better_auth::integrations::axum::{AxumIntegration, CurrentSession, OptionalSession};
 use better_auth::plugins::{
     AdminPlugin, EmailPasswordPlugin, EmailVerificationPlugin, PasswordManagementPlugin,
-    SessionManagementPlugin, UserManagementPlugin, password_management::SendResetPassword,
+    SessionManagementPlugin, TwoFactorPlugin, UserManagementPlugin,
+    password_management::SendResetPassword,
 };
 use better_auth::prelude::AuthUser;
 use better_auth::{AuthBuilder, AuthConfig, BetterAuth};
@@ -51,7 +52,7 @@ async fn create_test_auth() -> Arc<BetterAuth<TestSchema>> {
 }
 
 async fn create_test_auth_with_config(config: AuthConfig) -> Arc<BetterAuth<TestSchema>> {
-    build_test_auth(config, false).await
+    build_test_auth(config, false, false).await
 }
 
 /// The same plugin set as [`create_test_auth_with_config`] **plus**
@@ -64,11 +65,30 @@ async fn create_admin_test_auth() -> Arc<BetterAuth<TestSchema>> {
             .base_url("http://localhost:3000")
             .password_min_length(6),
         true,
+        false,
     )
     .await
 }
 
-async fn build_test_auth(config: AuthConfig, admin: bool) -> Arc<BetterAuth<TestSchema>> {
+/// The mirror of [`create_admin_test_auth`]: Two-Factor installed, Admin
+/// absent. Pins the rejection branch for `twoFactorEnabled` and, in the other
+/// direction, that an unrelated installed plugin must not reject `role`.
+async fn create_two_factor_test_auth() -> Arc<BetterAuth<TestSchema>> {
+    build_test_auth(
+        AuthConfig::new("test-secret-key-that-is-at-least-32-characters-long")
+            .base_url("http://localhost:3000")
+            .password_min_length(6),
+        false,
+        true,
+    )
+    .await
+}
+
+async fn build_test_auth(
+    config: AuthConfig,
+    admin: bool,
+    two_factor: bool,
+) -> Arc<BetterAuth<TestSchema>> {
     struct NoopResetSender;
 
     #[async_trait::async_trait]
@@ -98,6 +118,11 @@ async fn build_test_auth(config: AuthConfig, admin: bool) -> Arc<BetterAuth<Test
         );
     let builder = if admin {
         builder.plugin(AdminPlugin::new())
+    } else {
+        builder
+    };
+    let builder = if two_factor {
+        builder.plugin(TwoFactorPlugin::new())
     } else {
         builder
     };
@@ -1512,6 +1537,58 @@ async fn test_axum_update_user_gates_plugin_fields_per_plugin() {
         .uri("/auth/update-user")
         .header("authorization", format!("Bearer {token}"))
         .body(Body::from(json!({"twoFactorEnabled": true}).to_string()))
+        .unwrap();
+
+    let response = router.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let data: Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(data["message"], "No fields to update", "{data}");
+    assert!(data.get("code").is_none(), "{data}");
+}
+
+/// The inverse of [`test_axum_update_user_gates_plugin_fields_per_plugin`]:
+/// Two-Factor installed and Admin absent, so `twoFactorEnabled` is a known
+/// `input: false` field and must be rejected, while `role` belongs to no
+/// installed schema and is dropped. The second half also guards against a
+/// gate keyed on *any* installed plugin instead of the owning one.
+// Upstream reference: @better-auth/core parseInputData — a field is rejected
+// only when an installed schema marks it `input: false`; unknown keys are
+// skipped rather than rejected.
+#[tokio::test]
+async fn test_axum_update_user_rejects_two_factor_field_when_plugin_installed() {
+    let auth = create_two_factor_test_auth().await;
+    let router = create_test_router(auth.clone());
+    let (_user, token) = create_test_user(router.clone()).await;
+
+    // Two-Factor plugin installed -> `twoFactorEnabled` is `input: false`.
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/auth/update-user")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::from(json!({"twoFactorEnabled": true}).to_string()))
+        .unwrap();
+
+    let response = router.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let data: Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(data["code"], "FIELD_NOT_ALLOWED", "{data}");
+    assert_eq!(
+        data["message"], "twoFactorEnabled is not allowed to be set",
+        "{data}"
+    );
+
+    // No Admin plugin -> `role` is in no installed schema, so it is dropped.
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/auth/update-user")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::from(json!({"role": "admin"}).to_string()))
         .unwrap();
 
     let response = router.oneshot(request).await.unwrap();
