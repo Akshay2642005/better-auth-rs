@@ -42,7 +42,7 @@ The pinned reference version is `better-auth@1.7.6`.
 ## Before You Change Code
 
 Install [devenv](https://devenv.sh/getting-started/). The committed
-`devenv.lock` pins Rust, Bun, and native build dependencies.
+`devenv.lock` pins Rust, Bun, Node.js, pnpm, and native build dependencies.
 
 Run tools through the development shell:
 
@@ -75,7 +75,9 @@ When the documented v1 route surface changes, regenerate the docs OpenAPI
 artifacts with:
 
 ```bash
+devenv shell -- pnpm --dir docs install --frozen-lockfile
 devenv shell -- cargo run --bin generate_docs_openapi --features seaorm2
+devenv shell -- pnpm --dir docs exec biome format --write better-auth.json
 devenv shell -- bun run --cwd docs scripts/generate-openapi.mts
 ```
 

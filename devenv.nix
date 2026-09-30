@@ -1,7 +1,7 @@
 { pkgs, ... }:
 
 {
-  packages = [ pkgs.bun pkgs.pkg-config pkgs.openssl ];
+  packages = [ pkgs.bun pkgs.nodejs pkgs.pnpm pkgs.pkg-config pkgs.openssl ];
 
   languages.rust = {
     enable = true;
