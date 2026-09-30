@@ -8,8 +8,8 @@
     "start": "bun run server.ts"
   },
   "dependencies": {
-    "@better-auth/api-key": "1.6.29",
-    "@better-auth/passkey": "1.6.29",
-    "better-auth": "1.6.29"
+    "@better-auth/api-key": "1.7.6",
+    "@better-auth/passkey": "1.7.6",
+    "better-auth": "1.7.6"
   }
 }

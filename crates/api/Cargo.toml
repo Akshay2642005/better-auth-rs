@@ -57,6 +57,7 @@ jsonwebtoken.workspace = true
 serde_with = "3.18.0"
 webauthn-rs = { version = "0.5.4", features = ["conditional-ui", "danger-allow-state-serialisation"] }
 serde_cbor_2 = "0.13.0"
+serde_path_to_error = "0.1.20"
 
 [dev-dependencies]
 tokio = { workspace = true }

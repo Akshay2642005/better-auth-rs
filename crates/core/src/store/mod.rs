@@ -229,10 +229,12 @@ pub trait ApiKeyStore: Send + Sync {
 pub enum ConsumeApiKeyResult {
     /// The key was valid and counters were updated. Contains the updated key.
     Allowed(Box<ApiKey>),
-    /// The key's rate limit was exceeded.
-    RateLimited,
-    /// The key's usage quota (`remaining`) was exhausted and no refill is
-    /// configured. The key has been deleted.
+    /// The rate limit was exceeded after consuming the request's usage quota.
+    RateLimited {
+        /// Milliseconds until the current rate-limit window ends.
+        try_again_in: f64,
+    },
+    /// The quota was exhausted. Non-refillable keys at zero quota are deleted.
     UsageExhausted,
 }
 

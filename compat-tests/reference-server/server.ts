@@ -318,7 +318,14 @@ const authOptions = {
   },
   plugins: [
     admin(),
-    apiKey({ enableMetadata: true }),
+    apiKey([
+      { configId: "default", enableMetadata: true },
+      { configId: "secondary", enableMetadata: true },
+      { configId: "session", enableSessionForAPIKeys: true, apiKeyHeaders: ["x-api-key", "x-machine-key"] },
+      { configId: "shared-first", enableSessionForAPIKeys: true, apiKeyHeaders: "x-shared-key" },
+      { configId: "shared-second", enableSessionForAPIKeys: true, apiKeyHeaders: "x-shared-key" },
+      { configId: "organization", references: "organization", enableMetadata: true },
+    ]),
     deviceAuthorization(),
     organization(),
     passkey(),
@@ -393,6 +400,16 @@ const server = Bun.serve({
 
       if (url.pathname === "/__health") {
         return jsonResponse({ ok: true });
+      }
+
+      if (url.pathname === "/__test/api-key/create" && request.method === "POST") {
+        return jsonResponse(await auth.api.createApiKey({ body: await readJson(request) }));
+      }
+      if (url.pathname === "/__test/api-key/update" && request.method === "POST") {
+        return jsonResponse(await auth.api.updateApiKey({ body: await readJson(request) }));
+      }
+      if (url.pathname === "/__test/api-key/verify" && request.method === "POST") {
+        return jsonResponse(await auth.api.verifyApiKey({ body: await readJson(request) }));
       }
 
       if (url.pathname === "/__test/reset-state" && request.method === "POST") {
@@ -656,18 +673,20 @@ const server = Bun.serve({
           scope: hasOwn(body, "scope") ? body?.scope ?? null : "openid,email,profile",
         };
 
+        let localAccountId = existing?.id;
         if (existing?.id) {
           await authContext.internalAdapter.updateAccount(existing.id, accountData);
         } else {
-          await authContext.internalAdapter.createAccount({
+          const account = await authContext.internalAdapter.createAccount({
             userId: user.user.id,
             providerId,
             accountId,
             ...accountData,
           });
+          localAccountId = account.id;
         }
 
-        return jsonResponse({ status: true });
+        return jsonResponse({ status: true, accountId: localAccountId });
       }
 
       return auth.handler(request);

@@ -1008,8 +1008,16 @@ async fn test_unlink_account_success() {
         format!("Bearer {}", session_token),
     );
 
+    let google_account = auth
+        .store()
+        .get_user_accounts(&user_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|account| account.provider_id == "google")
+        .unwrap();
     let unlink_data = serde_json::json!({
-        "providerId": "google"
+        "accountId": google_account.id
     });
 
     let request = AuthRequest::from_parts(
@@ -1077,7 +1085,7 @@ async fn test_unlink_last_account_fails() {
         scope: None,
         password: None,
     };
-    auth.store().create_account(create_account).await.unwrap();
+    let account = auth.store().create_account(create_account).await.unwrap();
 
     let mut headers = HashMap::new();
     headers.insert("content-type".to_string(), "application/json".to_string());
@@ -1087,7 +1095,7 @@ async fn test_unlink_last_account_fails() {
     );
 
     let unlink_data = serde_json::json!({
-        "providerId": "google"
+        "accountId": account.id
     });
 
     let request = AuthRequest::from_parts(

@@ -37,7 +37,7 @@ async fn test_all_responses_use_camel_case() {
         ),
     ];
 
-    _ = auth
+    let account_info_account = auth
         .store()
         .create_account(CreateAccount {
             user_id: signup_body["user"]["id"]
@@ -59,7 +59,7 @@ async fn test_all_responses_use_camel_case() {
     let account_info_req = get_with_auth_and_query(
         "/account-info",
         &token,
-        vec![("accountId", "mock-account-id")],
+        vec![("accountId", account_info_account.id.as_str())],
     );
 
     let mut all_violations = Vec::new();
@@ -127,7 +127,7 @@ async fn test_response_type_signatures() {
     let (_, session_body) = send_request(&auth, get_with_auth("/get-session", &token)).await;
     let (_, sessions_body) = send_request(&auth, get_with_auth("/list-sessions", &token)).await;
     let (_, accounts_body) = send_request(&auth, get_with_auth("/list-accounts", &token)).await;
-    _ = auth
+    let account_info_account = auth
         .store()
         .create_account(CreateAccount {
             user_id: signup_body["user"]["id"]
@@ -151,7 +151,7 @@ async fn test_response_type_signatures() {
         get_with_auth_and_query(
             "/account-info",
             &token,
-            vec![("accountId", "mock-account-id")],
+            vec![("accountId", account_info_account.id.as_str())],
         ),
     )
     .await;

@@ -576,6 +576,7 @@ dependencies = [
  "serde",
  "serde_cbor_2",
  "serde_json",
+ "serde_path_to_error",
  "serde_with",
  "sha2",
  "tokio",

@@ -8,7 +8,7 @@ The most comprehensive authentication framework for Rust. Inspired by [Better Au
 > notice between alpha releases, and production use is not recommended yet.
 > Please report issues and feedback on [GitHub](https://github.com/better-auth-rs/better-auth-rs/issues).
 
-The pinned compatibility target is `better-auth@1.6.29`. The v1 release
+The pinned compatibility target is `better-auth@1.7.6`. The v1 release
 scope covers phases 0-12 in [ROADMAP.md](ROADMAP.md), and the TypeScript
 runtime plus `better-auth/client` harness remain the source of truth for
 wire behavior.
@@ -17,7 +17,7 @@ wire behavior.
 [![Documentation](https://docs.rs/better-auth/badge.svg)](https://docs.rs/better-auth)
 [![CI](https://github.com/better-auth-rs/better-auth-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/better-auth-rs/better-auth-rs/actions/workflows/ci.yml)
 [![License](https://img.shields.io/crates/l/better-auth.svg)](LICENSE-MIT)
-[![better-auth compatibility](https://img.shields.io/badge/better--auth-v1.6.29-blue?logo=typescript&logoColor=white)](https://www.npmjs.com/package/better-auth/v/1.6.29)
+[![better-auth compatibility](https://img.shields.io/badge/better--auth-v1.7.6-blue?logo=typescript&logoColor=white)](https://www.npmjs.com/package/better-auth/v/1.7.6)
 
 ## Features
 
@@ -170,6 +170,17 @@ cargo run --manifest-path examples/fullstack/backend/Cargo.toml
 ```
 
 > See [examples/README.md](examples/README.md) for detailed documentation on each example.
+
+## Development
+
+Install [devenv](https://devenv.sh/getting-started/), then run:
+
+```bash
+devenv shell
+devenv test
+```
+
+See [Contributing](CONTRIBUTING.md) for focused checks and the compatibility contract.
 
 ## License
 

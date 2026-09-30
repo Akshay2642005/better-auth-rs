@@ -95,12 +95,18 @@ The OAuth plugin exposes the following endpoints. For full request/response deta
 ## Provider Account Info
 
 Use `GET /account-info` to fetch provider-specific user info for a linked account.
-Pass the provider account id as the `accountId` query parameter.
+Pass the local account `id` returned by `/list-accounts` as the `accountId` query parameter.
 
 ```http
-GET /account-info?accountId=provider-account-id
+GET /account-info?accountId=local-account-id
 Authorization: Bearer <token>
 ```
+
+The response includes provider user info and an `account` object with `id`, `providerId`, and the provider's `accountId`.
+
+For `POST /get-access-token` and `POST /refresh-token`, send `{ "accountId": "local-account-id" }`. When `account.store_account_cookie` is enabled, these POST endpoints also accept `{ "useAccountCookie": true }` to select the signed account cookie. Select exactly one source. The authenticated session determines the user.
+
+For `POST /unlink-account`, send `{ "accountId": "local-account-id" }`.
 
 ## How It Works
 

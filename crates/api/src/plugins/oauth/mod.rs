@@ -4,6 +4,7 @@ use better_auth_core::AuthResult;
 use better_auth_core::{AuthContext, AuthPlugin, AuthRoute};
 use better_auth_core::{AuthRequest, AuthResponse, HttpMethod};
 
+mod account;
 pub mod encryption;
 mod handlers;
 mod providers;
@@ -80,13 +81,13 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for OAuthPlugin {
                 handlers::handle_link_social(&self.config, req, ctx).await?,
             )),
             (HttpMethod::Post, "/get-access-token") => Ok(Some(
-                handlers::handle_get_access_token(&self.config, req, ctx).await?,
+                account::handle_get_access_token(&self.config, req, ctx).await?,
             )),
             (HttpMethod::Post, "/refresh-token") => Ok(Some(
-                handlers::handle_refresh_token(&self.config, req, ctx).await?,
+                account::handle_refresh_token(&self.config, req, ctx).await?,
             )),
             (HttpMethod::Get, "/account-info") => Ok(Some(
-                handlers::handle_account_info(&self.config, req, ctx).await?,
+                account::handle_account_info(&self.config, req, ctx).await?,
             )),
             _ => Ok(None),
         }

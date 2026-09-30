@@ -7,6 +7,17 @@ use thiserror::Error;
 /// matching the better-auth OpenAPI spec: `{ "message": "..." }`.
 #[derive(Error, Debug)]
 pub enum AuthError {
+    /// A documented upstream API error whose message is safe to return publicly.
+    #[error("{message}")]
+    Upstream {
+        /// HTTP response status defined by the upstream endpoint.
+        status: u16,
+        /// Stable upstream error code.
+        code: &'static str,
+        /// Documented public error message. Never include internal failure details.
+        message: &'static str,
+    },
+
     #[error("{0}")]
     BadRequest(String),
 
@@ -87,6 +98,7 @@ impl AuthError {
     /// HTTP status code for this error.
     pub fn status_code(&self) -> u16 {
         match self {
+            Self::Upstream { status, .. } => *status,
             // 400
             Self::BadRequest(_) | Self::InvalidRequest(_) | Self::Validation(_) => 400,
             // 401
@@ -142,6 +154,9 @@ impl AuthError {
     pub fn error_payload(&self) -> (u16, Option<String>, String) {
         let status = self.status_code();
         let (code, message) = match self {
+            Self::Upstream { code, message, .. } => {
+                (Some((*code).to_owned()), (*message).to_owned())
+            }
             Self::BannedUser(message) => (Some("BANNED_USER".to_string()), message.clone()),
             _ => {
                 let message = match status {

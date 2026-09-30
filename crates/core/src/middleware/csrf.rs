@@ -284,7 +284,7 @@ mod tests {
             headers,
             body: None,
             query: HashMap::new(),
-            virtual_user_id: None,
+            virtual_session: None,
         }
     }
 

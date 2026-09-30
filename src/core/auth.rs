@@ -256,16 +256,8 @@ impl<S: AuthSchema> BetterAuth<S> {
                     BeforeRequestAction::Respond(response) => {
                         return Ok(response);
                     }
-                    BeforeRequestAction::InjectSession {
-                        user_id,
-                        session_token: _,
-                    } => {
-                        // Set the virtual user id on the request so that
-                        // `extract_current_user` can resolve the user without
-                        // creating a real database session.  This mirrors the
-                        // TypeScript `ctx.context.session` virtual-session
-                        // approach — no DB writes on every API-key request.
-                        internal_req.set_virtual_user_id(user_id);
+                    BeforeRequestAction::InjectSession { session } => {
+                        internal_req.set_virtual_session(session);
                     }
                 }
             }
@@ -290,6 +282,13 @@ impl<S: AuthSchema> BetterAuth<S> {
     /// Get the configuration.
     pub fn config(&self) -> &AuthConfig {
         &self.config
+    }
+
+    /// Return the initialized context for server-only plugin APIs.
+    ///
+    /// The context includes metadata registered by every installed plugin.
+    pub fn context(&self) -> &AuthContext<S> {
+        &self.context
     }
 
     /// Get the shared auth store used by Better Auth.

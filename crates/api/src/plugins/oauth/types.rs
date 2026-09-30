@@ -58,34 +58,6 @@ pub(crate) struct OAuthIdTokenRequest {
     pub scopes: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, Validate)]
-pub(crate) struct GetAccessTokenRequest {
-    #[validate(length(min = 1, message = "Provider ID is required"))]
-    #[serde(rename = "providerId")]
-    pub provider_id: String,
-    #[serde(rename = "accountId")]
-    pub account_id: Option<String>,
-    #[serde(rename = "userId")]
-    pub user_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Validate)]
-pub(crate) struct RefreshTokenRequest {
-    #[validate(length(min = 1, message = "Provider ID is required"))]
-    #[serde(rename = "providerId")]
-    pub provider_id: String,
-    #[serde(rename = "accountId")]
-    pub account_id: Option<String>,
-    #[serde(rename = "userId")]
-    pub user_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub(crate) struct AccountInfoQuery {
-    #[serde(rename = "accountId")]
-    pub account_id: Option<String>,
-}
-
 #[derive(Debug, Serialize)]
 pub(crate) struct SocialSignInResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -125,23 +97,33 @@ pub(crate) struct RefreshTokenResponse {
     pub id_token: Option<String>,
     #[serde(rename = "providerId")]
     pub provider_id: String,
-    #[serde(rename = "accountId")]
-    pub account_id: String,
+    #[serde(rename = "accountId", skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct AccountInfoUser {
-    pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     #[serde(rename = "emailVerified")]
     pub email_verified: bool,
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AccountInfoAccount {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub provider_id: String,
+    pub account_id: String,
+}
+
+#[derive(Debug, Serialize)]
 pub(crate) struct AccountInfoResponse {
     pub user: AccountInfoUser,
     pub data: serde_json::Value,
+    pub account: AccountInfoAccount,
 }

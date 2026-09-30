@@ -183,7 +183,7 @@ mod tests {
             headers,
             body: None,
             query: StdHashMap::new(),
-            virtual_user_id: None,
+            virtual_session: None,
         }
     }
 

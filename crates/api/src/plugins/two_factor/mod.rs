@@ -160,6 +160,7 @@ pub(crate) struct VerifyBackupCodeRequest {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct EnableResponse {
+    method: &'static str,
     #[serde(rename = "totpURI")]
     totp_uri: String,
     #[serde(rename = "backupCodes")]
@@ -205,7 +206,7 @@ struct PendingTwoFactorState<S: better_auth_core::AuthSchema> {
 enum ResolvedTwoFactorState<S: better_auth_core::AuthSchema> {
     Session {
         user: S::User,
-        session: S::Session,
+        session: Box<better_auth_core::wire::SessionView>,
         key: String,
     },
     Pending(PendingTwoFactorState<S>),
@@ -607,6 +608,7 @@ async fn enable_core(
     let totp_uri = build_totp(config, &secret, body.issuer.as_deref(), user, ctx)?.get_url();
     Ok((
         EnableResponse {
+            method: "totp",
             totp_uri,
             backup_codes,
         },
@@ -700,7 +702,7 @@ async fn verify_totp_core(
 
     match state {
         ResolvedTwoFactorState::Session { user, session, .. } => {
-            verify_existing_session_factor(user, session, true, ctx).await
+            verify_existing_session_factor(user, *session, true, ctx).await
         }
         ResolvedTwoFactorState::Pending(pending) => {
             finalize_pending_two_factor(pending, req, body.trust_device.unwrap_or(false), true, ctx)
@@ -822,7 +824,7 @@ async fn verify_otp_core(
 
     match state {
         ResolvedTwoFactorState::Session { user, session, .. } => {
-            verify_existing_session_factor(user, session, true, ctx).await
+            verify_existing_session_factor(user, *session, true, ctx).await
         }
         ResolvedTwoFactorState::Pending(pending) => {
             finalize_pending_two_factor(pending, req, body.trust_device.unwrap_or(false), true, ctx)
@@ -898,7 +900,7 @@ async fn verify_backup_code_core(
                     Vec::new(),
                 ))
             } else {
-                verify_existing_session_factor(user, session, false, ctx).await
+                verify_existing_session_factor(user, *session, false, ctx).await
             }
         }
         ResolvedTwoFactorState::Pending(pending) => {
@@ -936,7 +938,11 @@ async fn resolve_two_factor_state<S: better_auth_core::AuthSchema>(
 ) -> AuthResult<ResolvedTwoFactorState<S>> {
     if let Ok((user, session)) = ctx.require_session(req).await {
         let key = format!("{}!{}", user.id(), session.id());
-        return Ok(ResolvedTwoFactorState::Session { user, session, key });
+        return Ok(ResolvedTwoFactorState::Session {
+            user,
+            session: Box::new(session),
+            key,
+        });
     }
 
     let identifier = read_signed_cookie(req, TWO_FACTOR_COOKIE_SUFFIX, ctx)?

@@ -12,7 +12,7 @@ use better_auth_core::{
     CreateVerification, UpdateAccount, UpdateUser,
 };
 
-use super::encryption::{encrypt_token_set, maybe_decrypt};
+use super::encryption::encrypt_token_set;
 use super::providers::{
     OAuthCallbackUserName, OAuthCallbackUserPayload, OAuthConfig, OAuthProvider, OAuthTokenSet,
     OAuthUserInfo, OAuthUserInfoRequest, OAuthUserInfoResponse,
@@ -24,9 +24,7 @@ use super::state::{
     filter_additional_state_data, get_cookie, state_cookie_name,
 };
 use super::types::{
-    AccessTokenResponse, AccountInfoQuery, AccountInfoResponse, AccountInfoUser,
-    GetAccessTokenRequest, LinkSocialRequest, OAuthIdTokenRequest, RefreshTokenRequest,
-    RefreshTokenResponse, SocialSignInRequest, SocialSignInResponse,
+    LinkSocialRequest, OAuthIdTokenRequest, SocialSignInRequest, SocialSignInResponse,
 };
 use better_auth_core::wire::{SessionView, UserView};
 
@@ -49,55 +47,6 @@ async fn require_session<S: better_auth_core::AuthSchema>(
         .get_session(&token)
         .await?
         .ok_or(AuthError::Unauthenticated)
-}
-
-/// Find the account for a specific provider among a user's linked accounts.
-fn find_account_for_provider<'a, A: AuthAccount>(
-    accounts: &'a [A],
-    provider_id: &str,
-    account_id: Option<&str>,
-) -> Result<&'a A, AuthError> {
-    accounts
-        .iter()
-        .find(|account| {
-            if account.provider_id() != provider_id {
-                return false;
-            }
-            match account_id {
-                Some(account_id) => account.id() == account_id,
-                None => true,
-            }
-        })
-        .ok_or_else(|| AuthError::bad_request("Account not found"))
-}
-
-fn find_account_for_provider_account_id<'a, A: AuthAccount>(
-    accounts: &'a [A],
-    provider_account_id: &str,
-) -> Option<&'a A> {
-    accounts
-        .iter()
-        .find(|account| account.account_id() == provider_account_id)
-}
-
-fn parse_query<T: Default + serde::de::DeserializeOwned>(
-    query: &std::collections::HashMap<String, String>,
-) -> T {
-    let value = serde_json::to_value(query)
-        .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
-    serde_json::from_value(value).unwrap_or_default()
-}
-
-fn code_message_response(status: u16, message: impl Into<String>) -> AuthResult<AuthResponse> {
-    let message = message.into();
-    AuthResponse::json(
-        status,
-        &better_auth_core::types::ErrorCodeMessageResponse {
-            code: AuthError::code_from_message(&message),
-            message,
-        },
-    )
-    .map_err(AuthError::from)
 }
 
 fn generate_pkce() -> (String, String) {
@@ -145,7 +94,7 @@ fn build_authorization_url(
     Ok(url.to_string())
 }
 
-async fn refresh_tokens_via_provider(
+pub(super) async fn refresh_tokens_via_provider(
     provider: &OAuthProvider,
     refresh_token: &str,
 ) -> AuthResult<OAuthTokenSet> {
@@ -286,7 +235,7 @@ async fn validate_authorization_code_via_provider(
     parse_token_response(token_data)
 }
 
-async fn fetch_user_info_from_provider(
+pub(super) async fn fetch_user_info_from_provider(
     provider: &OAuthProvider,
     request: OAuthUserInfoRequest,
 ) -> AuthResult<OAuthUserInfoResponse> {
@@ -381,7 +330,7 @@ fn account_cookie_max_age(config: &better_auth_core::AuthConfig) -> Duration {
         .unwrap_or_else(|| Duration::minutes(5))
 }
 
-fn create_account_cookie_header(
+pub(super) fn create_account_cookie_header(
     config: &better_auth_core::AuthConfig,
     secret: &str,
     payload: &AccountCookiePayload,
@@ -396,7 +345,7 @@ fn create_account_cookie_header(
     ))
 }
 
-fn decode_account_cookie(
+pub(super) fn decode_account_cookie(
     req: &AuthRequest,
     config: &better_auth_core::AuthConfig,
     secret: &str,
@@ -405,35 +354,6 @@ fn decode_account_cookie(
         return Ok(None);
     };
     decode_account_cookie_value(secret, &value).map(Some)
-}
-
-async fn persist_refreshed_cookie_account(
-    cookie_account: Option<&AccountCookiePayload>,
-    provider_id: &str,
-    req: &AuthRequest,
-    ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-    update: UpdateAccount,
-) -> AuthResult<Option<AccountCookiePayload>> {
-    let Some(account) = cookie_account else {
-        return Ok(None);
-    };
-
-    let Some(account_id) = account.id.as_deref() else {
-        return Ok(None);
-    };
-
-    let updated_account = ctx.database.update_account(account_id, update).await?;
-    let payload = AccountCookiePayload::from_account(&updated_account);
-
-    if ctx.config.account.store_account_cookie
-        && let Some(request_account_cookie) =
-            decode_account_cookie(req, &ctx.config, &ctx.config.secret)?
-        && request_account_cookie.provider_id == provider_id
-    {
-        Ok(Some(payload))
-    } else {
-        Ok(None)
-    }
 }
 
 fn attach_state_cookie(
@@ -574,37 +494,6 @@ impl From<SessionIssueError> for OAuthSignInError {
             SessionIssueError::Banned { message } => Self::Banned(message),
         }
     }
-}
-
-pub(crate) struct AccessTokenCoreResult {
-    response: AccessTokenResponse,
-    account_cookie: Option<AccountCookiePayload>,
-}
-
-pub(crate) struct RefreshTokenCoreResult {
-    response: RefreshTokenResponse,
-    account_cookie: Option<AccountCookiePayload>,
-}
-
-pub(crate) struct AccountInfoCoreResult {
-    response: AccountInfoResponse,
-    account_cookie: Option<AccountCookiePayload>,
-}
-
-enum AccountInfoError {
-    Auth(AuthError),
-    ProviderNotConfigured(String),
-}
-
-impl From<AuthError> for AccountInfoError {
-    fn from(value: AuthError) -> Self {
-        Self::Auth(value)
-    }
-}
-
-struct AccountInfoTarget {
-    provider_id: String,
-    token_account_id: Option<String>,
 }
 
 struct InitiatedOAuthFlow {
@@ -1296,441 +1185,6 @@ async fn link_social_core(
     .await
 }
 
-pub(crate) async fn get_access_token_core(
-    body: &GetAccessTokenRequest,
-    config: &OAuthConfig,
-    req: &AuthRequest,
-    session: &impl AuthSession,
-    ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-) -> AuthResult<AccessTokenCoreResult> {
-    let _ = body.user_id.as_deref();
-    let provider = config.providers.get(&body.provider_id).ok_or_else(|| {
-        AuthError::bad_request(format!("Provider {} is not supported.", body.provider_id))
-    })?;
-
-    let account_cookie = if ctx.config.account.store_account_cookie {
-        decode_account_cookie(req, &ctx.config, &ctx.config.secret)?
-    } else {
-        None
-    };
-    let cookie_matches = account_cookie.as_ref().is_some_and(|account| {
-        account.provider_id == body.provider_id
-            && body
-                .account_id
-                .as_deref()
-                .is_none_or(|account_id| account.id.as_deref() == Some(account_id))
-    });
-
-    let accounts = if cookie_matches {
-        Vec::new()
-    } else {
-        ctx.database.get_user_accounts(&session.user_id()).await?
-    };
-    let db_account = (!cookie_matches)
-        .then(|| {
-            find_account_for_provider(&accounts, &body.provider_id, body.account_id.as_deref())
-        })
-        .transpose()?;
-    let cookie_account = cookie_matches.then_some(account_cookie.as_ref()).flatten();
-
-    if cookie_account.is_none() && db_account.is_none() {
-        return Err(AuthError::bad_request("Account not found"));
-    }
-
-    let encrypt = ctx.config.account.encrypt_oauth_tokens;
-    let secret = &ctx.config.secret;
-
-    let mut access_token = if let Some(account_cookie) = cookie_account {
-        maybe_decrypt(account_cookie.access_token.as_deref(), encrypt, secret)?
-    } else {
-        maybe_decrypt(
-            db_account.and_then(|account| account.access_token()),
-            encrypt,
-            secret,
-        )?
-    };
-    let mut access_token_expires_at = if let Some(account_cookie) = cookie_account {
-        account_cookie
-            .access_token_expires_at
-            .map(|expires_at| expires_at.to_rfc3339())
-    } else {
-        db_account
-            .ok_or_else(|| AuthError::bad_request("Account not found"))?
-            .access_token_expires_at()
-            .map(|dt| dt.to_rfc3339())
-    };
-    let mut scopes = if let Some(account_cookie) = cookie_account {
-        account_cookie.scope.as_deref()
-    } else {
-        db_account
-            .ok_or_else(|| AuthError::bad_request("Account not found"))?
-            .scope()
-    }
-    .map(|scope| {
-        scope
-            .split(',')
-            .filter(|value| !value.is_empty())
-            .map(String::from)
-            .collect()
-    })
-    .unwrap_or_default();
-    let mut id_token = if let Some(account_cookie) = cookie_account {
-        maybe_decrypt(account_cookie.id_token.as_deref(), encrypt, secret)?
-    } else {
-        maybe_decrypt(
-            db_account.and_then(|account| account.id_token()),
-            encrypt,
-            secret,
-        )?
-    };
-
-    let access_token_expired = if let Some(account_cookie) = cookie_account {
-        account_cookie
-            .access_token_expires_at
-            .is_some_and(|expires_at| {
-                expires_at.timestamp_millis() - Utc::now().timestamp_millis() < 5_000
-            })
-    } else {
-        db_account
-            .ok_or_else(|| AuthError::bad_request("Account not found"))?
-            .access_token_expires_at()
-            .is_some_and(|expires_at| {
-                expires_at.timestamp_millis() - Utc::now().timestamp_millis() < 5_000
-            })
-    };
-    if access_token_expired
-        && let Some(refresh_token) = if let Some(account_cookie) = cookie_account {
-            maybe_decrypt(account_cookie.refresh_token.as_deref(), encrypt, secret)?
-        } else {
-            maybe_decrypt(
-                db_account.and_then(|account| account.refresh_token()),
-                encrypt,
-                secret,
-            )?
-        }
-    {
-        let refreshed = refresh_tokens_via_provider(provider, &refresh_token)
-            .await
-            .map_err(|_| AuthError::bad_request("Failed to get a valid access token"))?;
-        let tokens = encrypt_token_set(
-            ctx,
-            refreshed.access_token.clone(),
-            refreshed.refresh_token.clone(),
-            refreshed.id_token.clone(),
-        )?;
-        let scope = (!refreshed.scopes.is_empty()).then(|| refreshed.scopes.join(","));
-        let mut refreshed_cookie_account = None;
-        if let Some(account) = db_account {
-            let _ = ctx
-                .database
-                .update_account(
-                    &account.id(),
-                    UpdateAccount {
-                        access_token: tokens.access_token,
-                        refresh_token: tokens.refresh_token,
-                        id_token: tokens.id_token,
-                        access_token_expires_at: refreshed.access_token_expires_at,
-                        refresh_token_expires_at: refreshed.refresh_token_expires_at,
-                        scope: scope.clone(),
-                        ..Default::default()
-                    },
-                )
-                .await?;
-        } else if let Some(updated_cookie_account) = persist_refreshed_cookie_account(
-            cookie_account,
-            &body.provider_id,
-            req,
-            ctx,
-            UpdateAccount {
-                access_token: tokens.access_token.clone(),
-                refresh_token: tokens.refresh_token.clone(),
-                id_token: tokens.id_token.clone(),
-                access_token_expires_at: refreshed.access_token_expires_at,
-                refresh_token_expires_at: refreshed.refresh_token_expires_at,
-                scope: scope.clone(),
-                ..Default::default()
-            },
-        )
-        .await?
-        {
-            refreshed_cookie_account = Some(updated_cookie_account);
-        }
-
-        access_token = refreshed.access_token;
-        access_token_expires_at = refreshed
-            .access_token_expires_at
-            .map(|expires_at| expires_at.to_rfc3339());
-        if !refreshed.scopes.is_empty() {
-            scopes = refreshed.scopes.clone();
-        }
-        if refreshed.id_token.is_some() {
-            id_token = refreshed.id_token;
-        }
-
-        return Ok(AccessTokenCoreResult {
-            response: AccessTokenResponse {
-                access_token,
-                access_token_expires_at,
-                scopes,
-                id_token,
-            },
-            account_cookie: refreshed_cookie_account,
-        });
-    }
-
-    Ok(AccessTokenCoreResult {
-        response: AccessTokenResponse {
-            access_token,
-            access_token_expires_at,
-            scopes,
-            id_token,
-        },
-        account_cookie: None,
-    })
-}
-
-pub(crate) async fn refresh_token_core(
-    body: &RefreshTokenRequest,
-    req: &AuthRequest,
-    session: &impl AuthSession,
-    config: &OAuthConfig,
-    ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-) -> AuthResult<RefreshTokenCoreResult> {
-    let _ = body.user_id.as_deref();
-    let provider_name = &body.provider_id;
-
-    let provider = config.providers.get(provider_name).ok_or_else(|| {
-        // Upstream's message is bare, which is what carries PROVIDER_NOT_FOUND.
-        tracing::warn!(provider = provider_name, "Provider not found");
-        AuthError::bad_request("Provider not found")
-    })?;
-
-    let account_cookie = if ctx.config.account.store_account_cookie {
-        decode_account_cookie(req, &ctx.config, &ctx.config.secret)?
-    } else {
-        None
-    };
-    let cookie_matches = account_cookie.as_ref().is_some_and(|account| {
-        account.provider_id == *provider_name
-            && body
-                .account_id
-                .as_deref()
-                .is_none_or(|account_id| account.id.as_deref() == Some(account_id))
-    });
-    let accounts = if cookie_matches {
-        Vec::new()
-    } else {
-        ctx.database.get_user_accounts(&session.user_id()).await?
-    };
-    let db_account = (!cookie_matches)
-        .then(|| find_account_for_provider(&accounts, provider_name, body.account_id.as_deref()))
-        .transpose()?;
-    let cookie_account = cookie_matches.then_some(account_cookie.as_ref()).flatten();
-
-    if cookie_account.is_none() && db_account.is_none() {
-        return Err(AuthError::bad_request("Account not found"));
-    }
-
-    let encrypt = ctx.config.account.encrypt_oauth_tokens;
-    let secret = &ctx.config.secret;
-
-    let current_refresh_token = if let Some(account_cookie) = cookie_account {
-        maybe_decrypt(account_cookie.refresh_token.as_deref(), encrypt, secret)?
-    } else {
-        maybe_decrypt(
-            db_account.and_then(|account| account.refresh_token()),
-            encrypt,
-            secret,
-        )?
-    }
-    .ok_or_else(|| AuthError::bad_request("Refresh token not found"))?;
-
-    let refreshed = refresh_tokens_via_provider(provider, &current_refresh_token)
-        .await
-        .map_err(|_| AuthError::bad_request("Failed to refresh access token"))?;
-
-    let tokens = encrypt_token_set(
-        ctx,
-        refreshed.access_token.clone(),
-        refreshed.refresh_token.clone(),
-        refreshed.id_token.clone(),
-    )?;
-    let scope = (!refreshed.scopes.is_empty()).then(|| refreshed.scopes.join(","));
-    let mut refreshed_cookie_account = None;
-    if let Some(account) = db_account {
-        let _ = ctx
-            .database
-            .update_account(
-                &account.id(),
-                UpdateAccount {
-                    access_token: tokens.access_token,
-                    refresh_token: tokens.refresh_token,
-                    id_token: tokens.id_token,
-                    access_token_expires_at: refreshed.access_token_expires_at,
-                    refresh_token_expires_at: refreshed.refresh_token_expires_at,
-                    scope: scope.clone(),
-                    ..Default::default()
-                },
-            )
-            .await?;
-    } else if let Some(updated_cookie_account) = persist_refreshed_cookie_account(
-        cookie_account,
-        provider_name,
-        req,
-        ctx,
-        UpdateAccount {
-            access_token: tokens.access_token.clone(),
-            refresh_token: tokens.refresh_token.clone(),
-            id_token: tokens.id_token.clone(),
-            access_token_expires_at: refreshed.access_token_expires_at,
-            refresh_token_expires_at: refreshed.refresh_token_expires_at,
-            scope: scope.clone(),
-            ..Default::default()
-        },
-    )
-    .await?
-    {
-        refreshed_cookie_account = Some(updated_cookie_account);
-    }
-    let existing_id_token = if let Some(account_cookie) = cookie_account {
-        maybe_decrypt(account_cookie.id_token.as_deref(), encrypt, secret)?
-    } else {
-        maybe_decrypt(
-            db_account.and_then(|account| account.id_token()),
-            encrypt,
-            secret,
-        )?
-    };
-
-    Ok(RefreshTokenCoreResult {
-        response: RefreshTokenResponse {
-            access_token: refreshed.access_token,
-            access_token_expires_at: refreshed.access_token_expires_at.map(|dt| dt.to_rfc3339()),
-            refresh_token: refreshed.refresh_token,
-            refresh_token_expires_at: refreshed.refresh_token_expires_at.map(|dt| dt.to_rfc3339()),
-            scope: scope
-                .or_else(|| db_account.and_then(|account| account.scope().map(String::from)))
-                .or_else(|| cookie_account.and_then(|account| account.scope.clone())),
-            id_token: refreshed.id_token.or(existing_id_token),
-            provider_id: db_account
-                .map(|account| account.provider_id().to_string())
-                .or_else(|| cookie_account.map(|account| account.provider_id.clone()))
-                .unwrap_or_else(|| provider_name.to_string()),
-            account_id: db_account
-                .map(|account| account.account_id().to_string())
-                .or_else(|| cookie_account.map(|account| account.account_id.clone()))
-                .ok_or_else(|| AuthError::bad_request("Account not found"))?,
-        },
-        account_cookie: refreshed_cookie_account,
-    })
-}
-
-async fn resolve_account_info_target(
-    query: &AccountInfoQuery,
-    req: &AuthRequest,
-    session: &impl AuthSession,
-    ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-) -> AuthResult<Option<AccountInfoTarget>> {
-    let provided_account_id = query
-        .account_id
-        .as_deref()
-        .filter(|value| !value.is_empty());
-
-    if let Some(provider_account_id) = provided_account_id {
-        let accounts = ctx.database.get_user_accounts(&session.user_id()).await?;
-        return Ok(
-            find_account_for_provider_account_id(&accounts, provider_account_id).map(|account| {
-                AccountInfoTarget {
-                    provider_id: account.provider_id().to_string(),
-                    token_account_id: Some(account.id().to_string()),
-                }
-            }),
-        );
-    }
-
-    if !ctx.config.account.store_account_cookie {
-        return Ok(None);
-    }
-
-    Ok(decode_account_cookie(req, &ctx.config, &ctx.config.secret)?
-        .filter(|account| account.user_id == session.user_id())
-        .map(|account| AccountInfoTarget {
-            provider_id: account.provider_id,
-            token_account_id: account.id,
-        }))
-}
-
-async fn account_info_core(
-    query: &AccountInfoQuery,
-    config: &OAuthConfig,
-    req: &AuthRequest,
-    session: &impl AuthSession,
-    ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-) -> Result<Option<AccountInfoCoreResult>, AccountInfoError> {
-    let Some(target) = resolve_account_info_target(query, req, session, ctx).await? else {
-        return Ok(None);
-    };
-
-    let provider = config.providers.get(&target.provider_id);
-    let Some(provider) = provider else {
-        return Err(AccountInfoError::ProviderNotConfigured(target.provider_id));
-    };
-
-    let token_result = get_access_token_core(
-        &GetAccessTokenRequest {
-            provider_id: target.provider_id.clone(),
-            account_id: target.token_account_id,
-            user_id: None,
-        },
-        config,
-        req,
-        session,
-        ctx,
-    )
-    .await
-    .map_err(AccountInfoError::from)?;
-
-    let Some(access_token) = token_result.response.access_token.clone() else {
-        return Err(AccountInfoError::Auth(AuthError::bad_request(
-            "Access token not found",
-        )));
-    };
-
-    let access_token_expires_at = token_result
-        .response
-        .access_token_expires_at
-        .as_deref()
-        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-        .map(|value| value.with_timezone(&Utc));
-
-    let user_info = fetch_user_info_from_provider(
-        provider,
-        OAuthUserInfoRequest {
-            access_token: Some(access_token),
-            access_token_expires_at,
-            scopes: token_result.response.scopes.clone(),
-            id_token: token_result.response.id_token.clone(),
-            ..Default::default()
-        },
-    )
-    .await
-    .map_err(AccountInfoError::from)?;
-
-    Ok(Some(AccountInfoCoreResult {
-        response: AccountInfoResponse {
-            user: AccountInfoUser {
-                id: user_info.user.id,
-                name: user_info.user.name,
-                email: user_info.user.email,
-                image: user_info.user.image,
-                email_verified: user_info.user.email_verified,
-            },
-            data: user_info.data,
-        },
-        account_cookie: token_result.account_cookie,
-    }))
-}
-
 /// Shared logic for social sign-in and link-social flows.
 ///
 /// Both flows build a verification payload, store it, construct the
@@ -2173,80 +1627,6 @@ pub(crate) async fn handle_link_social(
             &flow.payload,
         ),
     }
-}
-
-pub(crate) async fn handle_get_access_token(
-    config: &OAuthConfig,
-    req: &AuthRequest,
-    ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-) -> AuthResult<AuthResponse> {
-    let session = require_session(req, ctx).await?;
-    let body: GetAccessTokenRequest = match better_auth_core::validate_request_body(req) {
-        Ok(v) => v,
-        Err(resp) => return Ok(resp),
-    };
-    let result = get_access_token_core(&body, config, req, &session, ctx).await?;
-    let mut response = AuthResponse::json(200, &result.response).map_err(AuthError::from)?;
-    if let Some(account_cookie) = result.account_cookie.as_ref() {
-        response = response.with_appended_header(
-            "Set-Cookie",
-            create_account_cookie_header(&ctx.config, &ctx.config.secret, account_cookie)?,
-        );
-    }
-    Ok(response)
-}
-
-pub(crate) async fn handle_refresh_token(
-    config: &OAuthConfig,
-    req: &AuthRequest,
-    ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-) -> AuthResult<AuthResponse> {
-    let session = require_session(req, ctx).await?;
-    let body: RefreshTokenRequest = match better_auth_core::validate_request_body(req) {
-        Ok(v) => v,
-        Err(resp) => return Ok(resp),
-    };
-    let result = refresh_token_core(&body, req, &session, config, ctx).await?;
-    let mut response = AuthResponse::json(200, &result.response).map_err(AuthError::from)?;
-    if let Some(account_cookie) = result.account_cookie.as_ref() {
-        response = response.with_appended_header(
-            "Set-Cookie",
-            create_account_cookie_header(&ctx.config, &ctx.config.secret, account_cookie)?,
-        );
-    }
-    Ok(response)
-}
-
-pub(crate) async fn handle_account_info(
-    config: &OAuthConfig,
-    req: &AuthRequest,
-    ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-) -> AuthResult<AuthResponse> {
-    let session = require_session(req, ctx).await?;
-    let query = parse_query::<AccountInfoQuery>(&req.query);
-    let result = match account_info_core(&query, config, req, &session, ctx).await {
-        Ok(Some(result)) => result,
-        Ok(None) => return code_message_response(400, "Account not found"),
-        Err(AccountInfoError::ProviderNotConfigured(provider_id)) => {
-            return code_message_response(
-                500,
-                format!(
-                    "Provider account provider is {} but it is not configured",
-                    provider_id
-                ),
-            );
-        }
-        Err(AccountInfoError::Auth(error)) => return Err(error),
-    };
-
-    let mut response = AuthResponse::json(200, &result.response).map_err(AuthError::from)?;
-    if let Some(account_cookie) = result.account_cookie.as_ref() {
-        response = response.with_appended_header(
-            "Set-Cookie",
-            create_account_cookie_header(&ctx.config, &ctx.config.secret, account_cookie)?,
-        );
-    }
-    Ok(response)
 }
 
 #[cfg(test)]

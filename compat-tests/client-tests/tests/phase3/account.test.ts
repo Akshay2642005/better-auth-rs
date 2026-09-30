@@ -1,3 +1,4 @@
+import { expect } from "bun:test";
 import { compatScenario } from "../../support/scenario";
 
 function extractState(url: string | undefined) {
@@ -79,13 +80,14 @@ compatScenario("unlink account removes the linked google account", async (ctx) =
 
   const before = await primary.client.listAccounts();
   const googleAccount = before.data?.find((account) => account.providerId === "google");
-  if (!googleAccount?.accountId) {
+  if (!googleAccount?.id) {
     throw new Error("missing google account after link");
   }
   const unlink = await primary.client.unlinkAccount({
-    providerId: "google",
-    accountId: googleAccount.accountId,
+    accountId: googleAccount.id,
   });
+  expect(unlink.error).toBeNull();
+  expect(unlink.data?.status).toBe(true);
   const after = await primary.client.listAccounts();
 
   return {
@@ -204,13 +206,14 @@ compatScenario("github unlink account removes the linked github account", async 
 
   const before = await primary.client.listAccounts();
   const githubAccount = before.data?.find((account) => account.providerId === "github");
-  if (!githubAccount?.accountId) {
+  if (!githubAccount?.id) {
     throw new Error("missing github account after link");
   }
   const unlink = await primary.client.unlinkAccount({
-    providerId: "github",
-    accountId: githubAccount.accountId,
+    accountId: githubAccount.id,
   });
+  expect(unlink.error).toBeNull();
+  expect(unlink.data?.status).toBe(true);
   const after = await primary.client.listAccounts();
 
   return {

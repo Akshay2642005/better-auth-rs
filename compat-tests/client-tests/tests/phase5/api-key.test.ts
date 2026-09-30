@@ -63,7 +63,8 @@ compatScenario("api-key create returns key and all expected fields", async (ctx)
     shape: {
       hasKey: typeof body.key === "string" && (body.key as string).length > 0,
       hasId: typeof body.id === "string",
-      hasUserId: typeof body.userId === "string",
+      hasReferenceId: typeof body.referenceId === "string",
+      config: body.configId,
       name: body.name,
       prefix: body.prefix,
       enabled: body.enabled,
@@ -228,11 +229,6 @@ compatScenario("api-key delete accepts keyId and returns success", async (ctx) =
   };
 });
 
-// Note: /api-key/verify and /api-key/delete-all-expired-api-keys are
-// server-only endpoints in TS (not exposed over HTTP). The Rust server
-// exposes them as convenience routes but they are NOT part of the client
-// wire contract. Compat tests for these are omitted.
-
 // =========================================================================
 // Expiration
 // =========================================================================
@@ -290,8 +286,6 @@ compatScenario("api-key create defaults rate limit fields from config", async (c
     requestCount: body.requestCount,
   };
 });
-
-// delete-all-expired is server-only in TS — see note above.
 
 // =========================================================================
 // Metadata

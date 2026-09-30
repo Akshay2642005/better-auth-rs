@@ -1,3 +1,4 @@
+import { expect } from "bun:test";
 import { compatScenario } from "../../support/scenario";
 
 compatScenario("get access token returns stored unexpired token", async (ctx) => {
@@ -9,7 +10,7 @@ compatScenario("get access token returns stored unexpired token", async (ctx) =>
     password: "password123",
     name: "OAuth Access User",
   });
-  await ctx.seedOAuthAccount({
+  const accountId = await ctx.seedOAuthAccount({
     email,
     accessToken: "still-valid-access-token",
     refreshToken: "seed-refresh-token",
@@ -18,8 +19,10 @@ compatScenario("get access token returns stored unexpired token", async (ctx) =>
   });
 
   const accessToken = await primary.client.getAccessToken({
-    providerId: "mock",
+    accountId,
   });
+  expect(accessToken.error).toBeNull();
+  expect(accessToken.data?.accessToken).toBe("still-valid-access-token");
 
   return {
     signup: ctx.snapshot(signup),
@@ -36,7 +39,7 @@ compatScenario("get access token refreshes expired token", async (ctx) => {
     password: "password123",
     name: "OAuth Refresh User",
   });
-  await ctx.seedOAuthAccount({
+  const accountId = await ctx.seedOAuthAccount({
     email,
     accessToken: "stale-access-token",
     refreshToken: "seed-refresh-token",
@@ -45,8 +48,10 @@ compatScenario("get access token refreshes expired token", async (ctx) => {
   });
 
   const accessToken = await primary.client.getAccessToken({
-    providerId: "mock",
+    accountId,
   });
+  expect(accessToken.error).toBeNull();
+  expect(accessToken.data?.accessToken).toBe("new-access-token");
 
   return {
     signup: ctx.snapshot(signup),
@@ -63,7 +68,7 @@ compatScenario("refresh token returns a fresh token set", async (ctx) => {
     password: "password123",
     name: "Refresh Token User",
   });
-  await ctx.seedOAuthAccount({
+  const accountId = await ctx.seedOAuthAccount({
     email,
     accessToken: "stale-access-token",
     refreshToken: "seed-refresh-token",
@@ -72,8 +77,10 @@ compatScenario("refresh token returns a fresh token set", async (ctx) => {
   });
 
   const refresh = await primary.client.refreshToken({
-    providerId: "mock",
+    accountId,
   });
+  expect(refresh.error).toBeNull();
+  expect(refresh.data?.accessToken).toBe("new-access-token");
 
   return {
     signup: ctx.snapshot(signup),
@@ -90,7 +97,7 @@ compatScenario("refresh token surfaces provider refresh failure", async (ctx) =>
     password: "password123",
     name: "Refresh Failure User",
   });
-  await ctx.seedOAuthAccount({
+  const accountId = await ctx.seedOAuthAccount({
     email,
     accessToken: "stale-access-token",
     refreshToken: "seed-refresh-token",
@@ -100,11 +107,38 @@ compatScenario("refresh token surfaces provider refresh failure", async (ctx) =>
   await ctx.setOAuthRefreshMode("error");
 
   const refresh = await primary.client.refreshToken({
-    providerId: "mock",
+    accountId,
   });
+  expect(refresh.error?.code).toBe("FAILED_TO_REFRESH_ACCESS_TOKEN");
 
   return {
     signup: ctx.snapshot(signup),
     refresh: ctx.snapshot(refresh),
   };
+});
+
+compatScenario("account token routes reject conflicting and foreign account selectors", async (ctx) => {
+  const primary = ctx.actor();
+  const email = ctx.uniqueEmail("phase1-conflicting-selectors");
+  await primary.client.signUp.email({ email, password: "password123", name: "Account Selector User" });
+  const accountId = await ctx.seedOAuthAccount({ email });
+  await ctx.actor("other").client.signUp.email({
+    email: ctx.uniqueEmail("phase1-other-account-owner"), password: "password123", name: "Other Account Owner",
+  });
+  const responses = [];
+  for (const route of ["get-access-token", "refresh-token"]) {
+    for (const json of [{ accountId, useAccountCookie: true }, { accountId, providerId: "mock" }]) {
+      const response = await ctx.rawRequest({ path: `/api/auth/${route}`, method: "POST", json });
+      expect(response.status).toBe(400);
+      expect((response.body as { code: string }).code).toBe("VALIDATION_ERROR");
+      responses.push(response);
+    }
+    const foreign = await ctx.rawRequest({
+      actor: "other", path: `/api/auth/${route}`, method: "POST", json: { accountId },
+    });
+    expect(foreign.status).toBe(400);
+    expect((foreign.body as { code: string }).code).toBe("ACCOUNT_NOT_FOUND");
+    responses.push(foreign);
+  }
+  return responses;
 });

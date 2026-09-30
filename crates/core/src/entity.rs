@@ -144,15 +144,15 @@ pub trait AuthApiKey: Clone + Send + Sync + Serialize + std::fmt::Debug + 'stati
     /// Name of the API-key configuration this key belongs to (`"default"`
     /// unless the application registers named configurations).
     fn config_id(&self) -> Cow<'_, str>;
-    fn refill_interval(&self) -> Option<i64>;
-    fn refill_amount(&self) -> Option<i64>;
+    fn refill_interval(&self) -> Option<f64>;
+    fn refill_amount(&self) -> Option<f64>;
     fn last_refill_at(&self) -> Option<&str>;
     fn enabled(&self) -> bool;
     fn rate_limit_enabled(&self) -> bool;
-    fn rate_limit_time_window(&self) -> Option<i64>;
-    fn rate_limit_max(&self) -> Option<i64>;
-    fn request_count(&self) -> Option<i64>;
-    fn remaining(&self) -> Option<i64>;
+    fn rate_limit_time_window(&self) -> Option<f64>;
+    fn rate_limit_max(&self) -> Option<f64>;
+    fn request_count(&self) -> Option<f64>;
+    fn remaining(&self) -> Option<f64>;
     fn last_request(&self) -> Option<&str>;
     fn expires_at(&self) -> Option<&str>;
     fn created_at(&self) -> &str;

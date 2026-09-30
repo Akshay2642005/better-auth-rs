@@ -5,8 +5,6 @@ use better_auth_core::entity::{AuthAccount, AuthUser};
 use better_auth_core::{AuthContext, AuthError, AuthResult};
 use better_auth_core::{AuthRequest, AuthResponse};
 
-use crate::plugins::helpers::user_has_password;
-
 use super::StatusResponse;
 
 /// Account management plugin for listing and unlinking user accounts.
@@ -23,11 +21,8 @@ pub struct AccountManagementConfig {
 
 #[derive(Debug, Deserialize, Validate)]
 struct UnlinkAccountRequest {
-    #[serde(rename = "providerId")]
-    #[validate(length(min = 1, message = "Provider ID is required"))]
-    provider_id: String,
     #[serde(rename = "accountId")]
-    account_id: Option<String>,
+    account_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -93,54 +88,18 @@ pub(crate) async fn list_accounts_core(
 
 pub(crate) async fn unlink_account_core(
     user: &impl AuthUser,
-    provider_id: &str,
-    account_id: Option<&str>,
+    account_id: &str,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<StatusResponse> {
     let accounts = ctx.database.get_user_accounts(&user.id()).await?;
-
-    let allow_unlinking_all = ctx.config.account.account_linking.allow_unlinking_all;
-
-    // Check if user has a password (credential provider)
-    let has_password = user_has_password(ctx, user).await?;
-
-    // Count remaining credentials after unlinking
-    let remaining_accounts = accounts
-        .iter()
-        .filter(|acc| {
-            if acc.provider_id() != provider_id {
-                return true;
-            }
-            match account_id {
-                Some(account_id) => acc.account_id() != account_id,
-                None => false,
-            }
-        })
-        .count();
-
-    // Prevent unlinking the last credential (unless allow_unlinking_all is true)
-    if !allow_unlinking_all && !has_password && remaining_accounts == 0 {
-        return Err(AuthError::bad_request(
-            "Cannot unlink the last account. You must have at least one authentication method.",
-        ));
+    if accounts.len() == 1 && !ctx.config.account.account_linking.allow_unlinking_all {
+        return Err(AuthError::bad_request("You can't unlink your last account"));
     }
-
-    // Find and delete the account
-    let account_to_remove = accounts
+    let account = accounts
         .iter()
-        .find(|acc| {
-            if acc.provider_id() != provider_id {
-                return false;
-            }
-            match account_id {
-                Some(account_id) => acc.account_id() == account_id,
-                None => true,
-            }
-        })
-        .ok_or_else(|| AuthError::not_found("No account found with this provider"))?;
-
-    ctx.database.delete_account(&account_to_remove.id()).await?;
-
+        .find(|account| account.id() == account_id)
+        .ok_or_else(|| AuthError::bad_request("Account not found"))?;
+    ctx.database.delete_account(&account.id()).await?;
     Ok(StatusResponse { status: true })
 }
 
@@ -171,13 +130,7 @@ impl AccountManagementPlugin {
             Err(resp) => return Ok(resp),
         };
 
-        let response = unlink_account_core(
-            &user,
-            &unlink_req.provider_id,
-            unlink_req.account_id.as_deref(),
-            ctx,
-        )
-        .await?;
+        let response = unlink_account_core(&user, &unlink_req.account_id, ctx).await?;
         Ok(AuthResponse::json(200, &response)?)
     }
 }

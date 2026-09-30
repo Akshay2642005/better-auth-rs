@@ -110,7 +110,7 @@ fn test_config_with_account_cookie() -> AuthConfig {
         })
 }
 
-/// Helper: create a user + OAuth account + session, returning (user_id, session_token).
+/// Helper: create a user + OAuth account + session, returning (user_id, session_token, account_id).
 async fn setup_user_with_account(
     db: &Arc<dyn AuthStore<TestSchema>>,
     config: &Arc<AuthConfig>,
@@ -118,7 +118,7 @@ async fn setup_user_with_account(
     provider: &str,
     access_token: Option<String>,
     refresh_token: Option<String>,
-) -> (String, String) {
+) -> (String, String, String) {
     let user = db
         .create_user(
             CreateUser::new()
@@ -131,20 +131,21 @@ async fn setup_user_with_account(
 
     let user_id = user.id().to_string();
 
-    db.create_account(CreateAccount {
-        user_id: user_id.clone(),
-        account_id: format!("{}-account-id", provider),
-        provider_id: provider.to_string(),
-        access_token,
-        refresh_token,
-        id_token: None,
-        access_token_expires_at: None,
-        refresh_token_expires_at: None,
-        scope: Some("email profile".to_string()),
-        password: None,
-    })
-    .await
-    .unwrap();
+    let account = db
+        .create_account(CreateAccount {
+            user_id: user_id.clone(),
+            account_id: format!("{}-account-id", provider),
+            provider_id: provider.to_string(),
+            access_token,
+            refresh_token,
+            id_token: None,
+            access_token_expires_at: None,
+            refresh_token_expires_at: None,
+            scope: Some("email profile".to_string()),
+            password: None,
+        })
+        .await
+        .unwrap();
 
     // Create a session for the user
     let session_manager = SessionManager::new(config.clone(), db.clone());
@@ -154,7 +155,7 @@ async fn setup_user_with_account(
         .unwrap();
     let token = session.token().to_string();
 
-    (user_id, token)
+    (user_id, token, account.id().to_string())
 }
 
 async fn create_test_database() -> Arc<dyn AuthStore<TestSchema>> {
@@ -380,7 +381,7 @@ async fn test_encrypt_oauth_tokens_stored_encrypted_in_db() {
     assert_ne!(encrypted_refresh.as_deref(), Some(plaintext_refresh));
 
     // Store encrypted tokens in DB (simulating what the callback handler would do)
-    let (user_id, session_token) = setup_user_with_account(
+    let (user_id, session_token, account_id) = setup_user_with_account(
         &db,
         &config,
         "encrypt@example.com",
@@ -408,7 +409,7 @@ async fn test_encrypt_oauth_tokens_stored_encrypted_in_db() {
     let ctx = AuthContext::new(config.clone(), db.clone());
 
     let mut req = AuthRequest::new(HttpMethod::Post, "/get-access-token");
-    req.body = Some(json!({"providerId": "google"}).to_string().into_bytes());
+    req.body = Some(json!({"accountId": account_id}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
     req.headers.insert(
@@ -482,7 +483,7 @@ async fn test_encryption_disabled_stores_plaintext() {
 
     let plaintext_access = "ya29.plaintext-access-token";
 
-    let (user_id, _) = setup_user_with_account(
+    let (user_id, _, _) = setup_user_with_account(
         &db,
         &config,
         "plain@example.com",
@@ -503,7 +504,7 @@ async fn test_get_access_token_rejects_plaintext_when_encryption_is_enabled() {
     let config = Arc::new(test_config_with_encryption());
     let db = create_test_database().await;
 
-    let (_, session_token) = setup_user_with_account(
+    let (_, session_token, account_id) = setup_user_with_account(
         &db,
         &config,
         "plaintext-access@example.com",
@@ -522,7 +523,7 @@ async fn test_get_access_token_rejects_plaintext_when_encryption_is_enabled() {
     let oauth_plugin = OAuthPlugin::with_config(oauth_config);
 
     let mut req = AuthRequest::new(HttpMethod::Post, "/get-access-token");
-    req.body = Some(json!({"providerId": "google"}).to_string().into_bytes());
+    req.body = Some(json!({"accountId": account_id}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
     req.headers.insert(
@@ -540,7 +541,7 @@ async fn test_refresh_token_rejects_plaintext_when_encryption_is_enabled() {
     let config = Arc::new(test_config_with_encryption());
     let db = create_test_database().await;
 
-    let (_, session_token) = setup_user_with_account(
+    let (_, session_token, account_id) = setup_user_with_account(
         &db,
         &config,
         "plaintext-refresh@example.com",
@@ -559,7 +560,7 @@ async fn test_refresh_token_rejects_plaintext_when_encryption_is_enabled() {
     let oauth_plugin = OAuthPlugin::with_config(oauth_config);
 
     let mut req = AuthRequest::new(HttpMethod::Post, "/refresh-token");
-    req.body = Some(json!({"providerId": "google"}).to_string().into_bytes());
+    req.body = Some(json!({"accountId": account_id}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
     req.headers.insert(
@@ -580,7 +581,7 @@ async fn test_refresh_token_persists_rotated_tokens_for_cookie_matched_account()
     let config = Arc::new(test_config_with_account_cookie());
     let db = create_test_database().await;
 
-    let (user_id, session_token) = setup_user_with_account(
+    let (user_id, session_token, _) = setup_user_with_account(
         &db,
         &config,
         "rotate-refresh@example.com",
@@ -619,7 +620,7 @@ async fn test_refresh_token_persists_rotated_tokens_for_cookie_matched_account()
     let oauth_plugin = OAuthPlugin::with_config(oauth_config);
 
     let mut req = AuthRequest::new(HttpMethod::Post, "/refresh-token");
-    req.body = Some(json!({"providerId": "google"}).to_string().into_bytes());
+    req.body = Some(json!({"useAccountCookie": true}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
     set_session_and_account_cookies(&mut req, &session_token, &account_cookie);
@@ -660,7 +661,7 @@ async fn test_get_access_token_refresh_persists_rotated_tokens_for_cookie_matche
     let config = Arc::new(test_config_with_account_cookie());
     let db = create_test_database().await;
 
-    let (user_id, session_token) = setup_user_with_account(
+    let (user_id, session_token, _) = setup_user_with_account(
         &db,
         &config,
         "rotate-access@example.com",
@@ -699,7 +700,7 @@ async fn test_get_access_token_refresh_persists_rotated_tokens_for_cookie_matche
     let oauth_plugin = OAuthPlugin::with_config(oauth_config);
 
     let mut req = AuthRequest::new(HttpMethod::Post, "/get-access-token");
-    req.body = Some(json!({"providerId": "google"}).to_string().into_bytes());
+    req.body = Some(json!({"useAccountCookie": true}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
     set_session_and_account_cookies(&mut req, &session_token, &account_cookie);
@@ -735,14 +736,14 @@ async fn test_get_access_token_refresh_persists_rotated_tokens_for_cookie_matche
 }
 
 // Upstream reference: packages/better-auth/src/api/routes/account.ts :: accountInfo resolves
-// query.accountId by provider account id, then reuses getAccessToken for provider user info.
+// query.accountId by local account row ID, then fetches provider user info.
 #[tokio::test]
-async fn test_account_info_returns_provider_user_info_for_provider_account_id() {
+async fn test_account_info_returns_provider_user_info_for_local_account_id() {
     let mock_url = start_mock_oauth_server("account-info@example.com").await;
     let config = Arc::new(test_config());
     let db = create_test_database().await;
 
-    let (_, session_token) = setup_user_with_account(
+    let (_, session_token, account_id) = setup_user_with_account(
         &db,
         &config,
         "owner@example.com",
@@ -761,7 +762,7 @@ async fn test_account_info_returns_provider_user_info_for_provider_account_id() 
 
     let mut req = AuthRequest::new(HttpMethod::Get, "/account-info");
     req.query
-        .insert("accountId".to_string(), "google-account-id".to_string());
+        .insert("accountId".to_string(), account_id.clone());
     req.headers.insert(
         "cookie".to_string(),
         format!("better-auth.session_token={}", session_token),
@@ -775,22 +776,26 @@ async fn test_account_info_returns_provider_user_info_for_provider_account_id() 
 
     assert_eq!(resp.status, 200);
     let body: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
-    assert_eq!(body["user"]["id"], "mock-user-id-123");
+    assert!(body["user"].get("id").is_none());
+    assert_eq!(body["data"]["sub"], "mock-user-id-123");
+    assert_eq!(body["account"]["id"], account_id);
+    assert_eq!(body["account"]["providerId"], "google");
+    assert_eq!(body["account"]["accountId"], "google-account-id");
     assert_eq!(body["user"]["email"], "account-info@example.com");
     assert_eq!(body["user"]["name"], "Mock OAuth User");
     assert_eq!(body["user"]["emailVerified"], true);
     assert_eq!(body["data"]["email"], "account-info@example.com");
 }
 
-// Upstream reference: packages/better-auth/src/api/routes/account.ts :: accountInfo without
-// query.accountId only uses the account cookie, not the database account list.
+// Upstream reference: packages/better-auth/src/api/routes/account.ts :: getAccessToken requires
+// a signed account cookie when useAccountCookie is selected.
 #[tokio::test]
-async fn test_account_info_without_cookie_returns_account_not_found() {
+async fn test_get_access_token_without_cookie_returns_account_not_found() {
     let mock_url = start_mock_oauth_server("missing-cookie@example.com").await;
     let config = Arc::new(test_config());
     let db = create_test_database().await;
 
-    let (_, session_token) = setup_user_with_account(
+    let (_, session_token, _) = setup_user_with_account(
         &db,
         &config,
         "owner@example.com",
@@ -807,32 +812,35 @@ async fn test_account_info_without_cookie_returns_account_not_found() {
         .insert("google".to_string(), make_test_provider(&mock_url));
     let oauth_plugin = OAuthPlugin::with_config(oauth_config);
 
-    let mut req = AuthRequest::new(HttpMethod::Get, "/account-info");
+    let mut req = AuthRequest::new(HttpMethod::Post, "/get-access-token");
     req.headers.insert(
         "cookie".to_string(),
         format!("better-auth.session_token={}", session_token),
     );
 
+    req.body = Some(json!({"useAccountCookie": true}).to_string().into_bytes());
     let result = oauth_plugin.on_request(&req, &ctx).await;
     let resp = match result {
         Ok(Some(resp)) => resp,
-        other => panic!("account-info should return a 400 response, got {other:?}"),
+        Err(error) => error.to_auth_response(),
+        other => panic!("get-access-token should return a 400 response, got {other:?}"),
     };
 
     assert_eq!(resp.status, 400);
     let body: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    assert_eq!(body["code"], "ACCOUNT_NOT_FOUND");
     assert_eq!(body["message"], "Account not found");
 }
 
-// Upstream reference: packages/better-auth/src/api/routes/account.ts :: accountInfo verifies the
-// account belongs to the current session user before using the account cookie.
+// Upstream reference: packages/better-auth/src/api/routes/account.ts :: getAccessToken verifies
+// the selected account cookie belongs to the current session user.
 #[tokio::test]
-async fn test_account_info_rejects_cookie_for_the_wrong_user() {
+async fn test_get_access_token_rejects_cookie_for_the_wrong_user() {
     let mock_url = start_mock_oauth_server("cookie-owner@example.com").await;
     let config = Arc::new(test_config_with_account_cookie());
     let db = create_test_database().await;
 
-    let (cookie_user_id, _) = setup_user_with_account(
+    let (cookie_user_id, _, _) = setup_user_with_account(
         &db,
         &config,
         "cookie-owner@example.com",
@@ -875,28 +883,31 @@ async fn test_account_info_rejects_cookie_for_the_wrong_user() {
         .insert("google".to_string(), make_test_provider(&mock_url));
     let oauth_plugin = OAuthPlugin::with_config(oauth_config);
 
-    let mut req = AuthRequest::new(HttpMethod::Get, "/account-info");
+    let mut req = AuthRequest::new(HttpMethod::Post, "/get-access-token");
     set_session_and_account_cookies(&mut req, other_session.token(), &account_cookie);
 
+    req.body = Some(json!({"useAccountCookie": true}).to_string().into_bytes());
     let result = oauth_plugin.on_request(&req, &ctx).await;
     let resp = match result {
         Ok(Some(resp)) => resp,
-        other => panic!("account-info should return a 400 response, got {other:?}"),
+        Err(error) => error.to_auth_response(),
+        other => panic!("get-access-token should return a 400 response, got {other:?}"),
     };
 
     assert_eq!(resp.status, 400);
     let body: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    assert_eq!(body["code"], "ACCOUNT_NOT_FOUND");
     assert_eq!(body["message"], "Account not found");
 }
 
 // Upstream reference: packages/better-auth/src/api/routes/account.ts :: accountInfo returns a
-// specific 500 when the resolved account's provider is not configured.
+// 400 PROVIDER_NOT_CONFIGURED when the account's provider is not configured.
 #[tokio::test]
 async fn test_account_info_returns_provider_not_configured_message() {
     let config = Arc::new(test_config());
     let db = create_test_database().await;
 
-    let (_, session_token) = setup_user_with_account(
+    let (_, session_token, account_id) = setup_user_with_account(
         &db,
         &config,
         "owner@example.com",
@@ -910,8 +921,7 @@ async fn test_account_info_returns_provider_not_configured_message() {
     let oauth_plugin = OAuthPlugin::with_config(OAuthConfig::default());
 
     let mut req = AuthRequest::new(HttpMethod::Get, "/account-info");
-    req.query
-        .insert("accountId".to_string(), "ghost-account-id".to_string());
+    req.query.insert("accountId".to_string(), account_id);
     req.headers.insert(
         "cookie".to_string(),
         format!("better-auth.session_token={}", session_token),
@@ -920,14 +930,16 @@ async fn test_account_info_returns_provider_not_configured_message() {
     let result = oauth_plugin.on_request(&req, &ctx).await;
     let resp = match result {
         Ok(Some(resp)) => resp,
-        other => panic!("account-info should return a 500 response, got {other:?}"),
+        Err(error) => error.to_auth_response(),
+        other => panic!("account-info should return a 400 response, got {other:?}"),
     };
 
-    assert_eq!(resp.status, 500);
+    assert_eq!(resp.status, 400);
     let body: serde_json::Value = serde_json::from_slice(&resp.body).unwrap();
+    assert_eq!(body["code"], "PROVIDER_NOT_CONFIGURED");
     assert_eq!(
         body["message"],
-        "Provider account provider is ghost but it is not configured"
+        "Account is not associated with a configured social provider."
     );
 }
 
@@ -939,7 +951,7 @@ async fn test_account_info_rejects_missing_access_token() {
     let config = Arc::new(test_config());
     let db = create_test_database().await;
 
-    let (_, session_token) = setup_user_with_account(
+    let (_, session_token, account_id) = setup_user_with_account(
         &db,
         &config,
         "owner@example.com",
@@ -958,7 +970,7 @@ async fn test_account_info_rejects_missing_access_token() {
 
     let mut req = AuthRequest::new(HttpMethod::Get, "/account-info");
     req.query
-        .insert("accountId".to_string(), "google-account-id".to_string());
+        .insert("accountId".to_string(), account_id.clone());
     req.headers.insert(
         "cookie".to_string(),
         format!("better-auth.session_token={}", session_token),
@@ -986,7 +998,7 @@ async fn test_unlink_last_account_blocked_by_default() {
     let config = Arc::new(test_config()); // allow_unlinking_all = false by default
     let db = create_test_database().await;
 
-    let (_, session_token) = setup_user_with_account(
+    let (_, session_token, account_id) = setup_user_with_account(
         &db,
         &config,
         "unlink@example.com",
@@ -1000,7 +1012,7 @@ async fn test_unlink_last_account_blocked_by_default() {
     let plugin = AccountManagementPlugin::new();
 
     let mut req = AuthRequest::new(HttpMethod::Post, "/unlink-account");
-    req.body = Some(json!({"providerId": "google"}).to_string().into_bytes());
+    req.body = Some(json!({"accountId": account_id}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
     req.headers.insert(
@@ -1037,7 +1049,7 @@ async fn test_unlink_last_account_allowed_when_configured() {
     let config = Arc::new(test_config_allow_unlinking_all());
     let db = create_test_database().await;
 
-    let (_, session_token) = setup_user_with_account(
+    let (_, session_token, account_id) = setup_user_with_account(
         &db,
         &config,
         "unlink-ok@example.com",
@@ -1051,7 +1063,7 @@ async fn test_unlink_last_account_allowed_when_configured() {
     let plugin = AccountManagementPlugin::new();
 
     let mut req = AuthRequest::new(HttpMethod::Post, "/unlink-account");
-    req.body = Some(json!({"providerId": "google"}).to_string().into_bytes());
+    req.body = Some(json!({"accountId": account_id}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
     req.headers.insert(
@@ -1096,20 +1108,21 @@ async fn test_unlink_non_last_account_always_allowed() {
     let user_id = user.id().to_string();
 
     // Create two accounts
-    db.create_account(CreateAccount {
-        user_id: user_id.clone(),
-        account_id: "google-id".to_string(),
-        provider_id: "google".to_string(),
-        access_token: Some("google-token".to_string()),
-        refresh_token: None,
-        id_token: None,
-        access_token_expires_at: None,
-        refresh_token_expires_at: None,
-        scope: None,
-        password: None,
-    })
-    .await
-    .unwrap();
+    let google_account = db
+        .create_account(CreateAccount {
+            user_id: user_id.clone(),
+            account_id: "google-id".to_string(),
+            provider_id: "google".to_string(),
+            access_token: Some("google-token".to_string()),
+            refresh_token: None,
+            id_token: None,
+            access_token_expires_at: None,
+            refresh_token_expires_at: None,
+            scope: None,
+            password: None,
+        })
+        .await
+        .unwrap();
 
     db.create_account(CreateAccount {
         user_id: user_id.clone(),
@@ -1136,7 +1149,11 @@ async fn test_unlink_non_last_account_always_allowed() {
     let plugin = AccountManagementPlugin::new();
 
     let mut req = AuthRequest::new(HttpMethod::Post, "/unlink-account");
-    req.body = Some(json!({"providerId": "google"}).to_string().into_bytes());
+    req.body = Some(
+        json!({"accountId": google_account.id()})
+            .to_string()
+            .into_bytes(),
+    );
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
     req.headers.insert(
@@ -1262,7 +1279,7 @@ async fn test_link_social_returns_redirect_url_with_state() {
     let config = Arc::new(test_config_with_encryption());
     let db = create_test_database().await;
 
-    let (_, session_token) = setup_user_with_account(
+    let (_, session_token, _) = setup_user_with_account(
         &db,
         &config,
         "link@example.com",

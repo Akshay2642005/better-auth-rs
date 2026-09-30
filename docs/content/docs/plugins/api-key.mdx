@@ -41,16 +41,17 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
 |--------|------|---------|-------------|
 | `key_length` | `usize` | `64` | Length of the random key in characters (excluding prefix) |
 | `prefix` | `Option<String>` | `None` | Global prefix for all generated keys |
-| `default_remaining` | `Option<i64>` | `None` | Default usage quota for new keys |
 | `enable_metadata` | `bool` | `false` | Allow storing metadata on keys |
 | `require_name` | `bool` | `false` | Require a name when creating keys |
+| `default_permissions` | `Option<HashMap<String, Vec<String>>>` | `None` | Permissions assigned when creation omits permissions |
+| `api_key_headers` | `Vec<String>` | `["x-api-key"]` | Headers checked when API key sessions are enabled |
 | `enable_session_for_api_keys` | `bool` | `false` | Emulate sessions for API-key-authenticated requests |
 | `config_id` | `String` | `"default"` | Name of this configuration, stored on every key it creates |
 | `references` | `ApiKeyReferences` | `User` | Whether keys belong to the signed-in user or to an organization |
 
 ### Named Configurations and Organization-Owned Keys
 
-A plugin instance holds one or more configurations. Each is identified by its `config_id`, and clients select one by sending `configId` on every request; when absent, the configuration marked `"default"` is used. Register additional configurations with `configuration`:
+A plugin instance holds one or more configurations. Each is identified by its `config_id`, and clients select one by sending `configId`. Creation, lookup, update, and deletion use the `"default"` configuration when `configId` is absent. Listing without `configId` includes all registered configurations for the requested owner type. Register additional configurations with `configuration`:
 
 ```rust
 use better_auth::plugins::api_key::{ApiKeyConfig, ApiKeyReferences};
@@ -133,8 +134,8 @@ The API Key plugin exposes 5 client-facing endpoints. All require an authenticat
 
 | Query parameter | Description |
 |-----------------|-------------|
-| `configId` | Configuration to list keys from (default configuration when absent) |
-| `organizationId` | Required for organization-referencing configurations |
+| `configId` | Configuration to list keys from; absent lists all registered configurations for the requested owner type |
+| `organizationId` | Selects organization-owned keys; omit to list user-owned keys |
 | `limit`, `offset` | Page window; `total` counts the whole result set and both fields are omitted when not sent |
 | `sortBy` | One of `createdAt`, `updatedAt`, `name`, `expiresAt` |
 | `sortDirection` | `asc` (default) or `desc` |
@@ -147,11 +148,67 @@ The full `key` value is returned only during creation. Store it securely — it 
 Fields like `permissions`, `remaining`, `refillAmount`, `refillInterval`, `rateLimitEnabled`, `rateLimitTimeWindow`, and `rateLimitMax` are server-only and cannot be set from HTTP client requests.
 </Callout>
 
+## Server-only Operations
+
+Keep a clone of the plugin to issue, update, and verify machine credentials from trusted Rust code. Use the initialized `auth.context()` so organization permissions remain available.
+
+```rust
+use better_auth::plugins::api_key::{ApiKeyPlugin, CreateKeyRequest, UpdateKeyRequest, VerifyApiKey};
+
+let api_keys = ApiKeyPlugin::new();
+let auth = BetterAuth::<AppAuthSchema>::new(config)
+    .store(store)
+    .plugin(api_keys.clone())
+    .build()
+    .await?;
+
+let issued = api_keys.create_key(auth.context(), &CreateKeyRequest {
+    user_id: Some(user_id.to_owned()),
+    name: Some("worker".to_owned()),
+    permissions: Some(std::collections::HashMap::from([
+        ("nodes".to_owned(), vec!["heartbeat".to_owned()]),
+    ])),
+    ..Default::default()
+}).await?;
+
+let required = serde_json::json!({"nodes": ["heartbeat"]});
+let key = api_keys.verify_api_key(&VerifyApiKey {
+    key: &issued.key,
+    config_id: Some("default"),
+    permissions: Some(&required),
+}, auth.context()).await?;
+
+api_keys.update_key(auth.context(), &UpdateKeyRequest {
+    user_id: Some(user_id.to_owned()),
+    key_id: key.id,
+    enabled: Some(false),
+    ..Default::default()
+}).await?;
+```
+
+Creation and update require the acting user's `user_id`. Organization configurations also check that user's organization permissions. Verification requires the key, without a user session. No public HTTP verification endpoint is exposed.
+
+Verification checks configuration, expiration, permissions, quota, and rate limits. A permission mismatch does not consume quota. To match Better Auth 1.7.6, a rate-limit rejection consumes quota before returning `RATE_LIMITED`; `details.tryAgainIn` uses milliseconds. Expired keys and exhausted keys without a refill amount are deleted during verification.
+
+Handle `ApiKeyVerificationError::Validation` as a rejected credential and propagate `ApiKeyVerificationError::Internal` as an infrastructure failure. The successful result includes `reference_id`, `config_id`, permissions, and updated counters. It omits the plaintext key and stored hash.
+
+Pass `config_id` when a route accepts credentials from one configuration. Without that field, lookup uses the default configuration's hashing setting, then validates against the configuration that issued the key.
+
+### Session Emulation
+
+Enable `enable_session_for_api_keys` to authenticate user-owned keys through the configured headers. The plugin provides a virtual session to protected routes without creating a database session. Its hook answers both GET and POST requests to `/get-session`, matching upstream behavior. Organization-owned keys cannot create user sessions. Session emulation grants access as the key owner; it does not enforce the key’s resource permissions on each route. For scoped machine credentials, keep session emulation disabled and pass the required permissions to server-side verification.
+
+### Numeric Storage
+
+Better Auth accepts fractional quota, refill, and rate-limit values. Rust uses `f64` for those fields and `request_count`. The bundled migration converts existing PostgreSQL columns to double precision and rebuilds SQLite API key tables with real-valued columns, preserving existing keys. Applications that own their migrations must update the corresponding columns and model fields.
+
 ## Errors
 
 | Status | Condition |
 |--------|-----------|
 | 400 | Missing or invalid required fields |
-| 400 | `ORGANIZATION_ID_REQUIRED`, `ORGANIZATION_PLUGIN_REQUIRED`, `USER_NOT_MEMBER_OF_ORGANIZATION`, or `INSUFFICIENT_API_KEY_PERMISSIONS` for organization-owned keys |
+| 400 | `ORGANIZATION_ID_REQUIRED` |
+| 403 | `USER_NOT_MEMBER_OF_ORGANIZATION` or `INSUFFICIENT_API_KEY_PERMISSIONS` |
+| 500 | `ORGANIZATION_PLUGIN_REQUIRED` |
 | 401 | Not authenticated |
 | 404 | API key not found, not owned by the caller, or not in the addressed configuration |

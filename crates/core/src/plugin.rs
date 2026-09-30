@@ -25,10 +25,7 @@ pub enum BeforeRequestAction {
     /// Short-circuit with this response (e.g. return session JSON).
     Respond(AuthResponse),
     /// Inject a virtual session so downstream handlers see it as authenticated.
-    InjectSession {
-        user_id: String,
-        session_token: String,
-    },
+    InjectSession { session: crate::wire::SessionView },
 }
 
 /// Plugin trait that all authentication plugins must implement.
@@ -296,14 +293,25 @@ impl<S: AuthSchema> AuthContext<S> {
     ///
     /// This centralises the pattern previously duplicated across many plugins
     /// (`get_authenticated_user`, `require_session`, etc.).
-    pub async fn require_session(&self, req: &AuthRequest) -> AuthResult<(S::User, S::Session)> {
+    pub async fn require_session(
+        &self,
+        req: &AuthRequest,
+    ) -> AuthResult<(S::User, crate::wire::SessionView)> {
+        if let Some(session) = req.virtual_session() {
+            let user = self
+                .database
+                .get_user_by_id(&session.user_id)
+                .await?
+                .ok_or(AuthError::UserNotFound)?;
+            return Ok((user, session.clone()));
+        }
         let session_manager = self.session_manager();
 
         if let Some(token) = session_manager.extract_session_token(req)
             && let Some(session) = session_manager.get_session(&token).await?
             && let Some(user) = self.database.get_user_by_id(&session.user_id()).await?
         {
-            return Ok((user, session));
+            return Ok((user, crate::wire::SessionView::from(&session)));
         }
 
         Err(AuthError::Unauthenticated)

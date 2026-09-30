@@ -4,6 +4,9 @@ This directory contains the portable compatibility infrastructure for
 validating `better-auth-rs` against the canonical TypeScript Better Auth
 runtime.
 
+Run the commands below inside `devenv shell`, or prefix each command with
+`devenv shell --`. Run `devenv test` from the repository root for the full gate.
+
 ## Model
 
 The compatibility system now has two layers:
@@ -26,9 +29,10 @@ Portable Bun-native TypeScript reference server.
 
 - Runtime: Bun
 - Database: `bun:sqlite`
-- Better Auth version: published `better-auth@1.6.29`
+- Better Auth version: published `better-auth@1.7.6`
 - Test controls: reset state, reset-password token seeding, sender mode,
-  OAuth account seeding, OAuth refresh mode
+  OAuth account seeding, OAuth refresh mode, server-only API key creation,
++  update, and verification
 
 Start directly for debugging:
 

@@ -474,21 +474,27 @@ pub struct ApiKeyView {
     #[serde(rename = "configId")]
     pub config_id: String,
     #[serde(rename = "refillInterval")]
-    pub refill_interval: Option<i64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub refill_interval: Option<f64>,
     #[serde(rename = "refillAmount")]
-    pub refill_amount: Option<i64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub refill_amount: Option<f64>,
     #[serde(rename = "lastRefillAt")]
     pub last_refill_at: Option<String>,
     pub enabled: bool,
     #[serde(rename = "rateLimitEnabled")]
     pub rate_limit_enabled: bool,
     #[serde(rename = "rateLimitTimeWindow")]
-    pub rate_limit_time_window: Option<i64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub rate_limit_time_window: Option<f64>,
     #[serde(rename = "rateLimitMax")]
-    pub rate_limit_max: Option<i64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub rate_limit_max: Option<f64>,
     #[serde(rename = "requestCount")]
-    pub request_count: Option<i64>,
-    pub remaining: Option<i64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub request_count: Option<f64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub remaining: Option<f64>,
     #[serde(rename = "lastRequest")]
     pub last_request: Option<String>,
     #[serde(rename = "expiresAt")]
@@ -499,6 +505,19 @@ pub struct ApiKeyView {
     pub updated_at: String,
     pub permissions: Option<serde_json::Value>,
     pub metadata: Option<serde_json::Value>,
+}
+
+// JSON.stringify emits safe integral JavaScript numbers without a decimal suffix.
+fn serialize_api_key_number<S: Serializer>(
+    value: &Option<f64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match value {
+        Some(value) if value.fract() == 0.0 && value.abs() <= 9_007_199_254_740_991.0 => {
+            serializer.serialize_i64(*value as i64)
+        }
+        value => value.serialize(serializer),
+    }
 }
 
 impl<T: AuthApiKey> From<&T> for ApiKeyView {
