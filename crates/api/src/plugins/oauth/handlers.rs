@@ -441,7 +441,7 @@ fn build_redirect_url(
     Ok(url.to_string())
 }
 
-fn auth_base_url(ctx: &AuthContext<impl better_auth_core::AuthSchema>) -> String {
+pub(super) fn auth_base_url(ctx: &AuthContext<impl better_auth_core::AuthSchema>) -> String {
     format!(
         "{}{}",
         ctx.config.base_url.trim_end_matches('/'),

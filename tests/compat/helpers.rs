@@ -251,6 +251,8 @@ fn mock_oauth_plugin() -> OAuthPlugin {
             auth_url: format!("{MOCK_OAUTH_BASE_URL}/__test/oauth/authorize"),
             token_url: format!("{MOCK_OAUTH_BASE_URL}/__test/oauth/token"),
             user_info_url: Some(format!("{MOCK_OAUTH_BASE_URL}/__test/oauth/userinfo")),
+            end_session_endpoint: None,
+            post_logout_redirect_uri: None,
             scopes: vec![
                 "openid".to_string(),
                 "email".to_string(),

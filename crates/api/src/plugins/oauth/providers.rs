@@ -225,6 +225,10 @@ pub struct OAuthProvider {
     pub auth_url: String,
     pub token_url: String,
     pub user_info_url: Option<String>,
+    /// OIDC provider endpoint used for RP-initiated logout.
+    pub end_session_endpoint: Option<String>,
+    /// Default redirect after provider logout; a request callback overrides it.
+    pub post_logout_redirect_uri: Option<String>,
     pub scopes: Vec<String>,
     pub authorization_params: Vec<(String, String)>,
     pub map_user_info: Option<fn(Value) -> Result<OAuthUserInfo, String>>,
@@ -244,6 +248,8 @@ impl OAuthProvider {
             auth_url: "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
             token_url: "https://oauth2.googleapis.com/token".to_string(),
             user_info_url: Some("https://www.googleapis.com/oauth2/v3/userinfo".to_string()),
+            end_session_endpoint: None,
+            post_logout_redirect_uri: None,
             scopes: vec![
                 "email".to_string(),
                 "profile".to_string(),
@@ -308,6 +314,8 @@ impl OAuthProvider {
             auth_url: auth_url.to_string(),
             token_url: token_url.to_string(),
             user_info_url: Some(user_info_url.to_string()),
+            end_session_endpoint: None,
+            post_logout_redirect_uri: None,
             scopes: vec!["read:user".to_string(), "user:email".to_string()],
             authorization_params: Vec::new(),
             map_user_info: None,
@@ -330,6 +338,8 @@ impl OAuthProvider {
             auth_url: "https://discord.com/api/oauth2/authorize".to_string(),
             token_url: "https://discord.com/api/oauth2/token".to_string(),
             user_info_url: Some("https://discord.com/api/users/@me".to_string()),
+            end_session_endpoint: None,
+            post_logout_redirect_uri: None,
             scopes: vec!["identify".to_string(), "email".to_string()],
             authorization_params: Vec::new(),
             map_user_info: Some(|v| {

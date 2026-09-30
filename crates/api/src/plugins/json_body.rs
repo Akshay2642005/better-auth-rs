@@ -65,9 +65,16 @@ fn error_response(status: u16, code: &str, message: &str) -> AuthResponse {
     .with_header("content-type", "application/json")
 }
 
-pub(crate) fn sign_out(req: &AuthRequest) -> Result<(), AuthResponse> {
+#[derive(Default)]
+pub(crate) struct SignOutBody {
+    pub callback_url: Option<String>,
+    pub disable_redirect: Option<bool>,
+    pub state: Option<String>,
+}
+
+pub(crate) fn sign_out(req: &AuthRequest) -> Result<SignOutBody, AuthResponse> {
     let Some(body) = parse(req)? else {
-        return Ok(());
+        return Ok(SignOutBody::default());
     };
     let Some(body) = body.as_object() else {
         return Err(validation_error(&invalid_type(
@@ -95,5 +102,12 @@ pub(crate) fn sign_out(req: &AuthRequest) -> Result<(), AuthResponse> {
     if !errors.is_empty() {
         return Err(validation_error(&errors.join("; ")));
     }
-    Ok(())
+    Ok(SignOutBody {
+        callback_url: body
+            .get("callbackURL")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        disable_redirect: body.get("disableRedirect").and_then(Value::as_bool),
+        state: body.get("state").and_then(Value::as_str).map(str::to_owned),
+    })
 }

@@ -7,6 +7,7 @@ use better_auth_core::{AuthRequest, AuthResponse, HttpMethod};
 mod account;
 pub mod encryption;
 mod handlers;
+mod logout;
 mod providers;
 mod state;
 mod types;
@@ -60,6 +61,19 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for OAuthPlugin {
             AuthRoute::post("/refresh-token", "refresh_token"),
             AuthRoute::get("/account-info", "account_info"),
         ]
+    }
+
+    async fn before_request(
+        &self,
+        req: &AuthRequest,
+        ctx: &AuthContext<S>,
+    ) -> AuthResult<Option<better_auth_core::BeforeRequestAction>> {
+        if req.method() == &HttpMethod::Post && req.path() == "/sign-out" {
+            return Ok(Some(better_auth_core::BeforeRequestAction::Respond(
+                logout::handle_sign_out(&self.config, req, ctx).await?,
+            )));
+        }
+        Ok(None)
     }
 
     async fn on_request(

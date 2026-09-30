@@ -351,6 +351,7 @@ const authOptions = {
       config: [
         {
           providerId: "mock",
+          endSessionEndpoint: "https://idp.example.test/logout",
           authorizationUrl: `${oauthBaseURL}/oauth/authorize`,
           tokenUrl: `${oauthBaseURL}/oauth/token`,
           userInfoUrl: `${oauthBaseURL}/oauth/userinfo`,

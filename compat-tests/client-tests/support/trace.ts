@@ -93,7 +93,7 @@ function pickHeaders(headers: Headers) {
                   url.searchParams.set(key, `<${key}>`);
                 }
               }
-              for (const key of ["redirect_uri", "callbackURL", "errorCallbackURL", "newUserCallbackURL"]) {
+              for (const key of ["redirect_uri", "post_logout_redirect_uri", "callbackURL", "errorCallbackURL", "newUserCallbackURL"]) {
                 const nested = url.searchParams.get(key);
                 if (!nested) {
                   continue;

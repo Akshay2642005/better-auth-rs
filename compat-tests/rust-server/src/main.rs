@@ -456,6 +456,8 @@ fn mock_oauth_plugin(
             "mock",
             OAuthProvider {
                 client_id: "mock-client-id".to_string(),
+                end_session_endpoint: Some("https://idp.example.test/logout".to_string()),
+                post_logout_redirect_uri: None,
                 client_secret: "mock-client-secret".to_string(),
                 auth_url: format!("http://127.0.0.1:{port}/__test/oauth/authorize"),
                 token_url: format!("http://127.0.0.1:{port}/__test/oauth/token"),
@@ -498,6 +500,8 @@ fn mock_oauth_plugin(
             "google",
             OAuthProvider {
                 client_id: "google-client-id".to_string(),
+                end_session_endpoint: None,
+                post_logout_redirect_uri: None,
                 client_secret: "google-client-secret".to_string(),
                 auth_url: format!("http://127.0.0.1:{port}/oauth/authorize"),
                 token_url: format!("http://127.0.0.1:{port}/__test/oauth/token"),
