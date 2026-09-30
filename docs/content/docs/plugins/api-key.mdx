@@ -14,7 +14,7 @@ use better_auth::plugins::ApiKeyPlugin;
 
 let auth = BetterAuth::<AppAuthSchema>::new(config)
     .store(store)
-    .plugin(ApiKeyPlugin::new())
+    .plugin(ApiKeyPlugin::builder().build())
     .build()
     .await?;
 ```
@@ -150,43 +150,59 @@ Fields like `permissions`, `remaining`, `refillAmount`, `refillInterval`, `rateL
 
 ## Server-only Operations
 
-Keep a clone of the plugin to issue, update, and verify machine credentials from trusted Rust code. Use the initialized `auth.context()` so organization permissions remain available.
+Use `auth.api_keys()?` to access the registered plugin and initialized context from trusted Rust code. The accessor returns a configuration error when `ApiKeyPlugin` is not registered.
 
 ```rust
-use better_auth::plugins::api_key::{ApiKeyPlugin, CreateKeyRequest, UpdateKeyRequest, VerifyApiKey};
+use std::collections::HashMap;
+use better_auth::plugins::ApiKeyPlugin;
+use better_auth::server_api::{
+    CreateKeyOptions, RequiredActions, UpdateKeyOptions, VerifyKeyOptions,
+};
 
-let api_keys = ApiKeyPlugin::new();
 let auth = BetterAuth::<AppAuthSchema>::new(config)
     .store(store)
-    .plugin(api_keys.clone())
+    .plugin(ApiKeyPlugin::builder().build())
     .build()
     .await?;
+let api_keys = auth.api_keys()?;
 
-let issued = api_keys.create_key(auth.context(), &CreateKeyRequest {
-    user_id: Some(user_id.to_owned()),
+let issued = api_keys.create(user_id, CreateKeyOptions {
     name: Some("worker".to_owned()),
-    permissions: Some(std::collections::HashMap::from([
+    permissions: Some(HashMap::from([
         ("nodes".to_owned(), vec!["heartbeat".to_owned()]),
     ])),
     ..Default::default()
 }).await?;
 
-let required = serde_json::json!({"nodes": ["heartbeat"]});
-let key = api_keys.verify_api_key(&VerifyApiKey {
-    key: &issued.key,
-    config_id: Some("default"),
-    permissions: Some(&required),
-}, auth.context()).await?;
+let key = api_keys.verify(&issued.key, VerifyKeyOptions {
+    config_id: Some("default".to_owned()),
+    permissions: Some(HashMap::from([
+        ("nodes".to_owned(), RequiredActions::All(vec!["heartbeat".to_owned()])),
+    ])),
+}).await?;
 
-api_keys.update_key(auth.context(), &UpdateKeyRequest {
-    user_id: Some(user_id.to_owned()),
-    key_id: key.id,
+api_keys.update(user_id, &key.id, UpdateKeyOptions {
     enabled: Some(false),
     ..Default::default()
 }).await?;
 ```
 
-Creation and update require the acting user's `user_id`. Organization configurations also check that user's organization permissions. Verification requires the key, without a user session. No public HTTP verification endpoint is exposed.
+Creation and update require the acting user's ID as a method argument. Organization configurations also require `organization_id` during creation and check the acting user's organization permissions. Verification requires the key, without a user session. No public HTTP verification endpoint is exposed.
+
+Use `RequiredActions::All` for upstream AND semantics or `RequiredActions::Any` for OR semantics within a resource. Every requested resource must pass. Numeric options use `f64` to preserve upstream fractional values.
+
+Use `FieldUpdate::Unchanged`, `FieldUpdate::Clear`, or `FieldUpdate::Set(value)` for nullable updates to `permissions`, `metadata`, and `expires_in`. Other omitted update fields remain unchanged. For example:
+
+```rust
+use better_auth::server_api::FieldUpdate;
+
+api_keys.update(user_id, &key.id, UpdateKeyOptions {
+    expires_in: FieldUpdate::Clear,
+    ..Default::default()
+}).await?;
+```
+
+The lower-level `ApiKeyPlugin::create_key`, `update_key`, and `verify_api_key` methods remain available for callers that already manage an `AuthContext` and wire request DTOs.
 
 Verification checks configuration, expiration, permissions, quota, and rate limits. A permission mismatch does not consume quota. To match Better Auth 1.7.6, a rate-limit rejection consumes quota before returning `RATE_LIMITED`; `details.tryAgainIn` uses milliseconds. Expired keys and exhausted keys without a refill amount are deleted during verification.
 

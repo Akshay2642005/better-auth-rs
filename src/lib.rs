@@ -52,6 +52,7 @@ pub mod prelude;
 pub mod schema;
 #[cfg(feature = "seaorm2")]
 pub mod seaorm;
+pub mod server_api;
 pub mod store;
 pub mod wire;
 
