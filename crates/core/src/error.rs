@@ -78,6 +78,11 @@ pub enum AuthError {
     #[error("Database error: {0}")]
     Database(#[from] DatabaseError),
 
+    /// Redis cache failure with the original source error.
+    #[cfg(feature = "redis-cache")]
+    #[error("Redis cache error: {0}")]
+    Redis(#[from] redis::RedisError),
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
@@ -123,6 +128,8 @@ impl AuthError {
             // 501
             Self::NotImplemented(_) => 501,
             // 500
+            #[cfg(feature = "redis-cache")]
+            Self::Redis(_) => 500,
             Self::Config(_)
             | Self::Database(_)
             | Self::Serialization(_)

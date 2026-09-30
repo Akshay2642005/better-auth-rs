@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::error::{AuthError, AuthResult};
 
-/// Cache adapter trait for session caching
+/// Standalone cache operations; the auth runtime does not install a cache automatically.
 #[async_trait]
 pub trait CacheAdapter: Send + Sync {
     /// Set a value with expiration
@@ -152,99 +152,59 @@ impl CacheAdapter for MemoryCacheAdapter {
 pub mod redis_adapter {
     use super::*;
     use crate::error::AuthError;
-    use redis::{Client, Commands};
+    use redis::{AsyncCommands, Client, aio::ConnectionManager};
 
+    /// Standalone Redis cache. Authentication sessions do not use this adapter automatically.
+    #[derive(Clone)]
     pub struct RedisAdapter {
-        client: Client,
+        connection: ConnectionManager,
     }
 
     impl RedisAdapter {
+        /// Connect to Redis using Tokio without blocking the executor.
         pub async fn new(redis_url: &str) -> Result<Self, redis::RedisError> {
-            let client = Client::open(redis_url)?;
-            Ok(Self { client })
+            let connection = Client::open(redis_url)?.get_connection_manager().await?;
+            Ok(Self { connection })
         }
     }
 
     #[async_trait]
     impl CacheAdapter for RedisAdapter {
         async fn set(&self, key: &str, value: &str, expires_in: Duration) -> AuthResult<()> {
-            let mut conn = self
-                .client
-                .get_connection()
-                .map_err(|e| AuthError::internal(format!("Redis connection error: {}", e)))?;
-
             let seconds = u64::try_from(expires_in.num_seconds())
-                .map_err(|_| AuthError::internal("Redis set_ex requires non-negative TTL"))?;
-            let _: () = conn
-                .set_ex(key, value, seconds)
-                .map_err(|e| AuthError::internal(format!("Redis set error: {}", e)))?;
-
+                .map_err(|_| AuthError::validation("Redis set_ex requires non-negative TTL"))?;
+            let mut connection = self.connection.clone();
+            connection.set_ex::<_, _, ()>(key, value, seconds).await?;
             Ok(())
         }
 
         async fn get(&self, key: &str) -> AuthResult<Option<String>> {
-            let mut conn = self
-                .client
-                .get_connection()
-                .map_err(|e| AuthError::internal(format!("Redis connection error: {}", e)))?;
-
-            let result: Option<String> = conn
-                .get(key)
-                .map_err(|e| AuthError::internal(format!("Redis get error: {}", e)))?;
-
-            Ok(result)
+            Ok(self.connection.clone().get(key).await?)
         }
 
         async fn delete(&self, key: &str) -> AuthResult<()> {
-            let mut conn = self
-                .client
-                .get_connection()
-                .map_err(|e| AuthError::internal(format!("Redis connection error: {}", e)))?;
-
-            let _: usize = conn
-                .del(key)
-                .map_err(|e| AuthError::internal(format!("Redis delete error: {}", e)))?;
-
+            let _: usize = self.connection.clone().del(key).await?;
             Ok(())
         }
 
         async fn exists(&self, key: &str) -> AuthResult<bool> {
-            let mut conn = self
-                .client
-                .get_connection()
-                .map_err(|e| AuthError::internal(format!("Redis connection error: {}", e)))?;
-
-            let exists: bool = conn
-                .exists(key)
-                .map_err(|e| AuthError::internal(format!("Redis exists error: {}", e)))?;
-
-            Ok(exists)
+            Ok(self.connection.clone().exists(key).await?)
         }
 
         async fn expire(&self, key: &str, expires_in: Duration) -> AuthResult<()> {
-            let mut conn = self
-                .client
-                .get_connection()
-                .map_err(|e| AuthError::internal(format!("Redis connection error: {}", e)))?;
-
-            let seconds = expires_in.num_seconds();
-            let _: bool = conn
-                .expire(key, seconds)
-                .map_err(|e| AuthError::internal(format!("Redis expire error: {}", e)))?;
-
+            let _: bool = self
+                .connection
+                .clone()
+                .expire(key, expires_in.num_seconds())
+                .await?;
             Ok(())
         }
 
+        /// Remove every key from the selected Redis database.
         async fn clear(&self) -> AuthResult<()> {
-            let mut conn = self
-                .client
-                .get_connection()
-                .map_err(|e| AuthError::internal(format!("Redis connection error: {}", e)))?;
-
             redis::cmd("FLUSHDB")
-                .query::<()>(&mut conn)
-                .map_err(|e| AuthError::internal(format!("Redis flushdb error: {}", e)))?;
-
+                .query_async::<()>(&mut self.connection.clone())
+                .await?;
             Ok(())
         }
     }
