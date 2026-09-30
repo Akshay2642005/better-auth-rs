@@ -66,6 +66,8 @@ pub struct SessionView {
     pub active_organization_id: Option<String>,
     #[serde(skip)]
     pub active: bool,
+    #[serde(flatten)]
+    pub additional_fields: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Public account response shape.
@@ -147,7 +149,32 @@ impl<T: AuthSession> From<&T> for SessionView {
             impersonated_by: session.impersonated_by().map(str::to_owned),
             active_organization_id: session.active_organization_id().map(str::to_owned),
             active: session.active(),
+            additional_fields: Default::default(),
         }
+    }
+}
+
+impl SessionView {
+    /// Apply configured field visibility to a serialized application session model.
+    pub fn with_fields<T: AuthSession>(
+        session: &T,
+        config: &crate::config::SessionConfig,
+    ) -> crate::AuthResult<Self> {
+        let mut view = Self::from(session);
+        if !config.additional_fields.is_empty() {
+            let model = serde_json::to_value(session)?;
+            for (name, field) in &config.additional_fields {
+                if field.returned {
+                    let value = model
+                        .get(field.field_name.as_deref().unwrap_or(name))
+                        .or_else(|| model.get(name))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    let _ = view.additional_fields.insert(name.clone(), value);
+                }
+            }
+        }
+        Ok(view)
     }
 }
 
@@ -603,6 +630,7 @@ mod tests {
             impersonated_by: Some("admin-1".to_string()),
             active_organization_id: Some("org-1".to_string()),
             active: true,
+            additional_fields: Default::default(),
         };
 
         let json =

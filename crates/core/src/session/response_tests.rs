@@ -1,0 +1,143 @@
+use super::*;
+use crate::config::{BearerConfig, CookieCacheConfig};
+use crate::test_store::{BundledSchema, test_database};
+use crate::utils::cookie_utils::{create_session_cookie_with_max_age, sign_cookie_value};
+use crate::{AuthResponse, CreateUser};
+use chrono::Duration;
+
+async fn refreshed_request() -> (SessionManager<BundledSchema>, AuthRequest, SessionData) {
+    let mut config = AuthConfig::new("response-secret-at-least-32-characters");
+    config.session.bearer = Some(BearerConfig::default());
+    config.session.cookie_cache = Some(CookieCacheConfig {
+        enabled: true,
+        ..Default::default()
+    });
+    let manager = SessionManager::new(Arc::new(config), test_database().await);
+    let user = manager
+        .database
+        .create_user(CreateUser::new().with_email("rotation@example.com"))
+        .await
+        .unwrap();
+    let session = manager.create_session(&user, None, None).await.unwrap();
+    manager
+        .database
+        .update_session_expiry(session.token(), Utc::now() + Duration::hours(1))
+        .await
+        .unwrap();
+    let mut req = AuthRequest::new(HttpMethod::Post, "/two-factor/enable");
+    req.headers.insert(
+        "cookie".into(),
+        format!(
+            "better-auth.session_token={}",
+            sign_cookie_value(session.token(), &manager.config.secret)
+        ),
+    );
+    let data = manager
+        .resolve(&req, SessionRead::Cached)
+        .await
+        .unwrap()
+        .data
+        .unwrap();
+    (manager, req, data)
+}
+
+#[tokio::test]
+async fn rotation_supersedes_earlier_refresh_token_and_cache() {
+    let (manager, req, old) = refreshed_request().await;
+    let user = manager
+        .database
+        .get_user_by_id(&old.user.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let next = manager.create_session(&user, None, None).await.unwrap();
+    manager
+        .database
+        .delete_session(&old.session.token)
+        .await
+        .unwrap();
+    let mut response = AuthResponse::new(200).with_appended_header(
+        "Set-Cookie",
+        create_session_cookie(next.token(), &manager.config),
+    );
+    manager.finish_response(&req, &mut response).await.unwrap();
+
+    let mut browser = AuthRequest::new(HttpMethod::Get, "/get-session");
+    let cookies = response
+        .headers
+        .get_all("set-cookie")
+        .map(|header| header.split(';').next().unwrap())
+        .collect::<Vec<_>>()
+        .join("; ");
+    browser.headers.insert("cookie".into(), cookies);
+    assert_eq!(
+        manager.extract_session_token(&browser).as_deref(),
+        Some(next.token())
+    );
+    let cache = cookie_cache::read(&browser, "better-auth.session_data").unwrap();
+    let payload = cookie_cache::decode(
+        &cache,
+        &manager.config,
+        manager.config.session.cookie_cache.as_ref().unwrap(),
+    )
+    .unwrap()
+    .0;
+    assert_eq!(payload.data.session.token, next.token());
+    assert_eq!(
+        verify_cookie_value(
+            response.headers.get("set-auth-token").unwrap(),
+            &manager.config.secret
+        )
+        .as_deref(),
+        Some(next.token())
+    );
+    assert_eq!(
+        response
+            .headers
+            .get_all("set-cookie")
+            .filter(|header| header.starts_with("better-auth.session_token="))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn challenge_expiration_supersedes_earlier_refresh_credentials() {
+    let (manager, req, _) = refreshed_request().await;
+    let mut response = AuthResponse::json(200, &serde_json::json!({"twoFactorRedirect": true}))
+        .unwrap()
+        .with_appended_header(
+            "Set-Cookie",
+            create_clear_cookie(&manager.config.session.cookie_name, &manager.config),
+        )
+        .with_appended_header(
+            "Set-Cookie",
+            create_clear_cookie("better-auth.session_data", &manager.config),
+        );
+    manager.finish_response(&req, &mut response).await.unwrap();
+    assert!(!response.headers.contains_key("set-auth-token"));
+    let cookies: Vec<_> = response.headers.get_all("set-cookie").collect();
+    assert_eq!(cookies.len(), 2);
+    assert!(cookies.iter().all(|cookie| cookie.contains("Max-Age=0")));
+}
+
+#[tokio::test]
+async fn explicit_remember_marker_expiration_survives_browser_session_cookie() {
+    let (manager, req, data) = refreshed_request().await;
+    let mut response = AuthResponse::new(200)
+        .with_appended_header(
+            "Set-Cookie",
+            create_session_cookie_with_max_age(Some(&data.session.token), None, &manager.config),
+        )
+        .with_appended_header(
+            "Set-Cookie",
+            create_clear_cookie("better-auth.dont_remember", &manager.config),
+        );
+    manager.finish_response(&req, &mut response).await.unwrap();
+    let marker = response
+        .headers
+        .get_all("set-cookie")
+        .find(|cookie| cookie.starts_with("better-auth.dont_remember="))
+        .unwrap();
+    assert!(marker.contains("Max-Age=0"));
+}

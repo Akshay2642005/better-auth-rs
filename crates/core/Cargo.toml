@@ -16,7 +16,7 @@ async-trait = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["preserve_order"] }
 
 # Error handling
 thiserror = { workspace = true }
@@ -46,6 +46,12 @@ better-auth-macros = { workspace = true }
 axum = { workspace = true, optional = true }
 url = { workspace = true }
 tracing.workspace = true
+unicode-normalization = "0.1.25"
+hmac.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+josekit = "0.10.3"
+percent-encoding = "2.3.2"
 
 [features]
 default = []

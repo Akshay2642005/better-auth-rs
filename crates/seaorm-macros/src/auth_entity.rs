@@ -2,7 +2,38 @@ use better_auth_schema_registry::{self as registry, EntityRole};
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, LitStr};
+use syn::{
+    Attribute, Data, DeriveInput, Expr, Fields, Lit, LitStr, Meta, Token, punctuated::Punctuated,
+};
+
+fn serde_serialized_name(attrs: &[Attribute], key: &str) -> syn::Result<Option<String>> {
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("serde")) {
+        for meta in attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)? {
+            if !meta.path().is_ident(key) {
+                continue;
+            }
+            let value = match meta {
+                Meta::NameValue(value) => Some(value.value),
+                Meta::List(list) => list
+                    .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)?
+                    .into_iter()
+                    .find_map(|meta| match meta {
+                        Meta::NameValue(value) if value.path.is_ident("serialize") => {
+                            Some(value.value)
+                        }
+                        _ => None,
+                    }),
+                Meta::Path(_) => None,
+            };
+            if let Some(Expr::Lit(value)) = value
+                && let Lit::Str(value) = value.lit
+            {
+                return Ok(Some(value.value()));
+            }
+        }
+    }
+    Ok(None)
+}
 
 fn found_crate_tokens(name: &str) -> Option<TokenStream> {
     match crate_name(name).ok()? {
@@ -100,10 +131,50 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
         .collect();
 
     let ident = &input.ident;
+    let extra_updates = (|| -> syn::Result<Vec<TokenStream>> {
+        let rule = serde_serialized_name(&input.attrs, "rename_all")?
+            .map(|rule| {
+                serde_rename_rule::RenameRule::from_rename_all_str(&rule)
+                    .map_err(|error| syn::Error::new_spanned(input, error.to_string()))
+            })
+            .transpose()?;
+        let mut updates = Vec::new();
+        for field in &fields.named {
+            let Some(ident) = &field.ident else {
+                continue;
+            };
+            if all_known.iter().any(|known| ident == known) {
+                continue;
+            }
+            let name = serde_serialized_name(&field.attrs, "rename")?.unwrap_or_else(|| {
+                rule.as_ref().map_or_else(
+                    || ident.to_string(),
+                    |rule| rule.apply_to_field(&ident.to_string()),
+                )
+            });
+            updates.push(quote! {
+                #name => active.#ident = #seaorm_root::sea_orm::ActiveValue::Set(
+                    #core_root::serde_json::from_value(value)?,
+                ),
+            });
+        }
+        Ok(updates)
+    })();
+    let extra_updates = match extra_updates {
+        Ok(updates) => updates,
+        Err(error) => return error.to_compile_error(),
+    };
 
     match role {
         EntityRole::User => gen_user(ident, &has, &extra_not_set, &seaorm_root, &core_root),
-        EntityRole::Session => gen_session(ident, &has, &extra_not_set, &seaorm_root, &core_root),
+        EntityRole::Session => gen_session(
+            ident,
+            &has,
+            &extra_not_set,
+            &extra_updates,
+            &seaorm_root,
+            &core_root,
+        ),
         EntityRole::Account => gen_account(ident, &extra_not_set, &seaorm_root, &core_root),
         EntityRole::Verification => {
             gen_verification(ident, &extra_not_set, &seaorm_root, &core_root)
@@ -369,6 +440,7 @@ fn gen_session(
     ident: &Ident,
     has: &dyn Fn(&str) -> bool,
     extras: &[TokenStream],
+    extra_updates: &[TokenStream],
     seaorm_root: &TokenStream,
     core_root: &TokenStream,
 ) -> TokenStream {
@@ -438,6 +510,21 @@ fn gen_session(
             type Entity = Entity;
             type ActiveModel = ActiveModel;
             type Column = Column;
+
+            fn apply_fields(
+                active: &mut Self::ActiveModel,
+                fields: #core_root::serde_json::Map<::std::string::String, #core_root::serde_json::Value>,
+            ) -> #core_root::AuthResult<()> {
+                for (name, value) in fields {
+                    match name.as_str() {
+                        #(#extra_updates)*
+                        _ => return Err(#core_root::AuthError::Config(
+                            format!("Unknown session model field: {name}"),
+                        )),
+                    }
+                }
+                Ok(())
+            }
 
             fn id_column() -> Self::Column { Column::Id }
             fn token_column() -> Self::Column { Column::Token }

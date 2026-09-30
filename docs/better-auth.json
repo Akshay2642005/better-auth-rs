@@ -15,9 +15,7 @@
           }
         },
         "summary": "account info",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/admin/ban-user": {
@@ -29,9 +27,7 @@
           }
         },
         "summary": "admin ban user",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/create-user": {
@@ -43,9 +39,7 @@
           }
         },
         "summary": "admin create user",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/get-user": {
@@ -57,9 +51,7 @@
           }
         },
         "summary": "admin get user",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/has-permission": {
@@ -71,9 +63,7 @@
           }
         },
         "summary": "admin has permission",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/impersonate-user": {
@@ -85,9 +75,7 @@
           }
         },
         "summary": "admin impersonate user",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/list-user-sessions": {
@@ -99,9 +87,7 @@
           }
         },
         "summary": "admin list user sessions",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/list-users": {
@@ -113,9 +99,7 @@
           }
         },
         "summary": "admin list users",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/remove-user": {
@@ -127,9 +111,7 @@
           }
         },
         "summary": "admin remove user",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/revoke-user-session": {
@@ -141,9 +123,7 @@
           }
         },
         "summary": "admin revoke user session",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/revoke-user-sessions": {
@@ -155,9 +135,7 @@
           }
         },
         "summary": "admin revoke user sessions",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/set-role": {
@@ -169,9 +147,7 @@
           }
         },
         "summary": "admin set role",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/set-user-password": {
@@ -183,9 +159,7 @@
           }
         },
         "summary": "admin set user password",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/stop-impersonating": {
@@ -197,9 +171,7 @@
           }
         },
         "summary": "admin stop impersonating",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/unban-user": {
@@ -211,9 +183,7 @@
           }
         },
         "summary": "admin unban user",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/admin/update-user": {
@@ -225,9 +195,7 @@
           }
         },
         "summary": "admin update user",
-        "tags": [
-          "Admin"
-        ]
+        "tags": ["Admin"]
       }
     },
     "/api-key/create": {
@@ -239,9 +207,7 @@
           }
         },
         "summary": "api key create",
-        "tags": [
-          "Api-key"
-        ]
+        "tags": ["Api-key"]
       }
     },
     "/api-key/delete": {
@@ -253,9 +219,7 @@
           }
         },
         "summary": "api key delete",
-        "tags": [
-          "Api-key"
-        ]
+        "tags": ["Api-key"]
       }
     },
     "/api-key/get": {
@@ -267,9 +231,7 @@
           }
         },
         "summary": "api key get",
-        "tags": [
-          "Api-key"
-        ]
+        "tags": ["Api-key"]
       }
     },
     "/api-key/list": {
@@ -281,9 +243,7 @@
           }
         },
         "summary": "api key list",
-        "tags": [
-          "Api-key"
-        ]
+        "tags": ["Api-key"]
       }
     },
     "/api-key/update": {
@@ -295,9 +255,7 @@
           }
         },
         "summary": "api key update",
-        "tags": [
-          "Api-key"
-        ]
+        "tags": ["Api-key"]
       }
     },
     "/callback/{provider}": {
@@ -309,9 +267,7 @@
           }
         },
         "summary": "oauth callback",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       },
       "post": {
         "operationId": "oauth_callback_post",
@@ -321,9 +277,7 @@
           }
         },
         "summary": "oauth callback post",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/change-email": {
@@ -335,9 +289,7 @@
           }
         },
         "summary": "change email",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/change-password": {
@@ -349,9 +301,7 @@
           }
         },
         "summary": "change password",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/delete-user": {
@@ -363,9 +313,7 @@
           }
         },
         "summary": "delete user",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/delete-user/callback": {
@@ -377,9 +325,7 @@
           }
         },
         "summary": "delete user callback",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/device": {
@@ -391,9 +337,7 @@
           }
         },
         "summary": "device verify",
-        "tags": [
-          "Device-authorization"
-        ]
+        "tags": ["Device-authorization"]
       }
     },
     "/device/approve": {
@@ -405,9 +349,7 @@
           }
         },
         "summary": "device approve",
-        "tags": [
-          "Device-authorization"
-        ]
+        "tags": ["Device-authorization"]
       }
     },
     "/device/code": {
@@ -419,9 +361,7 @@
           }
         },
         "summary": "device code",
-        "tags": [
-          "Device-authorization"
-        ]
+        "tags": ["Device-authorization"]
       }
     },
     "/device/deny": {
@@ -433,9 +373,7 @@
           }
         },
         "summary": "device deny",
-        "tags": [
-          "Device-authorization"
-        ]
+        "tags": ["Device-authorization"]
       }
     },
     "/device/token": {
@@ -447,9 +385,7 @@
           }
         },
         "summary": "device token",
-        "tags": [
-          "Device-authorization"
-        ]
+        "tags": ["Device-authorization"]
       }
     },
     "/error": {
@@ -461,9 +397,7 @@
           }
         },
         "summary": "error",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/get-access-token": {
@@ -475,9 +409,7 @@
           }
         },
         "summary": "get access token",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/get-session": {
@@ -489,9 +421,7 @@
           }
         },
         "summary": "get session",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       },
       "post": {
         "operationId": "get_session",
@@ -501,9 +431,7 @@
           }
         },
         "summary": "get session",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/is-username-available": {
@@ -515,9 +443,7 @@
           }
         },
         "summary": "is username available",
-        "tags": [
-          "Username"
-        ]
+        "tags": ["Username"]
       }
     },
     "/link-social": {
@@ -529,9 +455,7 @@
           }
         },
         "summary": "link social",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/list-accounts": {
@@ -543,9 +467,7 @@
           }
         },
         "summary": "list accounts",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/list-sessions": {
@@ -557,9 +479,7 @@
           }
         },
         "summary": "list sessions",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/ok": {
@@ -571,9 +491,7 @@
           }
         },
         "summary": "ok",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/organization/accept-invitation": {
@@ -585,9 +503,7 @@
           }
         },
         "summary": "accept invitation",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/cancel-invitation": {
@@ -599,9 +515,7 @@
           }
         },
         "summary": "cancel invitation",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/check-slug": {
@@ -613,9 +527,7 @@
           }
         },
         "summary": "check slug",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/create": {
@@ -627,9 +539,7 @@
           }
         },
         "summary": "create organization",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/delete": {
@@ -641,9 +551,7 @@
           }
         },
         "summary": "delete organization",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/get-active-member": {
@@ -655,9 +563,7 @@
           }
         },
         "summary": "get active member",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/get-active-member-role": {
@@ -669,9 +575,7 @@
           }
         },
         "summary": "get active member role",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/get-full-organization": {
@@ -683,9 +587,7 @@
           }
         },
         "summary": "get full organization",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/get-invitation": {
@@ -697,9 +599,7 @@
           }
         },
         "summary": "get invitation",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/has-permission": {
@@ -711,9 +611,7 @@
           }
         },
         "summary": "has permission",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/invite-member": {
@@ -725,9 +623,7 @@
           }
         },
         "summary": "invite member",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/leave": {
@@ -739,9 +635,7 @@
           }
         },
         "summary": "leave organization",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/list": {
@@ -753,9 +647,7 @@
           }
         },
         "summary": "list organizations",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/list-invitations": {
@@ -767,9 +659,7 @@
           }
         },
         "summary": "list invitations",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/list-members": {
@@ -781,9 +671,7 @@
           }
         },
         "summary": "list members",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/list-user-invitations": {
@@ -795,9 +683,7 @@
           }
         },
         "summary": "list user invitations",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/reject-invitation": {
@@ -809,9 +695,7 @@
           }
         },
         "summary": "reject invitation",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/remove-member": {
@@ -823,9 +707,7 @@
           }
         },
         "summary": "remove member",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/set-active": {
@@ -837,9 +719,7 @@
           }
         },
         "summary": "set active organization",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/update": {
@@ -851,9 +731,7 @@
           }
         },
         "summary": "update organization",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/organization/update-member-role": {
@@ -865,9 +743,7 @@
           }
         },
         "summary": "update member role",
-        "tags": [
-          "Organization"
-        ]
+        "tags": ["Organization"]
       }
     },
     "/passkey/delete-passkey": {
@@ -879,9 +755,7 @@
           }
         },
         "summary": "passkey delete passkey",
-        "tags": [
-          "Passkey"
-        ]
+        "tags": ["Passkey"]
       }
     },
     "/passkey/generate-authenticate-options": {
@@ -893,9 +767,7 @@
           }
         },
         "summary": "passkey generate authenticate options",
-        "tags": [
-          "Passkey"
-        ]
+        "tags": ["Passkey"]
       }
     },
     "/passkey/generate-register-options": {
@@ -907,9 +779,7 @@
           }
         },
         "summary": "passkey generate register options",
-        "tags": [
-          "Passkey"
-        ]
+        "tags": ["Passkey"]
       }
     },
     "/passkey/list-user-passkeys": {
@@ -921,9 +791,7 @@
           }
         },
         "summary": "passkey list user passkeys",
-        "tags": [
-          "Passkey"
-        ]
+        "tags": ["Passkey"]
       }
     },
     "/passkey/update-passkey": {
@@ -935,9 +803,7 @@
           }
         },
         "summary": "passkey update passkey",
-        "tags": [
-          "Passkey"
-        ]
+        "tags": ["Passkey"]
       }
     },
     "/passkey/verify-authentication": {
@@ -949,9 +815,7 @@
           }
         },
         "summary": "passkey verify authentication",
-        "tags": [
-          "Passkey"
-        ]
+        "tags": ["Passkey"]
       }
     },
     "/passkey/verify-registration": {
@@ -963,9 +827,7 @@
           }
         },
         "summary": "passkey verify registration",
-        "tags": [
-          "Passkey"
-        ]
+        "tags": ["Passkey"]
       }
     },
     "/refresh-token": {
@@ -977,9 +839,7 @@
           }
         },
         "summary": "refresh token",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/request-password-reset": {
@@ -991,9 +851,7 @@
           }
         },
         "summary": "request password reset",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/reset-password": {
@@ -1005,9 +863,7 @@
           }
         },
         "summary": "reset password",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/reset-password/{token}": {
@@ -1019,9 +875,7 @@
           }
         },
         "summary": "reset password token",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/revoke-other-sessions": {
@@ -1033,9 +887,7 @@
           }
         },
         "summary": "revoke other sessions",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/revoke-session": {
@@ -1047,9 +899,7 @@
           }
         },
         "summary": "revoke session",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/revoke-sessions": {
@@ -1061,9 +911,7 @@
           }
         },
         "summary": "revoke sessions",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/send-verification-email": {
@@ -1075,9 +923,7 @@
           }
         },
         "summary": "send verification email",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/sign-in/email": {
@@ -1089,9 +935,7 @@
           }
         },
         "summary": "sign in email",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/sign-in/social": {
@@ -1103,9 +947,7 @@
           }
         },
         "summary": "social sign in",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/sign-in/username": {
@@ -1117,9 +959,7 @@
           }
         },
         "summary": "sign in username",
-        "tags": [
-          "Username"
-        ]
+        "tags": ["Username"]
       }
     },
     "/sign-out": {
@@ -1131,9 +971,7 @@
           }
         },
         "summary": "sign out",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/sign-up/email": {
@@ -1145,9 +983,7 @@
           }
         },
         "summary": "sign up email",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/two-factor/disable": {
@@ -1159,9 +995,7 @@
           }
         },
         "summary": "disable two factor",
-        "tags": [
-          "Two-factor"
-        ]
+        "tags": ["Two-factor"]
       }
     },
     "/two-factor/enable": {
@@ -1173,9 +1007,7 @@
           }
         },
         "summary": "enable two factor",
-        "tags": [
-          "Two-factor"
-        ]
+        "tags": ["Two-factor"]
       }
     },
     "/two-factor/generate-backup-codes": {
@@ -1187,9 +1019,7 @@
           }
         },
         "summary": "generate backup codes",
-        "tags": [
-          "Two-factor"
-        ]
+        "tags": ["Two-factor"]
       }
     },
     "/two-factor/get-totp-uri": {
@@ -1201,9 +1031,7 @@
           }
         },
         "summary": "get totp uri",
-        "tags": [
-          "Two-factor"
-        ]
+        "tags": ["Two-factor"]
       }
     },
     "/two-factor/send-otp": {
@@ -1215,9 +1043,7 @@
           }
         },
         "summary": "send otp",
-        "tags": [
-          "Two-factor"
-        ]
+        "tags": ["Two-factor"]
       }
     },
     "/two-factor/verify-backup-code": {
@@ -1229,9 +1055,7 @@
           }
         },
         "summary": "verify backup code",
-        "tags": [
-          "Two-factor"
-        ]
+        "tags": ["Two-factor"]
       }
     },
     "/two-factor/verify-otp": {
@@ -1243,9 +1067,7 @@
           }
         },
         "summary": "verify otp",
-        "tags": [
-          "Two-factor"
-        ]
+        "tags": ["Two-factor"]
       }
     },
     "/two-factor/verify-totp": {
@@ -1257,9 +1079,7 @@
           }
         },
         "summary": "verify totp",
-        "tags": [
-          "Two-factor"
-        ]
+        "tags": ["Two-factor"]
       }
     },
     "/unlink-account": {
@@ -1271,9 +1091,19 @@
           }
         },
         "summary": "unlink account",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
+      }
+    },
+    "/update-session": {
+      "post": {
+        "operationId": "update_session",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "summary": "update session",
+        "tags": ["Default"]
       }
     },
     "/update-user": {
@@ -1285,9 +1115,7 @@
           }
         },
         "summary": "update user",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/verify-email": {
@@ -1299,9 +1127,7 @@
           }
         },
         "summary": "verify email",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     },
     "/verify-password": {
@@ -1313,10 +1139,50 @@
           }
         },
         "summary": "verify password",
-        "tags": [
-          "Default"
-        ]
+        "tags": ["Default"]
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "description": "Core v1 endpoints plus the default account and OAuth surfaces.",
+      "name": "Default",
+      "x-displayName": "Default"
+    },
+    {
+      "description": "Username-based authentication endpoints.",
+      "name": "Username",
+      "x-displayName": "Username"
+    },
+    {
+      "description": "Device authorization endpoints from the v1 compatibility surface.",
+      "name": "Device-authorization",
+      "x-displayName": "Device Authorization"
+    },
+    {
+      "description": "API Key plugin endpoints for creating, managing, and verifying API keys.",
+      "name": "Api-key",
+      "x-displayName": "Api key"
+    },
+    {
+      "description": "Organization endpoints for multi-tenant management, members, invitations, and RBAC.",
+      "name": "Organization",
+      "x-displayName": "Organization"
+    },
+    {
+      "description": "Passkey plugin endpoints for WebAuthn/FIDO2 passwordless authentication.",
+      "name": "Passkey",
+      "x-displayName": "Passkey"
+    },
+    {
+      "description": "Admin plugin endpoints for user management, banning, and impersonation.",
+      "name": "Admin",
+      "x-displayName": "Admin"
+    },
+    {
+      "description": "Two-Factor Authentication plugin endpoints for TOTP, OTP, and backup codes.",
+      "name": "Two-factor",
+      "x-displayName": "Two factor"
+    }
+  ]
 }

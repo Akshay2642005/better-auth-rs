@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use better_auth_core::entity::{AuthSession, AuthUser};
 use better_auth_core::utils::cookie_utils::{
     create_clear_cookie, create_session_cookie_with_max_age, create_session_like_cookie,
-    related_cookie_name,
+    related_cookie_name, sign_cookie_value,
 };
 use better_auth_core::utils::username::{UsernameValidationError, validate_username};
 use better_auth_core::wire::{SessionView, UserView};
@@ -136,8 +136,7 @@ impl AdminPlugin {
         req: &AuthRequest,
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<(UserView, SessionView)> {
-        let (user, session) = ctx.require_session(req).await?;
-        Ok((UserView::from(&user), SessionView::from(&session)))
+        ctx.require_session(req).await
     }
 
     fn authorize(
@@ -371,8 +370,7 @@ impl AdminPlugin {
             ctx,
         )
         .await?;
-        let dont_remember =
-            get_cookie(req, &related_cookie_name(&ctx.config, "dont_remember")).is_some();
+        let dont_remember = ctx.session_manager().dont_remember(req);
         let admin_cookie = create_admin_session_cookie_value(
             &ctx.config.secret,
             &AdminSessionCookiePayload {
@@ -404,7 +402,7 @@ impl AdminPlugin {
             "Set-Cookie",
             create_session_like_cookie(
                 &related_cookie_name(&ctx.config, "dont_remember"),
-                "true",
+                &sign_cookie_value("true", &ctx.config.secret),
                 None,
                 &ctx.config,
             ),
@@ -425,7 +423,7 @@ impl AdminPlugin {
             .get_session(&token)
             .await?
             .ok_or(AuthError::Unauthenticated)?;
-        let session = SessionView::from(&session);
+        let session = SessionView::with_fields(&session, &ctx.config.session)?;
         if session.impersonated_by.is_none() {
             return Err(AuthError::bad_request("You are not impersonating anyone"));
         }
@@ -457,7 +455,7 @@ impl AdminPlugin {
                 "Set-Cookie",
                 create_session_like_cookie(
                     &related_cookie_name(&ctx.config, "dont_remember"),
-                    "true",
+                    &sign_cookie_value("true", &ctx.config.secret),
                     None,
                     &ctx.config,
                 ),

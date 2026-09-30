@@ -8,7 +8,7 @@ use better_auth_core::{
     AuthResult, AuthSchema, AuthStore, BeforeRequestAction, EmailProvider,
     ErrorCodeMessageResponse, HttpMethod, OkResponse, OpenApiBuilder, OpenApiSpec, SessionManager,
     UpdateUser, UpdateUserRequest, core_paths,
-    entity::{AuthSession, AuthUser},
+    entity::AuthUser,
     hooks::{RequestHookContext, with_request_hook_context_value},
     middleware::{
         self, BodyLimitConfig, BodyLimitMiddleware, CorsConfig, CorsMiddleware, CsrfConfig,
@@ -200,17 +200,14 @@ impl<S: AuthSchema> BetterAuth<S> {
 
         let request_context = RequestHookContext::from_request(&req);
         with_request_hook_context_value(request_context, async {
-            match self.handle_request_inner(&mut req).await {
-                Ok(response) => {
-                    // Run after-request middleware chain
-                    middleware::run_after(&self.middlewares, &req, response).await
-                }
-                Err(err) => {
-                    // Convert error to standardized response, then run after-middleware
-                    let response = err.to_auth_response();
-                    middleware::run_after(&self.middlewares, &req, response).await
-                }
-            }
+            let mut response = match self.handle_request_inner(&mut req).await {
+                Ok(response) => response,
+                Err(error) => error.to_auth_response(),
+            };
+            self.session_manager
+                .finish_response(&req, &mut response)
+                .await?;
+            middleware::run_after(&self.middlewares, &req, response).await
         })
         .await
     }
@@ -257,7 +254,7 @@ impl<S: AuthSchema> BetterAuth<S> {
                         return Ok(response);
                     }
                     BeforeRequestAction::InjectSession { session } => {
-                        internal_req.set_virtual_session(session);
+                        internal_req.set_virtual_session(*session);
                     }
                 }
             }
@@ -500,32 +497,14 @@ impl<S: AuthSchema> BetterAuth<S> {
         Ok(response)
     }
 
-    /// Extract current user from request (validates session).
-    ///
-    /// If a virtual session was injected by a `before_request` hook (e.g.
-    /// API-key session emulation), the user is resolved directly by ID
-    /// **without** a database session lookup — matching the TypeScript
-    /// `ctx.context.session` virtual-session behaviour.
-    async fn extract_current_user(&self, req: &AuthRequest) -> AuthResult<S::User> {
-        // Fast path: virtual session injected by before_request hook
-        if let Some(uid) = req.virtual_user_id() {
-            let user = self.store.get_user_by_id(uid).await?;
-            return user.ok_or(AuthError::UserNotFound);
-        }
-
-        let token = self
-            .session_manager
-            .extract_session_token(req)
-            .ok_or(AuthError::Unauthenticated)?;
-
-        let session = self
-            .session_manager
-            .get_session(&token)
-            .await?
-            .ok_or(AuthError::SessionNotFound)?;
-
-        let user = self.store.get_user_by_id(&session.user_id()).await?;
-
-        user.ok_or(AuthError::UserNotFound)
+    /// Resolve the authoritative user for a profile update.
+    async fn extract_current_user(
+        &self,
+        req: &AuthRequest,
+    ) -> AuthResult<better_auth_core::wire::UserView> {
+        self.context
+            .require_authoritative_session(req)
+            .await
+            .map(|(user, _)| user)
     }
 }

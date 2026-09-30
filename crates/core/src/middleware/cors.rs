@@ -201,6 +201,28 @@ impl Middleware for CorsMiddleware {
         }
 
         for (key, value) in self.cors_headers(&origin) {
+            if key.eq_ignore_ascii_case("access-control-expose-headers") {
+                let mut exposed: Vec<&str> = Vec::new();
+                for name in response
+                    .headers
+                    .get_all(&key)
+                    .map(String::as_str)
+                    .chain(std::iter::once(value.as_str()))
+                    .flat_map(|header| header.split(','))
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                {
+                    if !exposed
+                        .iter()
+                        .any(|existing| existing.eq_ignore_ascii_case(name))
+                    {
+                        exposed.push(name);
+                    }
+                }
+                let merged = exposed.join(", ");
+                _ = response.headers.insert(key, merged);
+                continue;
+            }
             _ = response.headers.insert(key, value);
         }
 
@@ -216,27 +238,25 @@ mod tests {
     fn make_options(origin: &str) -> AuthRequest {
         let mut headers = HashMap::new();
         headers.insert("origin".to_string(), origin.to_string());
-        AuthRequest {
-            method: HttpMethod::Options,
-            path: "/sign-in/email".to_string(),
+        AuthRequest::from_parts(
+            HttpMethod::Options,
+            "/sign-in/email".to_string(),
             headers,
-            body: None,
-            query: HashMap::new(),
-            virtual_session: None,
-        }
+            None,
+            HashMap::new(),
+        )
     }
 
     fn make_get(origin: &str) -> AuthRequest {
         let mut headers = HashMap::new();
         headers.insert("origin".to_string(), origin.to_string());
-        AuthRequest {
-            method: HttpMethod::Get,
-            path: "/get-session".to_string(),
+        AuthRequest::from_parts(
+            HttpMethod::Get,
+            "/get-session".to_string(),
             headers,
-            body: None,
-            query: HashMap::new(),
-            virtual_session: None,
-        }
+            None,
+            HashMap::new(),
+        )
     }
 
     // Rust-specific surface: Rust middleware implementations are library-specific behavior with no direct TS analogue.
@@ -290,19 +310,67 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn cors_preserves_bearer_token_exposure_with_custom_headers() {
+        use crate::config::{AuthConfig, BearerConfig};
+        use crate::session::SessionManager;
+        use crate::test_store::test_database;
+        use crate::utils::cookie_utils::create_session_cookie;
+        use std::sync::Arc;
+
+        let mut config = AuthConfig::new("cors-test-secret-at-least-32-characters");
+        config.session.bearer = Some(BearerConfig::default());
+        let mut cors = CorsConfig::new().allowed_origin("https://app.example.com");
+        cors.exposed_headers = vec!["X-Request-ID".into()];
+        let mut req = make_get("https://app.example.com");
+        req.method = HttpMethod::Post;
+        req.path = "/sign-in/email".into();
+        let mut response = AuthResponse::new(200)
+            .with_header("Access-Control-Expose-Headers", "X-Existing")
+            .with_header(
+                "Set-Cookie",
+                create_session_cookie("cors-session-token", &config),
+            );
+        let manager = SessionManager::new(Arc::new(config), test_database().await);
+        manager.finish_response(&req, &mut response).await.unwrap();
+        let response = CorsMiddleware::new(cors)
+            .after_request(&req, response)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.headers.get("Access-Control-Allow-Origin").unwrap(),
+            "https://app.example.com"
+        );
+        assert_eq!(
+            response
+                .headers
+                .get("Access-Control-Allow-Credentials")
+                .unwrap(),
+            "true"
+        );
+        assert!(response.headers.contains_key("set-auth-token"));
+        assert_eq!(
+            response
+                .headers
+                .get("Access-Control-Expose-Headers")
+                .unwrap(),
+            "X-Existing, set-auth-token, X-Request-ID"
+        );
+    }
+
     // Rust-specific surface: Rust middleware implementations are library-specific behavior with no direct TS analogue.
     #[tokio::test]
     async fn test_cors_no_origin_header() {
         let config = CorsConfig::new().allowed_origin("http://localhost:5173");
         let mw = CorsMiddleware::new(config);
-        let req = AuthRequest {
-            method: HttpMethod::Get,
-            path: "/get-session".to_string(),
-            headers: HashMap::new(),
-            body: None,
-            query: HashMap::new(),
-            virtual_session: None,
-        };
+        let req = AuthRequest::from_parts(
+            HttpMethod::Get,
+            "/get-session".to_string(),
+            HashMap::new(),
+            None,
+            HashMap::new(),
+        );
 
         assert!(mw.before_request(&req).await.unwrap().is_none());
 

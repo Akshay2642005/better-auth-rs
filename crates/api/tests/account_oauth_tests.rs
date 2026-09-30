@@ -14,6 +14,7 @@ use std::sync::{Arc, Once};
 use async_trait::async_trait;
 use better_auth_core::entity::{AuthAccount, AuthSession, AuthUser};
 use better_auth_core::store::AuthStore;
+use better_auth_core::utils::cookie_utils::sign_cookie_value;
 use better_auth_core::{
     AccountConfig, AccountLinkingConfig, AuthConfig, AuthContext, AuthPlugin, AuthRequest,
     CreateAccount, CreateUser, CreateVerification, HttpMethod, SessionManager,
@@ -248,6 +249,13 @@ fn encode_account_cookie(
     .unwrap()
 }
 
+fn session_cookie(session_token: &str) -> String {
+    format!(
+        "better-auth.session_token={}",
+        sign_cookie_value(session_token, TEST_SECRET)
+    )
+}
+
 fn set_session_and_account_cookies(
     req: &mut AuthRequest,
     session_token: &str,
@@ -256,8 +264,9 @@ fn set_session_and_account_cookies(
     req.headers.insert(
         "cookie".to_string(),
         format!(
-            "better-auth.session_token={}; better-auth.account_data={}",
-            session_token, account_cookie
+            "{}; better-auth.account_data={}",
+            session_cookie(session_token),
+            account_cookie
         ),
     );
 }
@@ -412,10 +421,8 @@ async fn test_encrypt_oauth_tokens_stored_encrypted_in_db() {
     req.body = Some(json!({"accountId": account_id}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
-    req.headers.insert(
-        "cookie".to_string(),
-        format!("better-auth.session_token={}", session_token),
-    );
+    req.headers
+        .insert("cookie".to_string(), session_cookie(&session_token));
 
     let mut oauth_config = OAuthConfig::default();
     let provider = make_test_provider("http://localhost:65535");
@@ -526,10 +533,8 @@ async fn test_get_access_token_rejects_plaintext_when_encryption_is_enabled() {
     req.body = Some(json!({"accountId": account_id}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
-    req.headers.insert(
-        "cookie".to_string(),
-        format!("better-auth.session_token={}", session_token),
-    );
+    req.headers
+        .insert("cookie".to_string(), session_cookie(&session_token));
 
     let result = oauth_plugin.on_request(&req, &ctx).await;
     assert!(result.is_err(), "plaintext tokens must not be accepted");
@@ -563,10 +568,8 @@ async fn test_refresh_token_rejects_plaintext_when_encryption_is_enabled() {
     req.body = Some(json!({"accountId": account_id}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
-    req.headers.insert(
-        "cookie".to_string(),
-        format!("better-auth.session_token={}", session_token),
-    );
+    req.headers
+        .insert("cookie".to_string(), session_cookie(&session_token));
 
     let result = oauth_plugin.on_request(&req, &ctx).await;
     assert!(
@@ -763,10 +766,8 @@ async fn test_account_info_returns_provider_user_info_for_local_account_id() {
     let mut req = AuthRequest::new(HttpMethod::Get, "/account-info");
     req.query
         .insert("accountId".to_string(), account_id.clone());
-    req.headers.insert(
-        "cookie".to_string(),
-        format!("better-auth.session_token={}", session_token),
-    );
+    req.headers
+        .insert("cookie".to_string(), session_cookie(&session_token));
 
     let result = oauth_plugin.on_request(&req, &ctx).await;
     let resp = match result {
@@ -813,10 +814,8 @@ async fn test_get_access_token_without_cookie_returns_account_not_found() {
     let oauth_plugin = OAuthPlugin::with_config(oauth_config);
 
     let mut req = AuthRequest::new(HttpMethod::Post, "/get-access-token");
-    req.headers.insert(
-        "cookie".to_string(),
-        format!("better-auth.session_token={}", session_token),
-    );
+    req.headers
+        .insert("cookie".to_string(), session_cookie(&session_token));
 
     req.body = Some(json!({"useAccountCookie": true}).to_string().into_bytes());
     let result = oauth_plugin.on_request(&req, &ctx).await;
@@ -922,10 +921,8 @@ async fn test_account_info_returns_provider_not_configured_message() {
 
     let mut req = AuthRequest::new(HttpMethod::Get, "/account-info");
     req.query.insert("accountId".to_string(), account_id);
-    req.headers.insert(
-        "cookie".to_string(),
-        format!("better-auth.session_token={}", session_token),
-    );
+    req.headers
+        .insert("cookie".to_string(), session_cookie(&session_token));
 
     let result = oauth_plugin.on_request(&req, &ctx).await;
     let resp = match result {
@@ -971,10 +968,8 @@ async fn test_account_info_rejects_missing_access_token() {
     let mut req = AuthRequest::new(HttpMethod::Get, "/account-info");
     req.query
         .insert("accountId".to_string(), account_id.clone());
-    req.headers.insert(
-        "cookie".to_string(),
-        format!("better-auth.session_token={}", session_token),
-    );
+    req.headers
+        .insert("cookie".to_string(), session_cookie(&session_token));
 
     let result = oauth_plugin.on_request(&req, &ctx).await;
     match result {
@@ -1015,10 +1010,8 @@ async fn test_unlink_last_account_blocked_by_default() {
     req.body = Some(json!({"accountId": account_id}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
-    req.headers.insert(
-        "cookie".to_string(),
-        format!("better-auth.session_token={}", session_token),
-    );
+    req.headers
+        .insert("cookie".to_string(), session_cookie(&session_token));
 
     let result = plugin.on_request(&req, &ctx).await;
 
@@ -1066,10 +1059,8 @@ async fn test_unlink_last_account_allowed_when_configured() {
     req.body = Some(json!({"accountId": account_id}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
-    req.headers.insert(
-        "cookie".to_string(),
-        format!("better-auth.session_token={}", session_token),
-    );
+    req.headers
+        .insert("cookie".to_string(), session_cookie(&session_token));
 
     let result = plugin.on_request(&req, &ctx).await;
 
@@ -1156,10 +1147,8 @@ async fn test_unlink_non_last_account_always_allowed() {
     );
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
-    req.headers.insert(
-        "cookie".to_string(),
-        format!("better-auth.session_token={}", session.token()),
-    );
+    req.headers
+        .insert("cookie".to_string(), session_cookie(session.token()));
 
     let result = plugin.on_request(&req, &ctx).await;
 
@@ -1317,10 +1306,8 @@ async fn test_link_social_returns_redirect_url_with_state() {
     req.body = Some(json!({"provider": "github"}).to_string().into_bytes());
     req.headers
         .insert("content-type".to_string(), "application/json".to_string());
-    req.headers.insert(
-        "cookie".to_string(),
-        format!("better-auth.session_token={}", session_token),
-    );
+    req.headers
+        .insert("cookie".to_string(), session_cookie(&session_token));
 
     let result = oauth_plugin.on_request(&req, &ctx).await;
 

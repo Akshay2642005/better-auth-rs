@@ -3,6 +3,8 @@ use crate::config::{AuthConfig, extract_origin};
 use crate::error::{AuthError, AuthResult};
 use crate::types::{AuthRequest, AuthResponse, HttpMethod};
 use async_trait::async_trait;
+use serde_json::{Map, Value};
+#[cfg(test)]
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -97,7 +99,9 @@ impl CsrfMiddleware {
     }
 
     fn validate_origin(&self, req: &AuthRequest, force_validate: bool) -> Result<(), AuthError> {
-        if self.auth_config.advanced.disable_csrf_check {
+        if self.auth_config.advanced.disable_csrf_check
+            || self.auth_config.advanced.disable_origin_check
+        {
             return Ok(());
         }
 
@@ -106,6 +110,7 @@ impl CsrfMiddleware {
         }
 
         let origin = Self::header(req, "origin")
+            .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
             .or_else(|| Self::header(req, "referer").and_then(extract_origin))
             .filter(|value| value != "null")
@@ -119,7 +124,9 @@ impl CsrfMiddleware {
     }
 
     fn validate_form_csrf(&self, req: &AuthRequest) -> Result<(), AuthError> {
-        if self.auth_config.advanced.disable_csrf_check {
+        if self.auth_config.advanced.disable_csrf_check
+            || self.auth_config.advanced.disable_origin_check
+        {
             return Ok(());
         }
 
@@ -143,6 +150,13 @@ impl CsrfMiddleware {
             return self.validate_origin(req, true);
         }
 
+        if ["origin", "referer"]
+            .into_iter()
+            .any(|name| Self::header(req, name).is_some_and(|value| !value.is_empty()))
+        {
+            return self.validate_origin(req, true);
+        }
+
         Ok(())
     }
 
@@ -151,8 +165,31 @@ impl CsrfMiddleware {
             return Ok(());
         }
 
-        for (name, value) in Self::request_target_values(req) {
-            if !self.auth_config.is_redirect_target_trusted(&value) {
+        let body = Self::request_body_map(req).unwrap_or_default();
+        let query_callback = req
+            .query
+            .get("callbackURL")
+            .map(|value| Value::String(value.clone()));
+        let callback = body
+            .get("callbackURL")
+            .filter(|value| Self::is_truthy(value))
+            .or(query_callback.as_ref());
+        for (name, value) in [
+            ("callbackURL", callback),
+            ("redirectTo", body.get("redirectTo")),
+            ("errorCallbackURL", body.get("errorCallbackURL")),
+            ("newUserCallbackURL", body.get("newUserCallbackURL")),
+        ] {
+            let Some(value) = value.filter(|value| Self::is_truthy(value)) else {
+                continue;
+            };
+            let value = value.as_str().ok_or_else(|| {
+                AuthError::bad_request(format!(
+                    "{}: expected a string",
+                    Self::target_error_message(name)
+                ))
+            })?;
+            if !self.auth_config.is_redirect_target_trusted(value) {
                 return Err(AuthError::forbidden(Self::target_error_message(name)));
             }
         }
@@ -160,53 +197,29 @@ impl CsrfMiddleware {
         Ok(())
     }
 
-    fn request_target_values(req: &AuthRequest) -> Vec<(&'static str, String)> {
-        let mut targets = Vec::new();
-        Self::append_target_from_map(&mut targets, &req.query);
-
-        if let Some(body) = Self::request_body_map(req) {
-            Self::append_target_from_map(&mut targets, &body);
-        }
-
-        targets
-    }
-
-    fn append_target_from_map(
-        targets: &mut Vec<(&'static str, String)>,
-        values: &HashMap<String, String>,
-    ) {
-        for key in [
-            "callbackURL",
-            "redirectTo",
-            "errorCallbackURL",
-            "newUserCallbackURL",
-        ] {
-            if let Some(value) = values.get(key) {
-                targets.push((key, value.clone()));
-            }
+    fn is_truthy(value: &Value) -> bool {
+        match value {
+            Value::Null => false,
+            Value::Bool(value) => *value,
+            Value::Number(value) => value.as_f64().is_some_and(|value| value != 0.0),
+            Value::String(value) => !value.is_empty(),
+            Value::Array(_) | Value::Object(_) => true,
         }
     }
 
-    fn request_body_map(req: &AuthRequest) -> Option<HashMap<String, String>> {
+    fn request_body_map(req: &AuthRequest) -> Option<Map<String, Value>> {
         let content_type = Self::header(req, "content-type").unwrap_or_default();
 
         if content_type.contains("application/x-www-form-urlencoded") {
             let body = req.body.as_ref()?;
             return Some(
                 url::form_urlencoded::parse(body)
-                    .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                    .map(|(key, value)| (key.into_owned(), Value::String(value.into_owned())))
                     .collect(),
             );
         }
 
-        let value = req.body_as_json::<serde_json::Value>().ok()?;
-        let object = value.as_object()?;
-        Some(
-            object
-                .iter()
-                .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_string())))
-                .collect(),
-        )
+        req.body_as_json().ok()
     }
 
     fn target_error_message(name: &str) -> &'static str {
@@ -278,14 +291,13 @@ mod tests {
         for (name, value) in extra_headers {
             headers.insert((*name).to_string(), (*value).to_string());
         }
-        AuthRequest {
-            method: HttpMethod::Post,
-            path: path.to_string(),
+        AuthRequest::from_parts(
+            HttpMethod::Post,
+            path.to_string(),
             headers,
-            body: None,
-            query: HashMap::new(),
-            virtual_session: None,
-        }
+            None,
+            HashMap::new(),
+        )
     }
 
     fn test_auth_config(trusted_origins: Vec<String>) -> Arc<AuthConfig> {
@@ -354,12 +366,28 @@ mod tests {
         assert_eq!(message, CROSS_SITE_NAVIGATION_LOGIN_BLOCKED);
     }
 
-    // Rust-specific surface: Rust middleware implementations are library-specific behavior with no direct TS analogue.
     #[tokio::test]
-    async fn sign_up_allows_legacy_first_login_requests_without_metadata() {
+    async fn first_login_checks_origin_and_referer_without_fetch_metadata() {
         let mw = CsrfMiddleware::new(CsrfConfig::new(), test_auth_config(vec![]));
-        let req = make_request("/sign-up/email", Some("http://evil.com"), false, &[]);
-        assert!(mw.before_request(&req).await.unwrap().is_none());
+        for path in ["/sign-up/email", "/sign-in/email"] {
+            for headers in [
+                vec![("origin", "http://evil.com")],
+                vec![("referer", "http://evil.com/login")],
+                vec![("origin", ""), ("referer", "http://evil.com/login")],
+            ] {
+                let req = make_request(path, None, false, &headers);
+                let message = forbidden_message(mw.before_request(&req).await.unwrap()).await;
+                assert_eq!(message, INVALID_ORIGIN);
+            }
+            for headers in [
+                vec![],
+                vec![("origin", "http://localhost:3000")],
+                vec![("referer", "http://localhost:3000/login")],
+            ] {
+                let req = make_request(path, None, false, &headers);
+                assert!(mw.before_request(&req).await.unwrap().is_none());
+            }
+        }
     }
 
     // Rust-specific surface: Rust middleware implementations are library-specific behavior with no direct TS analogue.

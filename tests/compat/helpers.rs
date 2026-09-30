@@ -208,9 +208,11 @@ pub fn test_secret() -> String {
 }
 
 pub fn test_config() -> AuthConfig {
-    AuthConfig::new(test_secret())
+    let mut config = AuthConfig::new(test_secret())
         .base_url("http://localhost:3000")
-        .password_min_length(8)
+        .password_min_length(8);
+    config.session.bearer = Some(Default::default());
+    config
 }
 
 fn mock_oauth_plugin() -> OAuthPlugin {
@@ -409,20 +411,9 @@ pub fn delete_with_auth(path: &str, token: &str) -> AuthRequest {
     req
 }
 
-/// Build an authenticated POST request with an empty `{}` body (no content-type).
-///
-/// Matches the pattern used by many integration tests for action endpoints
-/// like `/sign-out`, `/revoke-sessions`, `/delete-user`, etc.
+/// Build an authenticated JSON POST request with an empty object.
 pub fn post_with_auth(path: &str, token: &str) -> AuthRequest {
-    let mut req = AuthRequest::new(HttpMethod::Post, path);
-    req.body = Some(b"{}".to_vec());
-    let _ = req
-        .headers
-        .insert("authorization".to_string(), format!("Bearer {}", token));
-    let _ = req
-        .headers
-        .insert("origin".to_string(), "http://localhost:3000".to_string());
-    req
+    post_json_with_auth(path, serde_json::json!({}), token)
 }
 
 // ---------------------------------------------------------------------------
@@ -652,9 +643,10 @@ impl TestHarness {
     /// `integration_tests.rs` conventions (EmailPassword, SessionManagement,
     /// PasswordManagement, AccountManagement, ApiKey).
     pub async fn minimal() -> Self {
-        let config = AuthConfig::new("test-secret-key-that-is-at-least-32-characters-long")
+        let mut config = AuthConfig::new("test-secret-key-that-is-at-least-32-characters-long")
             .base_url("http://localhost:3000")
             .password_min_length(6);
+        config.session.bearer = Some(Default::default());
         let store = test_store(&config).await;
         let auth = AuthBuilder::<TestSchema>::new(config)
             .store(store)

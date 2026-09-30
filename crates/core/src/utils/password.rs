@@ -10,6 +10,7 @@ use argon2::password_hash::{PasswordHash, SaltString, rand_core::OsRng};
 use argon2::{Argon2, PasswordHasher as Argon2PasswordHasher, PasswordVerifier};
 use async_trait::async_trait;
 use serde::Serialize;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::error::{AuthError, AuthResult};
 use crate::plugin::AuthContext;
@@ -48,6 +49,7 @@ pub async fn hash_password(
 
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
+    let password: String = password.nfkc().collect();
 
     let password_hash = argon2
         .hash_password(password.as_bytes(), &salt)
@@ -78,6 +80,7 @@ pub async fn verify_password(
         .map_err(|e| AuthError::PasswordHash(format!("Invalid password hash: {}", e)))?;
 
     let argon2 = Argon2::default();
+    let password: String = password.nfkc().collect();
     argon2
         .verify_password(password.as_bytes(), &parsed_hash)
         .map_err(|_| AuthError::InvalidCredentials)?;
@@ -100,12 +103,12 @@ pub fn validate_password(
 ) -> AuthResult<()> {
     let config = &ctx.config.password;
 
-    if password.len() < min_length {
-        let _ = config;
+    let length = password.encode_utf16().count();
+    if length < min_length {
         return Err(AuthError::bad_request("Password too short"));
     }
 
-    if password.len() > max_length {
+    if length > max_length {
         return Err(AuthError::bad_request("Password too long"));
     }
 

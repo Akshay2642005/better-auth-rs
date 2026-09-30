@@ -6,7 +6,6 @@ use better_auth_core::wire::{SessionView, UserView};
 use better_auth_core::{AuthPlugin, CreateSession, CreateUser, HttpMethod};
 use chrono::{Duration, Utc};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 type TestSchema = better_auth_seaorm::store::__private_test_support::bundled_schema::BundledSchema;
 
@@ -69,11 +68,8 @@ fn set_cookie_value(resp: &AuthResponse, name: &str) -> Option<String> {
 
 #[tokio::test]
 async fn test_custom_admin_role_can_use_permission_engine() {
-    let config = Arc::new(better_auth_core::AuthConfig::new(
-        "test-secret-key-at-least-32-chars-long",
-    ));
-    let database = test_helpers::create_test_database().await;
-    let ctx = AuthContext::new(config, database.clone());
+    let ctx = test_helpers::create_test_context().await;
+    let database = ctx.database.clone();
 
     let admin = database
         .create_user(

@@ -255,6 +255,7 @@ impl ApiKeyPlugin {
             impersonated_by: None,
             active_organization_id: None,
             active: true,
+            additional_fields: Default::default(),
         };
         // Upstream answers this path in its hook before the route method gate.
         if req.path() == "/get-session" {
@@ -275,6 +276,8 @@ impl ApiKeyPlugin {
                 }),
             )?)));
         }
-        Ok(Some(BeforeRequestAction::InjectSession { session }))
+        Ok(Some(BeforeRequestAction::InjectSession {
+            session: Box::new(session),
+        }))
     }
 }

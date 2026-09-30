@@ -50,7 +50,8 @@ async fn create_test_auth() -> Arc<BetterAuth<TestSchema>> {
     .await
 }
 
-async fn create_test_auth_with_config(config: AuthConfig) -> Arc<BetterAuth<TestSchema>> {
+async fn create_test_auth_with_config(mut config: AuthConfig) -> Arc<BetterAuth<TestSchema>> {
+    config.session.bearer = Some(better_auth::config::BearerConfig::default());
     struct NoopResetSender;
 
     #[async_trait::async_trait]
@@ -299,6 +300,50 @@ async fn test_axum_current_session_extractor_with_app_state() {
     assert_eq!(response_data["authenticated"], true);
     assert_eq!(response_data["app"], "test-app");
     assert_eq!(response_data["userId"], user_data["user"]["id"]);
+}
+
+// Rust-specific surface: Axum session extractors use the same signed cookie and expiry checks as auth routes.
+#[tokio::test]
+async fn session_extractors_verify_signed_cookies_and_reject_expired_sessions() {
+    let auth = create_test_auth().await;
+    let router = create_extractor_test_router(auth.clone());
+    let (_, token) = create_test_user(router.clone()).await;
+    let signed = better_auth::__private_core::utils::cookie_utils::sign_cookie_value(
+        &token,
+        &auth.config().secret,
+    );
+    for (value, expected) in [
+        (&signed, StatusCode::OK),
+        (&token, StatusCode::UNAUTHORIZED),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/current-session")
+                    .header("cookie", format!("better-auth.session_token={value}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    auth.store()
+        .update_session_expiry(&token, chrono::Utc::now() - chrono::Duration::seconds(1))
+        .await
+        .unwrap();
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri("/current-session")
+                .header("cookie", format!("better-auth.session_token={signed}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 // Rust-specific surface: `OptionalSession` is a public Axum extractor re-exported

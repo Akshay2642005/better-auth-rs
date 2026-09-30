@@ -74,8 +74,10 @@ impl AuthSchema for MissingSessionFields {
 }
 
 fn config() -> AuthConfig {
-    AuthConfig::new("plugin-schema-tests-secret-at-least-32-characters")
-        .base_url("http://localhost:3000")
+    let mut config = AuthConfig::new("plugin-schema-tests-secret-at-least-32-characters")
+        .base_url("http://localhost:3000");
+    config.session.bearer = Some(Default::default());
+    config
 }
 
 #[tokio::test]

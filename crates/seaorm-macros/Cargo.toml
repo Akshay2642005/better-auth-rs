@@ -17,4 +17,5 @@ better-auth-schema-registry = { workspace = true }
 proc-macro-crate = "3"
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
+serde-rename-rule = "0.2.3"
 syn = { workspace = true }

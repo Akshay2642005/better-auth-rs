@@ -14,6 +14,7 @@ pub use super::types_org::{
 pub use super::types_plugin::{
     ApiKey, CreateApiKey, CreateDeviceCode, CreatePasskey, CreateTwoFactor, DeviceCode, Passkey,
     TwoFactor, UpdateApiKey, UpdateDeviceCode, UpdatePasskey, UpdatePasskeyAuthentication,
+    UpdateTwoFactor,
 };
 
 /// HTTP method enumeration
@@ -38,6 +39,8 @@ pub struct AuthRequest {
     pub query: HashMap<String, String>,
     /// Session authenticated by a trusted plugin hook for the current request.
     pub(crate) virtual_session: Option<crate::wire::SessionView>,
+    /// Cookie updates from session middleware, shared by normalized request clones.
+    response_headers: std::sync::Arc<std::sync::Mutex<Headers>>,
 }
 
 /// Metadata extracted from an incoming request for session creation.
@@ -137,6 +140,11 @@ impl Headers {
     /// Iterate over stored header pairs in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> {
         self.0.iter().map(|(name, value)| (name, value))
+    }
+
+    /// Remove all values of a header.
+    pub fn remove(&mut self, name: &str) {
+        self.0.retain(|(key, _)| !key.eq_ignore_ascii_case(name));
     }
 }
 
@@ -315,6 +323,7 @@ impl AuthRequest {
             body: None,
             query: HashMap::new(),
             virtual_session: None,
+            response_headers: Default::default(),
         }
     }
 
@@ -335,6 +344,7 @@ impl AuthRequest {
             body,
             query,
             virtual_session: None,
+            response_headers: Default::default(),
         }
     }
 
@@ -368,6 +378,24 @@ impl AuthRequest {
     /// `BeforeRequestAction::InjectSession`. Never populate the session from client input.
     pub fn set_virtual_session(&mut self, session: crate::wire::SessionView) {
         self.virtual_session = Some(session);
+    }
+
+    /// Queue a response header from request-scoped authentication middleware.
+    pub fn append_response_header(&self, name: &str, value: String) -> crate::AuthResult<()> {
+        self.response_headers
+            .lock()
+            .map_err(|_| crate::AuthError::internal("Session response headers lock poisoned"))?
+            .append(name, value);
+        Ok(())
+    }
+
+    /// Drain response headers queued by authentication middleware.
+    pub fn take_response_headers(&self) -> crate::AuthResult<Headers> {
+        let mut headers = self
+            .response_headers
+            .lock()
+            .map_err(|_| crate::AuthError::internal("Session response headers lock poisoned"))?;
+        Ok(std::mem::take(&mut *headers))
     }
 
     pub fn body_as_json<T: for<'de> Deserialize<'de>>(&self) -> Result<T, serde_json::Error> {
@@ -602,6 +630,7 @@ mod tests {
             body: Some(br#"{"name":"test"}"#.to_vec()),
             query: HashMap::new(),
             virtual_session: None,
+            response_headers: Default::default(),
         };
         let val: serde_json::Value = req.body_as_json().expect("parse");
         assert_eq!(val["name"], "test");
@@ -633,6 +662,7 @@ mod tests {
             impersonated_by: None,
             active_organization_id: None,
             active: true,
+            additional_fields: Default::default(),
         });
         assert_eq!(req.virtual_user_id(), Some("user-123"));
     }

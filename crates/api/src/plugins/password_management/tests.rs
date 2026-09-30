@@ -28,8 +28,10 @@ fn plugin_with_reset_sender() -> PasswordManagementPlugin {
 
 async fn create_test_context_with_user() -> (AuthContext<TestSchema>, UserView, SessionView) {
     let mut config = AuthConfig::new("test-secret-key-at-least-32-chars-long");
+    config.session.bearer = Some(Default::default());
     config.password = PasswordConfig {
         min_length: 8,
+        max_length: 128,
         require_uppercase: true,
         require_lowercase: true,
         require_numbers: true,
@@ -699,6 +701,7 @@ async fn test_password_validation() {
     let mut config = AuthConfig::new("test-secret");
     config.password = PasswordConfig {
         min_length: 8,
+        max_length: 128,
         require_uppercase: true,
         require_lowercase: true,
         require_numbers: true,

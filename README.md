@@ -5,6 +5,8 @@ Authentication for Rust with Axum integration and application-owned SeaORM entit
 > [!WARNING]
 > Version `1.0.0-alpha.3` is in development. Public Rust APIs and database schemas can change between alpha releases.
 
+Sessions use signed cookies. Enable `SessionConfig.bearer` explicitly for Authorization header authentication; see the [session guide](docs/content/docs/authentication/sessions.mdx) for cache and application field configuration.
+
 [![Crates.io](https://img.shields.io/crates/v/better-auth.svg)](https://crates.io/crates/better-auth)
 [![Documentation](https://docs.rs/better-auth/badge.svg)](https://docs.rs/better-auth)
 [![CI](https://github.com/better-auth-rs/better-auth-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/better-auth-rs/better-auth-rs/actions/workflows/ci.yml)

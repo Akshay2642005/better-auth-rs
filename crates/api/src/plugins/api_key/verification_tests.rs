@@ -396,7 +396,7 @@ async fn verified_session_authenticates_a_protected_plugin_route_without_a_datab
         panic!("Expected virtual session")
     };
     assert_eq!(session.token, key);
-    request.set_virtual_session(session);
+    request.set_virtual_session(*session);
     let response = plugin.on_request(&request, &ctx).await.unwrap().unwrap();
     assert_eq!(response.status, 200);
     assert_eq!(json_body(&response)["apiKeys"][0]["id"], id);

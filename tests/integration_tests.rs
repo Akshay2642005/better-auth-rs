@@ -616,7 +616,13 @@ async fn test_cookie_based_auth() {
     let mut headers = HashMap::new();
     headers.insert(
         "cookie".to_string(),
-        format!("better-auth.session_token={}; other=value", session_token),
+        format!(
+            "better-auth.session_token={}; other=value",
+            better_auth_core::utils::cookie_utils::sign_cookie_value(
+                &session_token,
+                &auth.config().secret
+            )
+        ),
     );
 
     let request = AuthRequest::from_parts(
@@ -1300,9 +1306,11 @@ mod postgres_tests {
             .await
             .ok()?;
 
-        let config = AuthConfig::new("postgres-test-secret-key-32-chars-long")
+        let mut config = AuthConfig::new("postgres-test-secret-key-32-chars-long")
             .base_url("http://localhost:3000")
             .password_min_length(6);
+
+        config.session.bearer = Some(Default::default());
 
         let store = SeaOrmStore::<TestSchema>::new(config.clone(), database);
         let auth = BetterAuth::<TestSchema>::new(config)

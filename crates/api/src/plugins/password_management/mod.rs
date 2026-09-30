@@ -277,7 +277,7 @@ impl PasswordManagementPlugin {
         better_auth_core::utils::password::validate_password(
             password,
             ctx.config.password.min_length,
-            usize::MAX,
+            ctx.config.password.max_length,
             ctx,
         )
     }

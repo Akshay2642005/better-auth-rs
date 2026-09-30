@@ -19,7 +19,10 @@ use super::types::{HasPermissionRequest, HasPermissionResponse};
 pub(crate) async fn require_session<S: better_auth_core::AuthSchema>(
     req: &AuthRequest,
     ctx: &AuthContext<S>,
-) -> AuthResult<(S::User, better_auth_core::wire::SessionView)> {
+) -> AuthResult<(
+    better_auth_core::wire::UserView,
+    better_auth_core::wire::SessionView,
+)> {
     ctx.require_session(req).await
 }
 

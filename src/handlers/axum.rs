@@ -336,37 +336,6 @@ pub struct CurrentSession<T: AuthSchema> {
 #[derive(Debug, Clone)]
 pub struct OptionalSession<T: AuthSchema>(pub Option<CurrentSession<T>>);
 
-/// Extract a session token from the request parts.
-///
-/// Checks the `Authorization: Bearer <token>` header first, then falls
-/// back to the configured session cookie.
-#[cfg(feature = "axum")]
-fn extract_token_from_parts(parts: &Parts, cookie_name: &str) -> Option<String> {
-    // Try Bearer token first
-    if let Some(auth_header) = parts.headers.get("authorization")
-        && let Ok(auth_str) = auth_header.to_str()
-        && let Some(token) = auth_str.strip_prefix("Bearer ")
-    {
-        return Some(token.to_string());
-    }
-
-    // Fall back to cookie
-    if let Some(cookie_header) = parts.headers.get("cookie")
-        && let Ok(cookie_str) = cookie_header.to_str()
-    {
-        for part in cookie_str.split(';') {
-            let part = part.trim();
-            if let Some(value) = part.strip_prefix(&format!("{}=", cookie_name))
-                && !value.is_empty()
-            {
-                return Some(value.to_string());
-            }
-        }
-    }
-
-    None
-}
-
 #[cfg(feature = "axum")]
 impl<S, T> FromRequestParts<S> for CurrentSession<T>
 where
@@ -410,7 +379,20 @@ async fn resolve_session<T: AuthSchema>(
     parts: &Parts,
     auth: &BetterAuth<T>,
 ) -> better_auth_core::AuthResult<CurrentSession<T>> {
-    let token = extract_token_from_parts(parts, &auth.config().session.cookie_name)
+    let mut request = AuthRequest::new(HttpMethod::Get, parts.uri.path());
+    request.headers = parts
+        .headers
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.to_string(), value.to_string()))
+        })
+        .collect();
+    let token = auth
+        .session_manager()
+        .extract_session_token(&request)
         .ok_or(AuthError::Unauthenticated)?;
     let session = auth
         .session_manager()

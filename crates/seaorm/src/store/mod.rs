@@ -13,6 +13,7 @@ mod organizations;
 mod passkeys;
 mod sessions;
 mod two_factor;
+mod two_factor_security;
 mod users;
 mod verifications;
 

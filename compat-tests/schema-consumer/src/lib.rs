@@ -61,8 +61,9 @@ mod tests {
             generated::create_auth_tables(&database).await.is_err(),
             "the initial scaffold must not silently accept an existing schema"
         );
-        let config = AuthConfig::new("consumer-test-secret-at-least-32-characters")
+        let mut config = AuthConfig::new("consumer-test-secret-at-least-32-characters")
             .base_url("http://localhost:3000");
+        config.session.bearer = Some(Default::default());
         let auth = Arc::new(
             BetterAuth::<generated::AppAuthSchema>::new(config.clone())
                 .store(SeaOrmStore::new(config, database.clone()))
@@ -153,7 +154,7 @@ mod tests {
                 "UNIQUE constraint failed: accounts.provider_id, accounts.account_id",
             ),
             (
-                "INSERT INTO two_factor SELECT 'duplicate', secret, backup_codes, user_id, created_at, updated_at FROM two_factor LIMIT 1",
+                "INSERT INTO two_factor SELECT 'duplicate', secret, backup_codes, user_id, verified, failed_verification_count, locked_until, created_at, updated_at FROM two_factor LIMIT 1",
                 "UNIQUE constraint failed: two_factor.user_id",
             ),
         ] {

@@ -30,14 +30,9 @@ async fn context() -> (AuthContext<TestSchema>, String, String) {
         .await
         .unwrap();
     let token = better_auth_core::entity::AuthSession::token(&session).to_string();
-    (
-        AuthContext::new(
-            Arc::new(AuthConfig::new("a-secret-that-is-at-least-32-characters")),
-            database,
-        ),
-        user_id,
-        token,
-    )
+    let mut config = AuthConfig::new("a-secret-that-is-at-least-32-characters");
+    config.session.bearer = Some(Default::default());
+    (AuthContext::new(Arc::new(config), database), user_id, token)
 }
 
 fn request(token: &str, path: &str, body: serde_json::Value) -> AuthRequest {

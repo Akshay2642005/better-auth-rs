@@ -29,24 +29,29 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
 
 ## Opaque Session Tokens
 
-For the v1 release surface, Better Auth uses **opaque session tokens** stored in the database and transported through:
+Better Auth stores opaque session tokens in the database. Browser cookies contain the token and an HMAC-SHA256 signature:
 
 ```http
-Authorization: Bearer session_abc123...
+Cookie: better-auth.session_token=session_abc123.signature
 ```
 
-```http
-Cookie: better-auth.session_token=session_abc123...
+Enable Bearer transport explicitly for mobile apps or API clients:
+
+```rust
+use better_auth::config::BearerConfig;
+
+config.session.bearer = Some(BearerConfig::default());
 ```
 
-JWTs are a separate optional surface documented in phase 13. They are not how the phase 0-12 session endpoints authenticate requests.
+Bearer transport accepts the raw token returned by sign-in or the signed token from `set-auth-token`. Set `require_signature: true` to accept only signed Bearer tokens. An accepted Bearer token takes precedence over the session cookie.
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/get-session` | Return the current session and user |
-| `POST` | `/get-session` | Same, without refreshing the session; requires `session.defer_session_refresh`, otherwise 405 |
+| `POST` | `/get-session` | Refresh an eligible session; requires `session.defer_session_refresh`, otherwise 405 |
+| `POST` | `/update-session` | Update configured writable session fields |
 | `POST` | `/sign-out` | Revoke the current session and clear cookies |
 | `GET` | `/list-sessions` | List all active sessions for the current user |
 | `POST` | `/revoke-session` | Revoke one specific session by token |
@@ -58,8 +63,8 @@ JWTs are a separate optional surface documented in phase 13. They are not how th
 1. A session is created after successful authentication.
 2. The opaque token and session metadata are stored in the database.
 3. The token is returned to the client and usually set as a cookie.
-4. Authenticated requests resolve the token back to the stored session.
-5. Expired or revoked sessions stop authenticating requests.
+4. Authenticated requests resolve the token through a valid cookie cache or the database.
+5. Database reads reject expired or revoked sessions. A valid cookie cache remains usable until its cache or session expiry.
 
 ## Refresh Behavior
 
@@ -83,11 +88,32 @@ config.session.cookie_http_only = true;
 config.session.cookie_same_site = SameSite::Lax;
 ```
 
-- `update_age = Some(duration)`: refresh only when the session is older than that duration.
-- `update_age = None`: refresh on every access.
+- `update_age = Some(duration)`: refresh when the remaining lifetime falls below `expires_in - duration`.
+- `update_age = None`: each database read can refresh the session.
 - `disable_session_refresh = true`: never refresh automatically.
-- `defer_session_refresh = true`: additionally accept `POST /get-session`, which returns the session without touching its expiry so a prefetching client has no side effect.
+- `defer_session_refresh = true`: `GET /get-session` reports `needsRefresh` without updating the stored expiry. `POST /get-session` performs the refresh.
 - `fresh_age`: optional window for treating a session as "fresh" for sensitive actions.
+
+A `disableRefresh=true` query parameter prevents refresh for the request. Sessions created with `rememberMe: false` use browser-session cookies and a signed `dont_remember` marker; those sessions do not refresh automatically. `/get-session` responses include `Cache-Control: no-store` and `Pragma: no-cache`.
+
+## Cookie Cache
+
+Enable a signed or encrypted session cache to avoid a database read on each request:
+
+```rust
+use better_auth::config::{CookieCacheConfig, CookieCacheStrategy};
+
+config.session.cookie_cache = Some(CookieCacheConfig {
+    enabled: true,
+    max_age: Duration::minutes(5),
+    strategy: CookieCacheStrategy::Jwe,
+    version: "1".into(),
+});
+```
+
+`Compact` uses HMAC-SHA256, `Jwt` uses HS256, and `Jwe` uses A256CBC-HS512 encryption. Each cache is bound to its signed session token and configuration version. Large values use numbered cookie chunks. Authentication writes the cache, and sign-out clears its chunks.
+
+Use `disableCookieCache=true` to read the database immediately. Session listing and revocation also require a database read. Changing `version` invalidates previously issued caches. This configuration uses a persistent session store; stateless cache refresh is not exposed.
 
 ## Using Sessions in Axum Handlers
 
@@ -107,6 +133,25 @@ async fn profile(session: CurrentSession<AppAuthSchema>) -> Json<serde_json::Val
 ```
 
 Use `OptionalSession<AppAuthSchema>` for routes that should work for both authenticated and anonymous users.
+
+## Application Session Fields
+
+`POST /update-session` updates configured application fields on the authenticated session. Unknown fields and built-in credentials are not writable. An empty update returns 400. Fields with `input: false` reject truthy input; `returned: false` excludes a field from session responses.
+
+The request body must be a JSON object with `Content-Type: application/json`. Body validation runs before session authentication. A body with a missing or unsupported media type returns 415.
+
+Add columns to the application-owned session entity and migrate the database before configuring those fields. `AuthEntity` generates the update mapping and retains database defaults for new sessions.
+
+```rust
+use better_auth::config::SessionFieldConfig;
+
+config.session.additional_fields.insert("label".into(), SessionFieldConfig {
+    field_name: Some("display_label".into()),
+    ..Default::default()
+});
+```
+
+`field_name` identifies the field in the model's serialized representation. The public field name is the map key. For manually implemented `SeaOrmSessionModel` types, implement `apply_fields` to persist the configured fields.
 
 ## Two-Factor Interaction
 

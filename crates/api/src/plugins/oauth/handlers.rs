@@ -648,7 +648,8 @@ async fn process_oauth_sign_in(
                 });
 
         return Ok(ProcessOAuthUserResult {
-            session: SessionView::from(&issued.session),
+            session: SessionView::with_fields(&issued.session, &ctx.config.session)
+                .map_err(|error| error.to_string())?,
             user: UserView::from(&issued.user),
             is_register: false,
             account_cookie,
@@ -751,7 +752,8 @@ async fn process_oauth_sign_in(
             .then(|| AccountCookiePayload::from_account(&created_account));
 
         Ok(ProcessOAuthUserResult {
-            session: SessionView::from(&issued.session),
+            session: SessionView::with_fields(&issued.session, &ctx.config.session)
+                .map_err(|error| error.to_string())?,
             user: UserView::from(&issued.user),
             is_register: false,
             account_cookie,
@@ -806,7 +808,8 @@ async fn process_oauth_sign_in(
             .then(|| AccountCookiePayload::from_account(&created_account));
 
         Ok(ProcessOAuthUserResult {
-            session: SessionView::from(&issued.session),
+            session: SessionView::with_fields(&issued.session, &ctx.config.session)
+                .map_err(|error| error.to_string())?,
             user: UserView::from(&issued.user),
             is_register: true,
             account_cookie,

@@ -13,6 +13,14 @@ pub struct TwoFactor {
     pub backup_codes: String,
     #[serde(rename = "userId")]
     pub user_id: String,
+    /// Whether the authenticator secret has completed enrollment.
+    pub verified: bool,
+    /// Consecutive failed sign-in verifications across factors and challenges.
+    #[serde(rename = "failedVerificationCount")]
+    pub failed_verification_count: i64,
+    /// End of the account-level verification lock.
+    #[serde(rename = "lockedUntil")]
+    pub locked_until: Option<DateTime<Utc>>,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
@@ -25,6 +33,19 @@ pub struct CreateTwoFactor {
     pub user_id: String,
     pub secret: String,
     pub backup_codes: String,
+    /// Whether enrollment verification may be skipped.
+    pub verified: bool,
+}
+
+/// Fields changed when an existing authenticator enrollment is completed or replaced.
+#[derive(Debug, Default)]
+pub struct UpdateTwoFactor {
+    /// Replacement encrypted authenticator secret.
+    pub secret: Option<String>,
+    /// Replacement encrypted backup codes.
+    pub backup_codes: Option<String>,
+    /// Enrollment verification state.
+    pub verified: Option<bool>,
 }
 
 /// Passkey response shape.
@@ -239,6 +260,15 @@ impl AuthTwoFactor for TwoFactor {
     fn user_id(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.user_id)
     }
+    fn verified(&self) -> bool {
+        self.verified
+    }
+    fn failed_verification_count(&self) -> i64 {
+        self.failed_verification_count
+    }
+    fn locked_until(&self) -> Option<DateTime<Utc>> {
+        self.locked_until
+    }
     fn created_at(&self) -> DateTime<Utc> {
         self.created_at
     }
@@ -254,6 +284,9 @@ impl<T: AuthTwoFactor> From<&T> for TwoFactor {
             secret: two_factor.secret().to_owned(),
             backup_codes: two_factor.backup_codes().to_owned(),
             user_id: two_factor.user_id().into_owned(),
+            verified: two_factor.verified(),
+            failed_verification_count: two_factor.failed_verification_count(),
+            locked_until: two_factor.locked_until(),
             created_at: two_factor.created_at(),
             updated_at: two_factor.updated_at(),
         }

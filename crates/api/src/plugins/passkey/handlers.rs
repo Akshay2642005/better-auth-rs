@@ -443,7 +443,7 @@ pub(super) async fn verify_authentication_core(
 
     Ok(PasskeyHandlerOutcome::Success((
         serde_json::to_value(SessionResponse {
-            session: SessionView::from(&session),
+            session: SessionView::with_fields(&session, &ctx.config.session)?,
         })?,
         session.token().to_string(),
     )))

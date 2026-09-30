@@ -5,11 +5,13 @@ pub mod device_authorization;
 pub mod email_password;
 pub mod email_verification;
 pub mod helpers;
+mod json_body;
 pub mod oauth;
 pub mod organization;
 pub mod passkey;
 pub mod password_management;
 pub mod session_management;
+mod session_update;
 pub mod two_factor;
 pub mod user_management;
 
@@ -35,7 +37,9 @@ pub(crate) mod test_helpers {
     pub type TestDatabase = dyn better_auth_core::store::AuthStore<BundledSchema>;
 
     pub fn create_test_config() -> AuthConfig {
-        AuthConfig::new("test-secret-key-at-least-32-chars-long")
+        let mut config = AuthConfig::new("test-secret-key-at-least-32-chars-long");
+        config.session.bearer = Some(better_auth_core::config::BearerConfig::default());
+        config
     }
 
     pub async fn create_test_database() -> Arc<TestDatabase> {

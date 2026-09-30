@@ -8,7 +8,7 @@ use cookie::Cookie;
 
 type TestSchema = better_auth_seaorm::store::__private_test_support::bundled_schema::BundledSchema;
 
-async fn create_test_context_with_credential_user(
+pub(super) async fn create_test_context_with_credential_user(
     email: &str,
     two_factor_enabled: bool,
 ) -> (AuthContext<TestSchema>, UserView, SessionView) {
@@ -62,7 +62,7 @@ async fn create_test_context_with_credential_user(
     (ctx, user, session)
 }
 
-fn cookie_value(header: &str) -> String {
+pub(super) fn cookie_value(header: &str) -> String {
     Cookie::parse(header)
         .expect("Set-Cookie header should parse")
         .value()
@@ -207,13 +207,17 @@ async fn test_verify_existing_session_factor_enables_two_factor_and_reissues_ses
     let (ctx, user, session) =
         create_test_context_with_credential_user("reissue@example.com", false).await;
 
-    let (response, set_cookie_headers) =
-        verify_existing_session_factor(user.clone(), session.clone(), true, &ctx)
-            .await
-            .unwrap();
+    let (response, set_cookie_headers) = verify_existing_session_factor(
+        user.clone(),
+        session.clone(),
+        Some(EnrollmentMethod::Totp),
+        &ctx,
+    )
+    .await
+    .unwrap();
 
     assert!(!response.user.two_factor_enabled);
-    assert_ne!(response.token, session.token);
+    assert_eq!(response.token.as_deref(), Some(session.token.as_str()));
     assert_eq!(set_cookie_headers.len(), 1);
     assert!(
         ctx.database
@@ -223,14 +227,22 @@ async fn test_verify_existing_session_factor_enables_two_factor_and_reissues_ses
             .is_none(),
         "the original session should be deleted after re-issuing",
     );
-    assert!(
-        ctx.database
-            .get_session(&response.token)
-            .await
-            .unwrap()
-            .is_some(),
-        "the new session token should be persisted",
+    let mut request = test_helpers::create_auth_request_no_query(
+        better_auth_core::HttpMethod::Get,
+        "/get-session",
+        None,
+        None,
     );
+    let _ = request.headers.insert(
+        "cookie".into(),
+        format!(
+            "better-auth.session_token={}",
+            cookie_value(&set_cookie_headers[0])
+        ),
+    );
+    let (enabled_user, new_session) = ctx.require_session(&request).await.unwrap();
+    assert_ne!(new_session.token, session.token);
+    assert!(enabled_user.two_factor_enabled);
 }
 
 #[tokio::test]
@@ -248,6 +260,7 @@ async fn test_view_backup_codes_returns_decrypted_codes() {
     _ = ctx
         .database
         .create_two_factor(better_auth_core::CreateTwoFactor {
+            verified: true,
             user_id: user.id.clone(),
             secret: encrypt_value(&ctx.config.secret, "totp-secret").unwrap(),
             backup_codes: encrypted,
@@ -268,6 +281,7 @@ async fn test_view_backup_codes_rejects_invalid_stored_json() {
     _ = ctx
         .database
         .create_two_factor(better_auth_core::CreateTwoFactor {
+            verified: true,
             user_id: user.id.clone(),
             secret: encrypt_value(&ctx.config.secret, "totp-secret").unwrap(),
             backup_codes: encrypt_value(&ctx.config.secret, "\"not-an-array\"").unwrap(),

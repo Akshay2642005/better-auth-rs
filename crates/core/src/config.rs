@@ -550,17 +550,15 @@ pub struct SessionConfig {
 
     /// How often to refresh the session expiry (as a Duration).
     ///
-    /// When set, session expiry is only updated if the session is older than
-    /// this duration since the last update. When `None`, every request
-    /// refreshes the session (equivalent to the old `update_age: true`).
+    /// Refresh when the remaining lifetime falls below `expires_in - update_age`.
+    /// When `None`, each authoritative read can refresh the session.
     pub update_age: Option<Duration>,
 
     /// If `true`, sessions are never automatically refreshed on access.
     pub disable_session_refresh: bool,
 
-    /// Allow `POST /get-session`, which defers the session refresh so a
-    /// prefetching client can read the session without a `GET` side effect.
-    /// Upstream rejects the `POST` form with 405 unless this is enabled.
+    /// Report `needsRefresh` on `GET /get-session` and refresh on `POST /get-session`.
+    /// Upstream rejects the POST form with 405 unless this is enabled.
     pub defer_session_refresh: bool,
 
     /// Session freshness window. A session younger than this is considered
@@ -580,6 +578,41 @@ pub struct SessionConfig {
     /// When enabled, session data is cached in a signed/encrypted cookie.
     /// `SessionManager` checks the cookie cache before hitting the database.
     pub cookie_cache: Option<CookieCacheConfig>,
+
+    /// Enable the upstream Bearer plugin behavior for session tokens.
+    /// API keys use their own plugin configuration.
+    pub bearer: Option<BearerConfig>,
+
+    /// Application session fields accepted by `/update-session` and included in session responses.
+    pub additional_fields: std::collections::BTreeMap<String, SessionFieldConfig>,
+}
+
+/// Access rules for an application-owned session model field.
+#[derive(Debug, Clone)]
+pub struct SessionFieldConfig {
+    /// Serialized model field name. `None` uses the public field name.
+    pub field_name: Option<String>,
+    /// Whether clients may update the field.
+    pub input: bool,
+    /// Whether session responses include the field.
+    pub returned: bool,
+}
+
+impl Default for SessionFieldConfig {
+    fn default() -> Self {
+        Self {
+            field_name: None,
+            input: true,
+            returned: true,
+        }
+    }
+}
+
+/// Options for authenticating sessions through the Authorization header.
+#[derive(Debug, Clone, Default)]
+pub struct BearerConfig {
+    /// Reject unsigned bearer tokens when enabled.
+    pub require_signature: bool,
 }
 
 /// JWT configuration
@@ -603,6 +636,9 @@ pub struct JwtConfig {
 pub struct PasswordConfig {
     /// Minimum password length
     pub min_length: usize,
+
+    /// Maximum password length in UTF-16 code units. Defaults to 128.
+    pub max_length: usize,
 
     /// Require uppercase letters
     pub require_uppercase: bool,
@@ -651,6 +687,9 @@ pub struct CookieCacheConfig {
 
     /// Strategy used to protect the cached cookie value.
     pub strategy: CookieCacheStrategy,
+
+    /// Cache format version. Changing this value invalidates older caches.
+    pub version: String,
 }
 
 /// Strategy for signing / encrypting the cookie cache.
@@ -660,7 +699,7 @@ pub enum CookieCacheStrategy {
     Compact,
     /// Standard JWT with HMAC signing.
     Jwt,
-    /// JWE with AES-256-GCM encryption.
+    /// JWE with AES-256-CBC and HMAC-SHA512 authentication.
     Jwe,
 }
 
@@ -670,6 +709,7 @@ impl Default for CookieCacheConfig {
             enabled: false,
             max_age: Duration::minutes(5),
             strategy: CookieCacheStrategy::Compact,
+            version: "1".to_string(),
         }
     }
 }
@@ -841,6 +881,8 @@ impl Default for SessionConfig {
             cookie_http_only: true,
             cookie_same_site: SameSite::Lax,
             cookie_cache: None,
+            bearer: None,
+            additional_fields: Default::default(),
         }
     }
 }
@@ -878,6 +920,7 @@ impl Default for PasswordConfig {
     fn default() -> Self {
         Self {
             min_length: 8,
+            max_length: 128,
             require_uppercase: false,
             require_lowercase: false,
             require_numbers: false,
@@ -992,6 +1035,12 @@ impl AuthConfig {
     /// Set the minimum password length.
     pub fn password_min_length(mut self, length: usize) -> Self {
         self.password.min_length = length;
+        self
+    }
+
+    /// Set the maximum password length in UTF-16 code units.
+    pub fn password_max_length(mut self, length: usize) -> Self {
+        self.password.max_length = length;
         self
     }
 
@@ -1461,6 +1510,7 @@ mod tests {
             enabled: true,
             max_age: Duration::minutes(10),
             strategy: CookieCacheStrategy::Jwt,
+            ..Default::default()
         };
         let cfg = AuthConfig::new("test-secret-min-32-chars-1234567").session_cookie_cache(cache);
 

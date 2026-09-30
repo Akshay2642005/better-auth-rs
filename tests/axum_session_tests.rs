@@ -23,8 +23,9 @@ async fn setup() -> (DatabaseConnection, Arc<BetterAuth<Schema>>, String) {
     better_auth_seaorm::store::__private_test_support::migrator::run_migrations(&database)
         .await
         .unwrap();
-    let config = AuthConfig::new("session-extractor-test-secret-at-least-32-characters")
+    let mut config = AuthConfig::new("session-extractor-test-secret-at-least-32-characters")
         .session_update_age(Duration::zero());
+    config.session.bearer = Some(Default::default());
     let auth = Arc::new(
         BetterAuth::<Schema>::new(config.clone())
             .store(SeaOrmStore::<Schema>::new(config, database.clone()))

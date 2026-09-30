@@ -10,9 +10,9 @@ use std::sync::Arc;
 type TestSchema = better_auth_seaorm::store::__private_test_support::bundled_schema::BundledSchema;
 
 async fn create_test_context_with_user() -> (AuthContext<TestSchema>, UserView, SessionView) {
-    let config = Arc::new(better_auth_core::AuthConfig::new(
-        "test-secret-key-at-least-32-chars-long",
-    ));
+    let mut config = better_auth_core::AuthConfig::new("test-secret-key-at-least-32-chars-long");
+    config.session.bearer = Some(Default::default());
+    let config = Arc::new(config);
     let database = crate::plugins::test_helpers::create_test_database().await;
     let ctx = AuthContext::new(config, database.clone());
 

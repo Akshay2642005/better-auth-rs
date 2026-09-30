@@ -36,6 +36,7 @@ struct State {
     sessions: HashMap<String, SessionView>,
     accounts: HashMap<String, AccountView>,
     verifications: HashMap<String, VerificationView>,
+    two_factors: HashMap<String, TwoFactor>,
     device_codes: HashMap<String, DeviceCode>,
 }
 
@@ -210,6 +211,7 @@ impl SessionStore<BundledSchema> for MemoryStore {
             impersonated_by: create_session.impersonated_by,
             active_organization_id: create_session.active_organization_id,
             active: true,
+            additional_fields: Default::default(),
         };
         self.lock().sessions.insert(token, session.clone());
         Ok(session)
@@ -217,6 +219,20 @@ impl SessionStore<BundledSchema> for MemoryStore {
 
     async fn get_session(&self, token: &str) -> AuthResult<Option<SessionView>> {
         Ok(self.lock().sessions.get(token).cloned())
+    }
+
+    async fn update_session_fields(
+        &self,
+        token: &str,
+        fields: serde_json::Map<String, serde_json::Value>,
+    ) -> AuthResult<Option<SessionView>> {
+        let mut data = self.lock();
+        let Some(session) = data.sessions.get_mut(token) else {
+            return Ok(None);
+        };
+        session.additional_fields.extend(fields);
+        session.updated_at = Utc::now();
+        Ok(Some(session.clone()))
     }
 
     async fn get_user_sessions(&self, user_id: &str) -> AuthResult<Vec<SessionView>> {
@@ -434,14 +450,33 @@ impl VerificationStore<BundledSchema> for MemoryStore {
         let found = state
             .verifications
             .values()
-            .find(|verification| {
-                verification.identifier == identifier && verification.value == value
-            })
+            .filter(|verification| verification.identifier == identifier)
+            .max_by_key(|verification| verification.created_at)
+            .filter(|verification| verification.value == value)
             .cloned();
-        if let Some(verification) = &found {
-            state.verifications.remove(&verification.id);
+        if found.is_some() {
+            state
+                .verifications
+                .retain(|_, verification| verification.identifier != identifier);
         }
-        Ok(found)
+        Ok(found.filter(|verification| verification.expires_at >= Utc::now()))
+    }
+
+    async fn consume_verification_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> AuthResult<Option<VerificationView>> {
+        let mut state = self.lock();
+        let found = state
+            .verifications
+            .values()
+            .filter(|verification| verification.identifier == identifier)
+            .max_by_key(|verification| verification.created_at)
+            .cloned();
+        state
+            .verifications
+            .retain(|_, verification| verification.identifier != identifier);
+        Ok(found.filter(|verification| verification.expires_at >= Utc::now()))
     }
 
     async fn delete_verification(&self, id: &str) -> AuthResult<()> {
@@ -562,20 +597,119 @@ impl InvitationStore for MemoryStore {
 
 #[async_trait]
 impl TwoFactorStore for MemoryStore {
-    async fn create_two_factor(&self, _two_factor: CreateTwoFactor) -> AuthResult<TwoFactor> {
-        Err(AuthError::internal("unsupported test-store operation"))
+    async fn update_two_factor(
+        &self,
+        id: &str,
+        update: crate::types::UpdateTwoFactor,
+    ) -> AuthResult<TwoFactor> {
+        let mut state = self.lock();
+        let factor = state
+            .two_factors
+            .get_mut(id)
+            .ok_or_else(|| AuthError::not_found("Two-factor settings not found"))?;
+        if let Some(secret) = update.secret {
+            factor.secret = secret;
+        }
+        if let Some(codes) = update.backup_codes {
+            factor.backup_codes = codes;
+        }
+        if let Some(verified) = update.verified {
+            factor.verified = verified;
+        }
+        factor.updated_at = Utc::now();
+        Ok(factor.clone())
     }
-    async fn get_two_factor_by_user_id(&self, _user_id: &str) -> AuthResult<Option<TwoFactor>> {
-        Ok(None)
+    async fn compare_exchange_two_factor_backup_codes(
+        &self,
+        id: &str,
+        previous: &str,
+        replacement: &str,
+    ) -> AuthResult<bool> {
+        let mut state = self.lock();
+        let Some(factor) = state
+            .two_factors
+            .get_mut(id)
+            .filter(|factor| factor.backup_codes == previous)
+        else {
+            return Ok(false);
+        };
+        factor.backup_codes = replacement.to_owned();
+        factor.updated_at = Utc::now();
+        Ok(true)
+    }
+    async fn record_two_factor_failure(
+        &self,
+        id: &str,
+        max_attempts: i64,
+        locked_until: chrono::DateTime<Utc>,
+    ) -> AuthResult<()> {
+        if let Some(factor) = self.lock().two_factors.get_mut(id) {
+            factor.failed_verification_count += 1;
+            if factor.failed_verification_count >= max_attempts {
+                factor.locked_until = Some(locked_until);
+            }
+        }
+        Ok(())
+    }
+    async fn reset_two_factor_failures(
+        &self,
+        id: &str,
+        locked_before: Option<chrono::DateTime<Utc>>,
+    ) -> AuthResult<()> {
+        if let Some(factor) = self.lock().two_factors.get_mut(id).filter(|factor| {
+            locked_before
+                .is_none_or(|before| factor.locked_until.is_some_and(|until| until <= before))
+        }) {
+            factor.failed_verification_count = 0;
+            factor.locked_until = None;
+        }
+        Ok(())
+    }
+    async fn create_two_factor(&self, input: CreateTwoFactor) -> AuthResult<TwoFactor> {
+        let factor = TwoFactor {
+            id: uuid::Uuid::new_v4().to_string(),
+            user_id: input.user_id,
+            secret: input.secret,
+            backup_codes: input.backup_codes,
+            verified: input.verified,
+            failed_verification_count: 0,
+            locked_until: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let _ = self
+            .lock()
+            .two_factors
+            .insert(factor.id.clone(), factor.clone());
+        Ok(factor)
+    }
+    async fn get_two_factor_by_user_id(&self, user_id: &str) -> AuthResult<Option<TwoFactor>> {
+        Ok(self
+            .lock()
+            .two_factors
+            .values()
+            .find(|factor| factor.user_id == user_id)
+            .cloned())
     }
     async fn update_two_factor_backup_codes(
         &self,
-        _user_id: &str,
-        _backup_codes: &str,
+        user_id: &str,
+        backup_codes: &str,
     ) -> AuthResult<TwoFactor> {
-        Err(AuthError::internal("unsupported test-store operation"))
+        let mut state = self.lock();
+        let factor = state
+            .two_factors
+            .values_mut()
+            .find(|factor| factor.user_id == user_id)
+            .ok_or_else(|| AuthError::not_found("Two-factor settings not found"))?;
+        factor.backup_codes = backup_codes.to_owned();
+        factor.updated_at = Utc::now();
+        Ok(factor.clone())
     }
-    async fn delete_two_factor(&self, _user_id: &str) -> AuthResult<()> {
+    async fn delete_two_factor(&self, user_id: &str) -> AuthResult<()> {
+        self.lock()
+            .two_factors
+            .retain(|_, factor| factor.user_id != user_id);
         Ok(())
     }
 }
@@ -787,7 +921,9 @@ impl TransactionStore<BundledSchema> for MemoryStore {
 }
 
 pub(crate) fn test_config() -> Arc<AuthConfig> {
-    Arc::new(AuthConfig::new("test-secret-min-32-chars-1234567"))
+    let mut config = AuthConfig::new("test-secret-min-32-chars-1234567");
+    config.session.bearer = Some(crate::config::BearerConfig::default());
+    Arc::new(config)
 }
 
 pub(crate) async fn test_database() -> Arc<dyn AuthStore<BundledSchema>> {

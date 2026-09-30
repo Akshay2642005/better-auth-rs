@@ -100,6 +100,8 @@ pub trait SeaOrmHooks<S: AuthSchema>: Send + Sync {
 
 Return `HookControl::Cancel` or an error from a `before_*` hook to abort the operation:
 
+Atomic verification consumption returns `None` when a before-delete hook cancels. After-delete hooks run after the consumption transaction commits. An after-delete hook error propagates to the caller, but the consumed credential remains deleted.
+
 ```rust
 #[async_trait]
 impl SeaOrmHooks<AppAuthSchema> for BlockDisposableEmails {

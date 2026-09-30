@@ -165,6 +165,9 @@ pub trait AuthTwoFactor: Clone + Send + Sync + Serialize + std::fmt::Debug + 'st
     fn secret(&self) -> &str;
     fn backup_codes(&self) -> &str;
     fn user_id(&self) -> Cow<'_, str>;
+    fn verified(&self) -> bool;
+    fn failed_verification_count(&self) -> i64;
+    fn locked_until(&self) -> Option<DateTime<Utc>>;
     fn created_at(&self) -> DateTime<Utc>;
     fn updated_at(&self) -> DateTime<Utc>;
 }

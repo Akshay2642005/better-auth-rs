@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use crate::config::AuthConfig;
 use crate::email::EmailProvider;
-use crate::entity::AuthSession;
 use crate::error::{AuthError, AuthResult};
 use crate::schema::AuthSchema;
 #[cfg(test)]
@@ -25,7 +24,9 @@ pub enum BeforeRequestAction {
     /// Short-circuit with this response (e.g. return session JSON).
     Respond(AuthResponse),
     /// Inject a virtual session so downstream handlers see it as authenticated.
-    InjectSession { session: crate::wire::SessionView },
+    InjectSession {
+        session: Box<crate::wire::SessionView>,
+    },
 }
 
 /// Plugin trait that all authentication plugins must implement.
@@ -264,25 +265,30 @@ impl<S: AuthSchema> AuthContext<S> {
     pub async fn require_session(
         &self,
         req: &AuthRequest,
-    ) -> AuthResult<(S::User, crate::wire::SessionView)> {
-        if let Some(session) = req.virtual_session() {
-            let user = self
-                .database
-                .get_user_by_id(&session.user_id)
-                .await?
-                .ok_or(AuthError::UserNotFound)?;
-            return Ok((user, session.clone()));
-        }
-        let session_manager = self.session_manager();
+    ) -> AuthResult<(crate::wire::UserView, crate::wire::SessionView)> {
+        self.require_session_with_read(req, crate::session::SessionRead::Cached)
+            .await
+    }
 
-        if let Some(token) = session_manager.extract_session_token(req)
-            && let Some(session) = session_manager.get_session(&token).await?
-            && let Some(user) = self.database.get_user_by_id(&session.user_id()).await?
-        {
-            return Ok((user, crate::wire::SessionView::from(&session)));
-        }
+    /// Require a session read from the server store for sensitive work.
+    pub async fn require_authoritative_session(
+        &self,
+        req: &AuthRequest,
+    ) -> AuthResult<(crate::wire::UserView, crate::wire::SessionView)> {
+        self.require_session_with_read(req, crate::session::SessionRead::Authoritative)
+            .await
+    }
 
-        Err(AuthError::Unauthenticated)
+    async fn require_session_with_read(
+        &self,
+        req: &AuthRequest,
+        read: crate::session::SessionRead,
+    ) -> AuthResult<(crate::wire::UserView, crate::wire::SessionView)> {
+        let resolved = self.session_manager().resolve(req, read).await?;
+        resolved
+            .data
+            .map(|data| (data.user, data.session))
+            .ok_or(AuthError::Unauthenticated)
     }
 }
 
@@ -384,7 +390,10 @@ mod tests {
         let mut req = AuthRequest::new(HttpMethod::Get, "/test");
         let _ = req.headers.insert(
             "cookie".into(),
-            format!("better-auth.session_token={}", session.token()),
+            format!(
+                "better-auth.session_token={}",
+                crate::utils::cookie_utils::sign_cookie_value(&session.token, &config.secret)
+            ),
         );
 
         let (found_user, _found_session) = ctx.require_session(&req).await.unwrap();

@@ -103,6 +103,24 @@ where
             .map_err(map_db_err)
     }
 
+    async fn update_session_fields(
+        &self,
+        token: &str,
+        fields: serde_json::Map<String, serde_json::Value>,
+    ) -> AuthResult<Option<S::Session>> {
+        let Some(model) = self.get_session(token).await? else {
+            return Ok(None);
+        };
+        let mut active = model.into_active_model();
+        S::Session::apply_fields(&mut active, fields)?;
+        S::Session::set_updated_at(&mut active, Utc::now());
+        active
+            .update(self.connection())
+            .await
+            .map(Some)
+            .map_err(map_db_err)
+    }
+
     async fn update_session_expiry(
         &self,
         token: &str,
