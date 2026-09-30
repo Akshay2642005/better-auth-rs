@@ -31,7 +31,7 @@ pub enum BeforeRequestAction {
 /// Plugin trait that all authentication plugins must implement.
 ///
 #[async_trait]
-pub trait AuthPlugin<S: AuthSchema>: Send + Sync {
+pub trait AuthPlugin<S: AuthSchema>: Send + Sync + std::any::Any {
     /// Plugin name - should be unique
     fn name(&self) -> &'static str;
 
@@ -64,38 +64,6 @@ pub trait AuthPlugin<S: AuthSchema>: Send + Sync {
         req: &AuthRequest,
         ctx: &AuthContext<S>,
     ) -> AuthResult<Option<AuthResponse>>;
-
-    /// Called after a user is created
-    async fn on_user_created(&self, user: &S::User, ctx: &AuthContext<S>) -> AuthResult<()> {
-        let _ = (user, ctx);
-        Ok(())
-    }
-
-    /// Called after a session is created
-    async fn on_session_created(
-        &self,
-        session: &S::Session,
-        ctx: &AuthContext<S>,
-    ) -> AuthResult<()> {
-        let _ = (session, ctx);
-        Ok(())
-    }
-
-    /// Called before a user is deleted
-    async fn on_user_deleted(&self, user_id: &str, ctx: &AuthContext<S>) -> AuthResult<()> {
-        let _ = (user_id, ctx);
-        Ok(())
-    }
-
-    /// Called before a session is deleted
-    async fn on_session_deleted(
-        &self,
-        session_token: &str,
-        ctx: &AuthContext<S>,
-    ) -> AuthResult<()> {
-        let _ = (session_token, ctx);
-        Ok(())
-    }
 }
 
 /// Generates the [`AuthPlugin`] impl for a plugin with static route dispatch.

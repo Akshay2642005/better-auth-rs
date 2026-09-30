@@ -161,7 +161,11 @@ async fn create_full_auth() -> BetterAuth<TestSchema> {
 
     AuthBuilder::<TestSchema>::new(config)
         .store(store)
-        .plugin(EmailPasswordPlugin::new().enable_signup(true))
+        .plugin(
+            EmailPasswordPlugin::new()
+                .enable_signup(true)
+                .username(true),
+        )
         .plugin(better_auth::plugins::SessionManagementPlugin::new())
         .plugin(better_auth::plugins::PasswordManagementPlugin::new())
         .plugin(better_auth::plugins::EmailVerificationPlugin::new())

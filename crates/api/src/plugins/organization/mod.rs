@@ -5,6 +5,7 @@ pub mod types;
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use better_auth_core::entity::AuthSession;
 use better_auth_core::error::AuthResult;
 use better_auth_core::plugin::{AuthContext, AuthPlugin, AuthRoute};
 use better_auth_core::types::{AuthRequest, AuthResponse, HttpMethod};
@@ -74,6 +75,7 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for OrganizationPlugin {
         &self,
         ctx: &mut better_auth_core::AuthInitContext<S>,
     ) -> better_auth_core::AuthResult<()> {
+        S::Session::require_plugin_fields("organization", &["active_organization_id"])?;
         ctx.set_metadata(METADATA_ENABLED, serde_json::Value::Bool(true));
         ctx.set_metadata(
             METADATA_ROLES,

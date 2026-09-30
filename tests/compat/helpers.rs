@@ -304,7 +304,11 @@ pub async fn create_test_auth_with_options(options: TestAuthOptions) -> TestAuth
 
     AuthBuilder::<TestSchema>::new(config)
         .store(store)
-        .plugin(EmailPasswordPlugin::new().enable_signup(true))
+        .plugin(
+            EmailPasswordPlugin::new()
+                .enable_signup(true)
+                .username(true),
+        )
         .plugin(SessionManagementPlugin::new())
         .plugin(
             PasswordManagementPlugin::new()
@@ -654,7 +658,11 @@ impl TestHarness {
         let store = test_store(&config).await;
         let auth = AuthBuilder::<TestSchema>::new(config)
             .store(store)
-            .plugin(EmailPasswordPlugin::new().enable_signup(true))
+            .plugin(
+                EmailPasswordPlugin::new()
+                    .enable_signup(true)
+                    .username(true),
+            )
             .plugin(SessionManagementPlugin::new())
             .plugin(
                 PasswordManagementPlugin::new().send_reset_password(Arc::new(TestResetSender {

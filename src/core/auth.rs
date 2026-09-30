@@ -415,9 +415,13 @@ impl<S: AuthSchema> BetterAuth<S> {
             return Err(AuthError::bad_request("Email can not be updated"));
         }
 
-        let update_req: UpdateUserRequest =
-            serde_json::from_value(serde_json::Value::Object(body.clone()))
-                .map_err(|e| AuthError::bad_request(format!("Invalid JSON: {}", e)))?;
+        let mut body = body.clone();
+        if self.context.get_metadata("username.enabled") != Some(&serde_json::Value::Bool(true)) {
+            _ = body.remove("username");
+            _ = body.remove("displayUsername");
+        }
+        let update_req: UpdateUserRequest = serde_json::from_value(serde_json::Value::Object(body))
+            .map_err(|e| AuthError::bad_request(format!("Invalid JSON: {}", e)))?;
         let (username, display_username) =
             normalize_username_fields(update_req.username, update_req.display_username);
 

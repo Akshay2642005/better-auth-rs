@@ -93,43 +93,10 @@ impl<S: AuthSchema> SessionManager<S> {
 
         if should_refresh {
             let new_expires_at = Utc::now() + self.config.session.expires_in;
-            match self
-                .database
+            self.database
                 .update_session_expiry(token, new_expires_at)
-                .await
-            {
-                Ok(()) => {
-                    // Re-read so the returned session reflects the new expiry.
-                    // Both failure modes fall back to the pre-refresh session:
-                    // a concurrent revoke (re-read returns None) shouldn't log
-                    // the user out mid-request, and a second DB hiccup
-                    // shouldn't turn a successful refresh into a 500.
-                    match self.database.get_session(token).await {
-                        Ok(Some(refreshed)) => session = Some(refreshed),
-                        Ok(None) => {
-                            tracing::warn!(
-                                "Session re-read after refresh returned None (concurrent revoke?); returning pre-refresh value"
-                            );
-                        }
-                        Err(err) => {
-                            tracing::warn!(
-                                error = %err,
-                                "Session re-read after refresh failed; returning pre-refresh value"
-                            );
-                        }
-                    }
-                }
-                Err(err) => {
-                    // Transient write failure (connection reset, contention,
-                    // etc.) must not fail the whole request. Keep the
-                    // pre-refresh session — auth still works, the refresh
-                    // window will be retried on the next call.
-                    tracing::warn!(
-                        error = %err,
-                        "Failed to refresh session expiry; returning pre-refresh session"
-                    );
-                }
-            }
+                .await?;
+            session = self.database.get_session(token).await?;
         }
 
         Ok(session)

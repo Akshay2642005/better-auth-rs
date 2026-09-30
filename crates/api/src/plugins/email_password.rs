@@ -63,6 +63,8 @@ pub struct EmailPasswordPlugin {
 #[derive(Clone)]
 pub struct EmailPasswordConfig {
     pub enable_signup: bool,
+    /// Enable the upstream username plugin behavior. Requires both username fields.
+    pub username: bool,
     pub require_email_verification: bool,
     pub password_min_length: usize,
     /// Maximum password length (default: 128).
@@ -78,6 +80,7 @@ impl std::fmt::Debug for EmailPasswordConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EmailPasswordConfig")
             .field("enable_signup", &self.enable_signup)
+            .field("username", &self.username)
             .field(
                 "require_email_verification",
                 &self.require_email_verification,
@@ -210,6 +213,14 @@ impl EmailPasswordPlugin {
         self
     }
 
+    /// Enable username registration, sign-in, availability checks, and updates.
+    ///
+    /// The user entity must persist `username` and `display_username`.
+    pub fn username(mut self, enabled: bool) -> Self {
+        self.config.username = enabled;
+        self
+    }
+
     pub fn require_email_verification(mut self, require: bool) -> Self {
         self.config.require_email_verification = require;
         self
@@ -240,10 +251,26 @@ impl EmailPasswordPlugin {
         req: &AuthRequest,
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
-        let mut signup_req: SignUpRequest = match better_auth_core::validate_request_body(req) {
-            Ok(v) => v,
-            Err(resp) => return Ok(resp),
+        let mut filtered_req;
+        let signup_req_source = if self.config.username {
+            req
+        } else {
+            let mut body: serde_json::Value = req
+                .body_as_json()
+                .map_err(|error| AuthError::bad_request(format!("Invalid JSON: {error}")))?;
+            if let Some(body) = body.as_object_mut() {
+                _ = body.remove("username");
+                _ = body.remove("displayUsername");
+            }
+            filtered_req = req.clone();
+            filtered_req.body = Some(serde_json::to_vec(&body)?);
+            &filtered_req
         };
+        let mut signup_req: SignUpRequest =
+            match better_auth_core::validate_request_body(signup_req_source) {
+                Ok(v) => v,
+                Err(resp) => return Ok(resp),
+            };
 
         let (username, display_username) = normalize_username_fields(
             signup_req.username.take(),
@@ -543,13 +570,15 @@ pub(crate) async fn sign_up_core(
         .with_email(&body.email)
         .with_name(&body.name);
     apply_default_role(ctx, &mut create_user);
-    if let Some(ref username) = body.username {
-        create_user = create_user.with_username(normalize_username(username));
-    }
-    if let Some(ref display_username) = body.display_username {
-        create_user.display_username = Some(display_username.clone());
-    } else if let Some(ref username) = body.username {
-        create_user.display_username = Some(username.clone());
+    if config.username {
+        if let Some(ref username) = body.username {
+            create_user = create_user.with_username(normalize_username(username));
+        }
+        if let Some(ref display_username) = body.display_username {
+            create_user.display_username = Some(display_username.clone());
+        } else if let Some(ref username) = body.username {
+            create_user.display_username = Some(username.clone());
+        }
     }
     let auto_sign_in = config.auto_sign_in;
     let expires_in = ctx.config.session.expires_in;
@@ -802,6 +831,7 @@ impl Default for EmailPasswordConfig {
     fn default() -> Self {
         Self {
             enable_signup: true,
+            username: false,
             require_email_verification: false,
             password_min_length: 8,
             password_max_length: 128,
@@ -817,12 +847,23 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for EmailPasswordPlugin {
         "email-password"
     }
 
+    async fn on_init(&self, ctx: &mut better_auth_core::AuthInitContext<S>) -> AuthResult<()> {
+        if self.config.username {
+            S::User::require_plugin_fields("username", &["username", "display_username"])?;
+            ctx.set_metadata("username.enabled", serde_json::Value::Bool(true));
+        }
+        Ok(())
+    }
+
     fn routes(&self) -> Vec<AuthRoute> {
-        let mut routes = vec![
-            AuthRoute::post("/sign-in/email", "sign_in_email"),
-            AuthRoute::post("/sign-in/username", "sign_in_username"),
-            AuthRoute::post("/is-username-available", "is_username_available"),
-        ];
+        let mut routes = vec![AuthRoute::post("/sign-in/email", "sign_in_email")];
+        if self.config.username {
+            routes.push(AuthRoute::post("/sign-in/username", "sign_in_username"));
+            routes.push(AuthRoute::post(
+                "/is-username-available",
+                "is_username_available",
+            ));
+        }
 
         if self.config.enable_signup {
             routes.push(AuthRoute::post("/sign-up/email", "sign_up_email"));
@@ -841,24 +882,14 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for EmailPasswordPlugin {
                 Ok(Some(self.handle_sign_up(req, ctx).await?))
             }
             (HttpMethod::Post, "/sign-in/email") => Ok(Some(self.handle_sign_in(req, ctx).await?)),
-            (HttpMethod::Post, "/sign-in/username") => {
+            (HttpMethod::Post, "/sign-in/username") if self.config.username => {
                 Ok(Some(self.handle_sign_in_username(req, ctx).await?))
             }
-            (HttpMethod::Post, "/is-username-available") => {
+            (HttpMethod::Post, "/is-username-available") if self.config.username => {
                 Ok(Some(self.handle_is_username_available(req, ctx).await?))
             }
             _ => Ok(None),
         }
-    }
-
-    async fn on_user_created(&self, user: &S::User, _ctx: &AuthContext<S>) -> AuthResult<()> {
-        if self.config.require_email_verification
-            && !user.email_verified()
-            && let Some(email) = user.email()
-        {
-            println!("Email verification required for user: {}", email);
-        }
-        Ok(())
     }
 }
 
@@ -1064,7 +1095,9 @@ mod tests {
         let hasher: Arc<dyn PasswordHasher> = Arc::new(CountingHasher {
             verify_calls: verify_calls.clone(),
         });
-        let plugin = EmailPasswordPlugin::new().password_hasher(hasher);
+        let plugin = EmailPasswordPlugin::new()
+            .username(true)
+            .password_hasher(hasher);
         let ctx = create_test_context().await;
 
         let signup_body = serde_json::json!({
@@ -1108,7 +1141,7 @@ mod tests {
     // packages/better-auth/src/plugins/username/index.ts :: isUsernameAvailable.
     #[tokio::test]
     async fn test_is_username_available_route_registered() {
-        let plugin = EmailPasswordPlugin::new();
+        let plugin = EmailPasswordPlugin::new().username(true);
         let routes =
             <EmailPasswordPlugin as better_auth_core::AuthPlugin<TestSchema>>::routes(&plugin);
         assert!(
@@ -1122,7 +1155,7 @@ mod tests {
     // normalized username; adapted to the Rust email-password plugin.
     #[tokio::test]
     async fn test_is_username_available_fresh() {
-        let plugin = EmailPasswordPlugin::new();
+        let plugin = EmailPasswordPlugin::new().username(true);
         let ctx = create_test_context().await;
 
         let body = serde_json::json!({ "username": "fresh_user" });
@@ -1147,7 +1180,7 @@ mod tests {
     // user on the normalized username; adapted to the Rust email-password plugin.
     #[tokio::test]
     async fn test_is_username_available_taken() {
-        let plugin = EmailPasswordPlugin::new();
+        let plugin = EmailPasswordPlugin::new().username(true);
         let ctx = create_test_context().await;
 
         // Sign up a user with a username
@@ -1189,7 +1222,7 @@ mod tests {
     // below `minUsernameLength` (default 3); adapted to the Rust email-password plugin.
     #[tokio::test]
     async fn test_is_username_available_too_short() {
-        let plugin = EmailPasswordPlugin::new();
+        let plugin = EmailPasswordPlugin::new().username(true);
         let ctx = create_test_context().await;
 
         let body = serde_json::json!({ "username": "ab" });
@@ -1214,7 +1247,7 @@ mod tests {
     // with UNPROCESSABLE_ENTITY; adapted to the Rust email-password plugin.
     #[tokio::test]
     async fn test_is_username_available_invalid_chars() {
-        let plugin = EmailPasswordPlugin::new();
+        let plugin = EmailPasswordPlugin::new().username(true);
         let ctx = create_test_context().await;
 
         let body = serde_json::json!({ "username": "bad user!" });

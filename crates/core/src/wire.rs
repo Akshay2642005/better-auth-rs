@@ -185,6 +185,16 @@ impl<T: AuthVerification> From<&T> for VerificationView {
 }
 
 impl AuthUser for UserView {
+    const PLUGIN_FIELDS: &'static [&'static str] = &[
+        "username",
+        "display_username",
+        "two_factor_enabled",
+        "role",
+        "banned",
+        "ban_reason",
+        "ban_expires",
+        "metadata",
+    ];
     fn id(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.id)
     }
@@ -233,6 +243,7 @@ impl AuthUser for UserView {
 }
 
 impl AuthSession for SessionView {
+    const PLUGIN_FIELDS: &'static [&'static str] = &["impersonated_by", "active_organization_id"];
     fn id(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.id)
     }

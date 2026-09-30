@@ -20,23 +20,20 @@ const HKDF_INFO: &[u8] = b"better-auth-oauth-token-encryption";
 /// Uses an empty salt (extraction still strengthens the key) and a
 /// domain-specific info string to ensure the derived key is isolated
 /// to OAuth token encryption.
-fn derive_key(secret: &str) -> Key<Aes256Gcm> {
+fn derive_key(secret: &str) -> Result<Key<Aes256Gcm>, AuthError> {
     let hk = Hkdf::<Sha256>::new(None, secret.as_bytes());
     let mut okm = [0u8; 32];
-    // info is static and 32 bytes is always valid for HKDF-SHA256, so this
-    // cannot fail at runtime.
-    if hk.expand(HKDF_INFO, &mut okm).is_err() {
-        // Unreachable: 32 bytes is within SHA-256 HKDF output limit (255 * 32).
-        okm = [0u8; 32];
-    }
-    *Key::<Aes256Gcm>::from_slice(&okm)
+    hk.expand(HKDF_INFO, &mut okm).map_err(|error| {
+        AuthError::internal(format!("Failed to derive encryption key: {error}"))
+    })?;
+    Ok(okm.into())
 }
 
 /// Encrypt a plaintext string using AES-256-GCM.
 ///
 /// Returns a base64-encoded string of `nonce || ciphertext`.
 pub fn encrypt_token(plaintext: &str, secret: &str) -> Result<String, AuthError> {
-    let key = derive_key(secret);
+    let key = derive_key(secret)?;
     let cipher = Aes256Gcm::new(&key);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
@@ -53,24 +50,22 @@ pub fn encrypt_token(plaintext: &str, secret: &str) -> Result<String, AuthError>
 
 /// Decrypt a base64-encoded `nonce || ciphertext` string using AES-256-GCM.
 pub fn decrypt_token(encrypted: &str, secret: &str) -> Result<String, AuthError> {
-    let key = derive_key(secret);
+    let key = derive_key(secret)?;
     let cipher = Aes256Gcm::new(&key);
 
     let combined = base64::engine::general_purpose::STANDARD
         .decode(encrypted)
         .map_err(|e| AuthError::internal(format!("Token decryption base64 error: {}", e)))?;
 
-    if combined.len() < 12 {
+    let Some((nonce_bytes, ciphertext)) = combined.split_first_chunk::<12>() else {
         return Err(AuthError::internal(
             "Encrypted token too short (missing nonce)",
         ));
-    }
-
-    let (nonce_bytes, ciphertext) = combined.split_at(12);
-    let nonce = Nonce::from_slice(nonce_bytes);
+    };
+    let nonce = Nonce::from(*nonce_bytes);
 
     let plaintext = cipher
-        .decrypt(nonce, ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|e| AuthError::internal(format!("Token decryption failed: {}", e)))?;
 
     String::from_utf8(plaintext)

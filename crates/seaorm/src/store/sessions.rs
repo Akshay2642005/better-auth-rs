@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait, ExprTrait,
-    IntoActiveModel, QueryFilter, QueryOrder,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, DbErr, EntityTrait,
+    ExprTrait, IntoActiveModel, QueryFilter, QueryOrder,
 };
 
 use better_auth_core::store::SessionStore;
@@ -125,7 +125,10 @@ where
             .update(self.connection())
             .await
             .map(|_| ())
-            .map_err(map_db_err)
+            .map_err(|error| match error {
+                DbErr::RecordNotUpdated | DbErr::RecordNotFound(_) => AuthError::SessionNotFound,
+                error => map_db_err(error),
+            })
     }
 
     async fn delete_session(&self, token: &str) -> AuthResult<()> {

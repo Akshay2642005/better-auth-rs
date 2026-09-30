@@ -563,7 +563,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         AuthBuilder::<TestSchema>::new(config)
             .store(store)
             .rate_limit(RateLimitConfig::new().enabled(false))
-            .plugin(EmailPasswordPlugin::new().enable_signup(true))
+            .plugin(EmailPasswordPlugin::new().enable_signup(true).username(true))
             .plugin(SessionManagementPlugin::new())
             .plugin(AccountManagementPlugin::new())
             .plugin(DeviceAuthorizationPlugin::new())

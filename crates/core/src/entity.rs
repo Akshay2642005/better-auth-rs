@@ -20,6 +20,17 @@ use crate::types::InvitationStatus;
 /// The framework reads user fields through these getters. Custom types
 /// must provide all framework fields and may have additional fields.
 pub trait AuthUser: Clone + Send + Sync + Serialize + std::fmt::Debug + 'static {
+    /// Plugin fields that the entity and store can read and persist.
+    ///
+    /// `AuthEntity` derives this list. Manual implementations must declare each
+    /// supported field by its Rust name. An empty list supports core fields only.
+    const PLUGIN_FIELDS: &'static [&'static str] = &[];
+
+    /// Reject a plugin whose required fields are absent from this entity.
+    fn require_plugin_fields(plugin: &str, required: &[&str]) -> crate::AuthResult<()> {
+        require_plugin_fields(plugin, "user", Self::PLUGIN_FIELDS, required)
+    }
+
     fn id(&self) -> Cow<'_, str>;
     fn email(&self) -> Option<&str>;
     fn name(&self) -> Option<&str>;
@@ -39,6 +50,17 @@ pub trait AuthUser: Clone + Send + Sync + Serialize + std::fmt::Debug + 'static 
 
 /// Trait representing a session entity.
 pub trait AuthSession: Clone + Send + Sync + Serialize + std::fmt::Debug + 'static {
+    /// Plugin fields that the entity and store can read and persist.
+    ///
+    /// `AuthEntity` derives this list. Manual implementations must declare each
+    /// supported field by its Rust name. An empty list supports core fields only.
+    const PLUGIN_FIELDS: &'static [&'static str] = &[];
+
+    /// Reject a plugin whose required fields are absent from this entity.
+    fn require_plugin_fields(plugin: &str, required: &[&str]) -> crate::AuthResult<()> {
+        require_plugin_fields(plugin, "session", Self::PLUGIN_FIELDS, required)
+    }
+
     fn id(&self) -> Cow<'_, str>;
     fn expires_at(&self) -> DateTime<Utc>;
     fn token(&self) -> &str;
@@ -50,6 +72,22 @@ pub trait AuthSession: Clone + Send + Sync + Serialize + std::fmt::Debug + 'stat
     fn impersonated_by(&self) -> Option<&str>;
     fn active_organization_id(&self) -> Option<&str>;
     fn active(&self) -> bool;
+}
+
+fn require_plugin_fields(
+    plugin: &str,
+    entity: &str,
+    available: &[&str],
+    required: &[&str],
+) -> crate::AuthResult<()> {
+    for field in required {
+        if !available.contains(field) {
+            return Err(crate::AuthError::config(format!(
+                "Plugin `{plugin}` requires {entity} field `{field}`; add the field and migrate the database"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Trait representing an account entity (OAuth provider linking).

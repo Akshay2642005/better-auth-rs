@@ -180,7 +180,11 @@ async fn build_docs_auth() -> Result<BetterAuth<BundledSchema>, DynError> {
 
     let auth = AuthBuilder::<BundledSchema>::new(config)
         .store(store)
-        .plugin(EmailPasswordPlugin::new().enable_signup(true))
+        .plugin(
+            EmailPasswordPlugin::new()
+                .enable_signup(true)
+                .username(true),
+        )
         .plugin(SessionManagementPlugin::new())
         .plugin(PasswordManagementPlugin::new())
         .plugin(AccountManagementPlugin::new())

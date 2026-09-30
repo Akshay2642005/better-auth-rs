@@ -49,15 +49,13 @@ pub struct EmailVerificationConfig {
     /// How long a verification token stays valid. Default: 24 hours.
     #[config(default = Duration::hours(24))]
     pub verification_token_expiry: Duration,
-    /// Whether to send email notifications (on sign-up). Default: true.
+    /// Whether sign-in sends through the default email provider. Default: true.
+    /// Custom senders are independent of this setting.
     #[config(default = true)]
     pub send_email_notifications: bool,
     /// Whether email verification is required before sign-in. Default: false.
     #[config(default = false)]
     pub require_verification_for_signin: bool,
-    /// Whether to auto-verify newly created users. Default: false.
-    #[config(default = false)]
-    pub auto_verify_new_users: bool,
     /// When true, automatically send a verification email on sign-in if the
     /// user is unverified. Default: false.
     #[config(default = false)]
@@ -93,26 +91,6 @@ better_auth_core::impl_auth_plugin! {
     routes {
         post "/send-verification-email" => handle_send_verification_email, "send_verification_email";
         get "/verify-email" => handle_verify_email, "verify_email";
-    }
-    extra {
-        async fn on_user_created(&self, user: &S::User, ctx: &AuthContext<S>) -> AuthResult<()> {
-            // Send verification email for new users if configured.
-            // Also fire when a custom sender is set, even if send_email_notifications is false.
-            if (self.config.send_email_notifications || self.config.send_verification_email.is_some())
-                && !user.email_verified()
-                && let Some(email) = user.email()
-                && let Err(e) = self
-                    .send_verification_email_for_user(user, email, None, ctx)
-                    .await
-            {
-                tracing::warn!(
-                    email = %email,
-                    error = %e,
-                    "Failed to send verification email"
-                );
-            }
-            Ok(())
-        }
     }
 }
 

@@ -69,7 +69,11 @@ async fn create_test_auth_with_config(config: AuthConfig) -> Arc<BetterAuth<Test
     Arc::new(
         AuthBuilder::<TestSchema>::new(config)
             .store(store)
-            .plugin(EmailPasswordPlugin::new().enable_signup(true))
+            .plugin(
+                EmailPasswordPlugin::new()
+                    .enable_signup(true)
+                    .username(true),
+            )
             .plugin(SessionManagementPlugin::new())
             .plugin(PasswordManagementPlugin::new().send_reset_password(Arc::new(NoopResetSender)))
             .plugin(EmailVerificationPlugin::new())

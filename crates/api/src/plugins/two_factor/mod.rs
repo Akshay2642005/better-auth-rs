@@ -402,6 +402,7 @@ better_auth_core::impl_auth_plugin! {
             &self,
             ctx: &mut better_auth_core::AuthInitContext<S>,
         ) -> better_auth_core::AuthResult<()> {
+            S::User::require_plugin_fields("two-factor", &["two_factor_enabled"])?;
             ctx.set_metadata(METADATA_ENABLED, serde_json::Value::Bool(true));
             ctx.set_metadata(
                 METADATA_OTP_ENABLED,
@@ -1274,7 +1275,7 @@ fn derive_encryption_key(secret: &str) -> AuthResult<Key<Aes256Gcm>> {
     hkdf.expand(ENCRYPTION_INFO, &mut okm).map_err(|error| {
         AuthError::internal(format!("Failed to derive encryption key: {}", error))
     })?;
-    Ok(*Key::<Aes256Gcm>::from_slice(&okm))
+    Ok(okm.into())
 }
 
 fn encrypt_value(secret: &str, plaintext: &str) -> AuthResult<String> {
@@ -1298,17 +1299,15 @@ fn decrypt_value(secret: &str, encrypted: &str) -> AuthResult<String> {
             error
         ))
     })?;
-    if bytes.len() < 12 {
+    let Some((nonce_bytes, ciphertext)) = bytes.split_first_chunk::<12>() else {
         return Err(AuthError::internal(
             "Encrypted two-factor payload is missing the nonce",
         ));
-    }
-    let (nonce_bytes, ciphertext) = bytes.split_at(12);
-    let plaintext = cipher
-        .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
-        .map_err(|error| {
-            AuthError::internal(format!("Failed to decrypt two-factor data: {}", error))
-        })?;
+    };
+    let nonce = Nonce::from(*nonce_bytes);
+    let plaintext = cipher.decrypt(&nonce, ciphertext).map_err(|error| {
+        AuthError::internal(format!("Failed to decrypt two-factor data: {}", error))
+    })?;
     String::from_utf8(plaintext).map_err(|error| {
         AuthError::internal(format!(
             "Two-factor plaintext is not valid UTF-8: {}",

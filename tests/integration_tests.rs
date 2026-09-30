@@ -1307,7 +1307,7 @@ mod postgres_tests {
         let store = SeaOrmStore::<TestSchema>::new(config.clone(), database);
         let auth = BetterAuth::<TestSchema>::new(config)
             .store(store)
-            .plugin(EmailPasswordPlugin::new().enable_signup(true))
+            .plugin(EmailPasswordPlugin::new().enable_signup(true).username(true))
             .build()
             .await
             .ok()?;
