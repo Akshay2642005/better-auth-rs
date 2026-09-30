@@ -41,6 +41,8 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
+mod oidc;
+
 type TestSchema = better_auth_seaorm::store::__private_test_support::bundled_schema::BundledSchema;
 
 #[derive(Deserialize)]
@@ -540,6 +542,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(3200);
+    // Claim the selected port before discovery opens outbound connections.
+    let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
 
     let secret = "compat-test-only-key-not-real-minimum-32chars";
     let device_profile = std::env::var("COMPAT_PROFILE").unwrap_or_default();
@@ -678,12 +682,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .require_delete_verification(false),
             )
             .plugin(two_factor_plugin.clone())
-            .plugin(mock_oauth_plugin(
+            .plugin(oidc::configure(mock_oauth_plugin(
                 port,
                 social_profile.clone(),
                 social_id_token_valid.clone(),
                 oauth_refresh_mode.clone(),
-            ))
+            )))
             .build()
             .await?,
     );
@@ -1544,11 +1548,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/api/auth", auth_router)
         .with_state(auth);
 
-    let addr = format!("0.0.0.0:{port}");
     println!("[rust-server] Listening on http://localhost:{port}");
     println!("READY");
 
-    let listener = TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())

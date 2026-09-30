@@ -26,6 +26,8 @@ The comparator assigns stable aliases to explicitly listed generated IDs and ses
 
 Configuration scenarios start fresh server pairs with the same `COMPAT_PROFILE`. The profiles cover zero-length API keys, custom device codes, code collisions, device rate limits, and explicit Bearer authentication. Passkey scenarios use an ES256 software authenticator to exercise real signature verification, persistence, counters, and challenge consumption.
 
+Generic OAuth scenarios use a shared local OIDC issuer with real signed ID tokens, discovery, JWKS, and token endpoints. They cover nonce binding, issuer and audience checks, key rotation, profile mapping, authorization parameters, client authentication, refresh, and provider logout. The Cargo runner starts the issuer and both auth servers. Run only these scenarios with `devenv shell -- cargo test --test client_compat_tests oidc_client_compat -- --ignored --nocapture`.
+
 Route checks require zero missing routes in the supported profile. The broader upstream profile must match the exact backlog in `deferred-routes.txt`; new gaps and stale backlog entries fail. This backlog records unimplemented plugins, not permission to omit supported behavior.
 
 ## Components

@@ -29,6 +29,8 @@ pub(crate) struct OAuthStatePayload {
     pub expires_at: i64,
     #[serde(rename = "requestSignUp", skip_serializing_if = "Option::is_none")]
     pub request_sign_up: Option<bool>,
+    #[serde(rename = "idTokenNonce", skip_serializing_if = "Option::is_none")]
+    pub id_token_nonce: Option<String>,
     #[serde(flatten)]
     pub additional_data: Map<String, Value>,
 }
@@ -51,6 +53,7 @@ impl OAuthStatePayload {
             link,
             expires_at: (Utc::now() + Duration::minutes(10)).timestamp_millis(),
             request_sign_up,
+            id_token_nonce: None,
             additional_data,
         }
     }
@@ -273,5 +276,7 @@ fn reserved_state_key(key: &str) -> bool {
             | "link"
             | "expiresAt"
             | "requestSignUp"
+            | "idTokenNonce"
+            | "serverContext"
     )
 }
