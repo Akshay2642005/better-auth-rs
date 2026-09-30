@@ -1,0 +1,16 @@
+[package]
+name = "better-auth-schema-consumer"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+axum = "0.8"
+better-auth = { version = "1.0.0-alpha.3", path = "../..", features = ["axum", "seaorm2"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+totp-rs = { version = "5", features = ["otpauth"] }
+tower = { version = "0.5", features = ["util"] }

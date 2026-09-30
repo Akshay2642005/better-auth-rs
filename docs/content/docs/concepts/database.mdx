@@ -16,15 +16,19 @@ The supported public path is:
 
 ## Setup
 
+Generate `src/auth_schema.rs` with the [quick-start guide](/docs/quick-start) first.
+
 ```rust
-use better_auth::{AuthConfig, AuthSchema, BetterAuth};
+mod auth_schema;
+use auth_schema::{AppAuthSchema, create_auth_tables};
+use better_auth::{AuthConfig, BetterAuth};
 use better_auth::plugins::EmailPasswordPlugin;
-use better_auth::seaorm::{AuthEntity, Database, DatabaseConnection, SeaOrmStore};
-use std::sync::Arc;
+use better_auth::seaorm::{Database, DatabaseConnection, SeaOrmStore};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = Database::connect("sqlite::memory:").await?;
+    create_auth_tables(&database).await?;
     let auth_database: DatabaseConnection = database.clone();
     let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
         .base_url("http://localhost:3000");
@@ -43,6 +47,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+## Generate an initial schema
+
+Run the CLI with every plugin that your application registers:
+
+```sh
+better-auth-rs generate --plugins two-factor,api-key --output src/auth_schema.rs
+```
+
+The CLI generates core entities, plugin fields and tables, unique indexes, and foreign keys. Unknown plugin names fail. Existing output files are preserved unless you pass `--force`.
+
+Call the generated `create_auth_tables(&database).await?` from the application's initial migration. The function creates tables in an empty database and fails when a table already exists. The function does not compare schemas, alter existing tables, or track migration versions. Use your application's versioned SeaORM migrations for later changes, including plugin additions.
+
+The application owns the generated source. The four core entities can be customized through the public schema traits. Plugin tables currently use fixed library entity names and columns; preserve their generated database schema.
+
+## Plugin Fields
+
+`build().await` rejects a plugin when the user or session entity cannot persist its required fields. `AuthEntity` derives this capability list from the model fields.
+
+| Plugin | Required user fields | Required session fields |
+| --- | --- | --- |
+| Username, enabled with `EmailPasswordPlugin::username(true)` | `username`, `display_username` | None |
+| Two-factor | `two_factor_enabled` | None |
+| Admin | `role`, `banned`, `ban_reason`, `ban_expires` | `impersonated_by` |
+| Organization | None | `active_organization_id` |
+
+For manual `AuthUser` and `AuthSession` implementations, declare `const PLUGIN_FIELDS: &'static [&'static str]` with the supported Rust field names. Declare a field only when the entity getter and store writes support that field. The default empty list supports core fields only.
+
+Run the application database migrations before starting the server. Capability validation checks Rust entities; capability validation does not inspect database tables or replace migrations.
 
 ## Existing Databases
 
@@ -63,11 +96,11 @@ The canonical worked example is [`examples/postgres_usage.rs`](../../../../examp
 
 ## Testing
 
-Repo-local tests use SQLite through the same `DatabaseConnection` API and a bundled internal schema.
-The dual-server and client SDK compatibility checks still validate behavior against the TypeScript
-reference server.
+Run `devenv shell -- ./scripts/consumer-check.sh` to generate a fresh schema and test an independent consumer against the public package. The check creates SQLite tables, registers and signs in a user, protects an Axum route, creates an API key, and enables TOTP. Database constraint checks cover uniqueness and foreign keys.
+
+Internal behavior tests also use a bundled schema. Dual-server and client SDK compatibility checks compare behavior with the TypeScript reference server.
 
 ## Notes
 
 - Better Auth no longer owns a public SeaORM migration path. Auth and app tables should be migrated together by the host application.
-- `MemoryCacheAdapter` is still available for cache/rate-limit use cases. It is separate from database persistence.
+- `MemoryCacheAdapter` and the optional asynchronous `RedisAdapter` are standalone cache utilities. Neither adapter is connected to session persistence. `RedisAdapter::clear` clears the selected Redis database.
