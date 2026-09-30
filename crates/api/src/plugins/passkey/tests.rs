@@ -26,39 +26,6 @@ fn credential_id(label: &str) -> String {
     URL_SAFE_NO_PAD.encode(label.as_bytes())
 }
 
-#[test]
-fn test_extract_passkey_snapshot_fields_requires_all_expected_fields() {
-    let value = serde_json::json!({
-        "cred": {
-            "counter": 7,
-            "backup_state": true
-        }
-    });
-
-    let err = super::webauthn::extract_passkey_snapshot_fields(&value).unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "Internal server error: Stored passkey JSON missing backup_eligible"
-    );
-}
-
-#[test]
-fn test_extract_passkey_snapshot_fields_reads_expected_values() {
-    let value = serde_json::json!({
-        "cred": {
-            "counter": 11,
-            "backup_state": true,
-            "backup_eligible": false
-        }
-    });
-
-    let (counter, backed_up, backup_eligible) =
-        super::webauthn::extract_passkey_snapshot_fields(&value).unwrap();
-    assert_eq!(counter, 11);
-    assert!(backed_up);
-    assert!(!backup_eligible);
-}
-
 #[tokio::test]
 async fn test_generate_register_options_sets_cookie_and_uses_query_name() {
     let plugin = passkey_plugin();
@@ -267,7 +234,7 @@ async fn test_verify_authentication_without_challenge_cookie_returns_challenge_n
 }
 
 #[tokio::test]
-async fn test_list_user_passkeys_includes_updated_at_and_optional_fields() {
+async fn test_list_user_passkeys_matches_upstream_optional_fields() {
     let plugin = passkey_plugin();
     let (ctx, user, session) = test_helpers::create_test_context_with_user(
         CreateUser::new()
@@ -303,7 +270,7 @@ async fn test_list_user_passkeys_includes_updated_at_and_optional_fields() {
     assert_eq!(response.status, 200);
 
     let body: serde_json::Value = serde_json::from_slice(&response.body).unwrap();
-    assert!(body[0]["updatedAt"].is_string());
+    assert!(body[0].get("updatedAt").is_none());
     assert_eq!(body[0]["aaguid"], "00000000-0000-0000-0000-000000000000");
     assert!(body[0].get("name").is_none());
 }

@@ -80,6 +80,8 @@ A pending TOTP enrollment can be restarted. Once verified, another enable reques
    - **Backup code**: One-time recovery code
 4. After successful verification, a session is created
 
+When sign-in sets `rememberMe: false`, the completed two-factor session expires after 24 hours and uses a session cookie. Remembered sessions use the configured session lifetime.
+
 ## API Endpoints
 
 The 2FA plugin exposes the following endpoints. For full request/response details, see the [OpenAPI Reference](/docs/reference/openapi/two-factor).

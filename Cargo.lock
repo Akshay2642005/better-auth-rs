@@ -600,7 +600,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "validator",
- "webauthn-rs",
+ "webauthn-rs-core",
 ]
 
 [[package]]
@@ -4943,20 +4943,6 @@ dependencies = [
  "serde",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "webauthn-rs"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b24d082d3360258fefb6ffe56123beef7d6868c765c779f97b7a2fcf06727f8"
-dependencies = [
- "base64urlsafedata",
- "serde",
- "tracing",
- "url",
- "uuid",
- "webauthn-rs-core",
 ]
 
 [[package]]

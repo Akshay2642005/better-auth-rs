@@ -1,8 +1,8 @@
 use axum::{
-    Json, Router,
     extract::Query,
     response::IntoResponse,
     routing::{get, post},
+    Json, Router,
 };
 use better_auth::__private_core::AuthContext as InternalAuthContext;
 use better_auth::integrations::axum::AxumIntegration;
@@ -12,10 +12,6 @@ use better_auth::plugins::api_key::{
     VerifyApiKey,
 };
 use better_auth::plugins::{
-    AccountManagementPlugin, AdminPlugin, ApiKeyPlugin, DeviceAuthorizationPlugin,
-    EmailPasswordPlugin, EmailVerificationPlugin, OAuthPlugin, OrganizationPlugin, PasskeyPlugin,
-    PasswordManagementPlugin, SendTwoFactorOtp, SessionManagementPlugin, TwoFactorPlugin,
-    UserManagementPlugin,
     email_verification::SendVerificationEmail,
     oauth::{
         OAuthIdTokenVerifier, OAuthProvider, OAuthRefreshTokenHandler, OAuthTokenSet,
@@ -24,6 +20,10 @@ use better_auth::plugins::{
     organization::{InvitationEmail, SendInvitationEmail},
     password_management::SendResetPassword,
     user_management::SendChangeEmailConfirmation,
+    AccountManagementPlugin, AdminPlugin, ApiKeyPlugin, DeviceAuthorizationPlugin,
+    EmailPasswordPlugin, EmailVerificationPlugin, OAuthPlugin, OrganizationPlugin, PasskeyPlugin,
+    PasswordManagementPlugin, SendTwoFactorOtp, SessionManagementPlugin, TwoFactorPlugin,
+    UserManagementPlugin,
 };
 use better_auth::prelude::{AuthAccount, AuthUser, CreateAccount, CreateVerification};
 use better_auth::wire::UserView;
@@ -459,7 +459,7 @@ fn mock_oauth_plugin(
                 end_session_endpoint: Some("https://idp.example.test/logout".to_string()),
                 post_logout_redirect_uri: None,
                 client_secret: "mock-client-secret".to_string(),
-                auth_url: format!("http://127.0.0.1:{port}/__test/oauth/authorize"),
+                auth_url: format!("http://localhost:{port}/__test/oauth/authorize"),
                 token_url: format!("http://127.0.0.1:{port}/__test/oauth/token"),
                 user_info_url: Some(format!("http://127.0.0.1:{port}/__test/oauth/userinfo")),
                 scopes: vec![
@@ -490,7 +490,7 @@ fn mock_oauth_plugin(
             OAuthProvider::github_with_endpoints(
                 "github-client-id",
                 "github-client-secret",
-                &format!("http://127.0.0.1:{port}/oauth/authorize"),
+                &format!("http://localhost:{port}/__test/oauth/authorize"),
                 &format!("http://127.0.0.1:{port}/__test/github/oauth/token"),
                 &format!("http://127.0.0.1:{port}/__test/github/user"),
                 &format!("http://127.0.0.1:{port}/__test/github/user/emails"),
@@ -503,7 +503,7 @@ fn mock_oauth_plugin(
                 end_session_endpoint: None,
                 post_logout_redirect_uri: None,
                 client_secret: "google-client-secret".to_string(),
-                auth_url: format!("http://127.0.0.1:{port}/oauth/authorize"),
+                auth_url: format!("http://localhost:{port}/__test/oauth/authorize"),
                 token_url: format!("http://127.0.0.1:{port}/__test/oauth/token"),
                 user_info_url: None,
                 scopes: vec![
@@ -542,9 +542,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(3200);
 
     let secret = "compat-test-only-key-not-real-minimum-32chars";
-    let config = AuthConfig::new(secret)
+    let device_profile = std::env::var("COMPAT_PROFILE").unwrap_or_default();
+    let mut config = AuthConfig::new(secret)
         .base_url(format!("http://localhost:{port}"))
         .password_min_length(8);
+    if device_profile == "device-bearer" {
+        config.session.bearer = Some(Default::default());
+    }
 
     let database = Database::connect("sqlite::memory:").await?;
     better_auth_seaorm::store::__private_test_support::migrator::run_migrations(&database).await?;
@@ -569,6 +573,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }));
     let api_key_plugin = ApiKeyPlugin::builder()
         .enable_metadata(true)
+        .key_length(
+            if std::env::var("COMPAT_PROFILE").as_deref() == Ok("api-key-zero") {
+                0
+            } else {
+                64
+            },
+        )
         .build()
         .configuration(ApiKeyConfig {
             config_id: "secondary".to_string(),
@@ -598,10 +609,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..ApiKeyConfig::default()
                 })
             });
+    let device_plugin = match device_profile.as_str() {
+        "device-rate-window" => {
+            DeviceAuthorizationPlugin::new().expires_in(chrono::Duration::seconds(2))
+        }
+        "device-custom" => {
+            DeviceAuthorizationPlugin::new().generate_user_code_with(|| "custom-code".to_string())
+        }
+        "device-collision" => {
+            let issued = std::sync::atomic::AtomicUsize::new(0);
+            DeviceAuthorizationPlugin::new().generate_user_code_with(move || {
+                match issued.fetch_add(1, std::sync::atomic::Ordering::Relaxed) {
+                    0..2 => "same-code".to_string(),
+                    2..6 => "next-code".to_string(),
+                    _ => "after-code".to_string(),
+                }
+            })
+        }
+        _ => DeviceAuthorizationPlugin::new(),
+    };
     let auth = Arc::new(
         AuthBuilder::<TestSchema>::new(config)
             .store(store)
-            .rate_limit(RateLimitConfig::new().enabled(false))
+            .rate_limit(RateLimitConfig::new().enabled(matches!(
+                device_profile.as_str(),
+                "device-rate-limit" | "device-rate-window"
+            )))
             .plugin(
                 EmailPasswordPlugin::new()
                     .enable_signup(true)
@@ -609,7 +642,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .plugin(SessionManagementPlugin::new())
             .plugin(AccountManagementPlugin::new())
-            .plugin(DeviceAuthorizationPlugin::new())
+            .plugin(device_plugin)
             .plugin(api_key_plugin.clone())
             .plugin(
                 OrganizationPlugin::new().custom_send_invitation_email(Arc::new(
@@ -1487,7 +1520,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Json(serde_json::json!({
                             "access_token": "new-access-token",
                             "refresh_token": "new-refresh-token",
-                            "id_token": "new-id-token",
+                            "id_token": "mock-id-token",
                             "expires_in": 3600,
                             "refresh_token_expires_in": 7200,
                             "scope": "openid,email,profile",

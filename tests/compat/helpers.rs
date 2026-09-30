@@ -10,9 +10,10 @@ use std::sync::{Mutex, Once, OnceLock};
 use better_auth::{
     AuthBuilder, AuthConfig, BetterAuth,
     plugins::{
-        AccountManagementPlugin, AdminPlugin, ApiKeyPlugin, EmailPasswordPlugin,
-        EmailVerificationPlugin, OAuthPlugin, OrganizationPlugin, PasskeyPlugin,
-        PasswordManagementPlugin, SessionManagementPlugin, TwoFactorPlugin, UserManagementPlugin,
+        AccountManagementPlugin, AdminPlugin, ApiKeyPlugin, DeviceAuthorizationPlugin,
+        EmailPasswordPlugin, EmailVerificationPlugin, OAuthPlugin, OrganizationPlugin,
+        PasskeyPlugin, PasswordManagementPlugin, SessionManagementPlugin, TwoFactorPlugin,
+        UserManagementPlugin,
         oauth::{
             OAuthProvider, OAuthUserInfo, OAuthUserInfoHandler, OAuthUserInfoRequest,
             OAuthUserInfoResponse,
@@ -330,6 +331,7 @@ pub async fn create_test_auth_with_options(options: TestAuthOptions) -> TestAuth
                 .require_delete_verification(false),
         )
         .plugin(ApiKeyPlugin::builder().build())
+        .plugin(DeviceAuthorizationPlugin::new())
         .plugin(mock_oauth_plugin())
         .plugin(TwoFactorPlugin::new())
         .plugin(organization_plugin)

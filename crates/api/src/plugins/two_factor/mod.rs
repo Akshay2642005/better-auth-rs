@@ -26,7 +26,7 @@ use better_auth_core::{
 
 use crate::plugins::helpers::{
     SessionIssueError, delete_session_cookie_headers, get_cookie, get_credential_password_hash,
-    issue_user_session,
+    issue_user_session, issue_user_session_with_lifetime,
 };
 
 use super::StatusResponse;
@@ -731,9 +731,20 @@ async fn finalize_pending_two_factor<S: better_auth_core::AuthSchema>(
         ));
     };
     let meta = RequestMeta::from_request(req);
-    let issued = issue_user_session(ctx, consumed.value(), meta.ip_address, meta.user_agent)
-        .await
-        .map_err(SessionIssueError::into_auth_error)?;
+    let expires_in = if pending.dont_remember {
+        Duration::days(1)
+    } else {
+        ctx.config.session.expires_in
+    };
+    let issued = issue_user_session_with_lifetime(
+        ctx,
+        consumed.value(),
+        meta.ip_address,
+        meta.user_agent,
+        expires_in,
+    )
+    .await
+    .map_err(SessionIssueError::into_auth_error)?;
 
     let mut set_cookie_headers = vec![clear_cookie_header(&ctx.config, TWO_FACTOR_COOKIE_SUFFIX)];
     {

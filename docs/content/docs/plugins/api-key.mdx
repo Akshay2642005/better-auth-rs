@@ -39,7 +39,7 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `key_length` | `usize` | `64` | Length of the random key in characters (excluding prefix) |
+| `key_length` | `usize` | `64` | Random characters excluding the prefix; `0` selects the default length of `64`, matching upstream |
 | `prefix` | `Option<String>` | `None` | Global prefix for all generated keys |
 | `enable_metadata` | `bool` | `false` | Allow storing metadata on keys |
 | `require_name` | `bool` | `false` | Require a name when creating keys |

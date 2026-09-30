@@ -75,7 +75,24 @@ impl<S: AuthSchema> SessionManager<S> {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> AuthResult<S::Session> {
-        let expires_at = Utc::now() + self.config.session.expires_in;
+        self.create_session_with_lifetime(
+            user,
+            ip_address,
+            user_agent,
+            self.config.session.expires_in,
+        )
+        .await
+    }
+
+    /// Create a session with a lifetime that overrides the configured default.
+    pub async fn create_session_with_lifetime(
+        &self,
+        user: &impl AuthUser,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+        expires_in: chrono::Duration,
+    ) -> AuthResult<S::Session> {
+        let expires_at = Utc::now() + expires_in;
 
         let create_session = CreateSession {
             user_id: user.id().to_string(),

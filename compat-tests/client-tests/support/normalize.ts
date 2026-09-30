@@ -1,42 +1,81 @@
-function normalizeScalar(value: string, key: string) {
-  if (key === "location") {
-    try {
-      const url = new URL(value);
-      return `${url.pathname}${url.search}${url.hash}`;
-    } catch {
-      return value;
+import diff from "microdiff";
+
+// Only server-generated identities and session secrets vary by implementation.
+const GENERATED_FIELDS = new Set([
+  "id", "userId", "sessionId", "organizationId", "activeOrganizationId",
+  "memberId", "invitationId", "inviterId", "keyId", "referenceId", "impersonatedBy", "token",
+]);
+const CLOCK_FIELDS = new Set([
+  "createdAt", "updatedAt", "expiresAt", "accessTokenExpiresAt", "refreshTokenExpiresAt",
+  "lastUsedAt", "lastRequest", "lastRefillAt", "banExpires",
+]);
+// The two servers run each scenario sequentially against real clocks.
+const CLOCK_TOLERANCE_MS = 10_000;
+
+export function clientDiffs(left: unknown, right: unknown) {
+  return diff(
+    { value: normalizeClientValue(left) },
+    { value: normalizeClientValue(right) },
+    { cyclesFix: false },
+  ).filter((entry) => {
+    if (entry.path.some((part) => part === "metadata" || part === "permissions")) return true;
+    const field = entry.path.at(-1);
+    if (entry.type !== "CHANGE" || typeof field !== "string" || !CLOCK_FIELDS.has(field)) return true;
+    if (typeof entry.value !== "string" || typeof entry.oldValue !== "string") return true;
+    const delta = Math.abs(Date.parse(entry.value) - Date.parse(entry.oldValue));
+    return !Number.isFinite(delta) || delta > CLOCK_TOLERANCE_MS;
+  });
+}
+
+export function normalizeUrl(value: string, baseURL?: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return value;
+  }
+  for (const key of ["token", "state", "code_challenge"]) {
+    if (url.searchParams.has(key)) url.searchParams.set(key, `<${key}>`);
+  }
+  for (const key of ["redirect_uri", "post_logout_redirect_uri", "callbackURL", "errorCallbackURL", "newUserCallbackURL"]) {
+    const nested = url.searchParams.get(key);
+    if (nested) url.searchParams.set(key, normalizeUrl(nested, baseURL));
+  }
+  return url.origin === baseURL
+    ? `<server>${url.pathname}${url.search}${url.hash}`
+    : url.toString();
+}
+
+function normalizeScalar(value: string, key: string, baseURL: string | undefined, generated: Map<string, string>) {
+  if (value.length > 0 && GENERATED_FIELDS.has(key)) {
+    const namespace = key === "token" ? "token" : "identity";
+    const source = `${namespace}:${value}`;
+    let alias = generated.get(source);
+    if (alias === undefined) {
+      alias = `<${namespace}:${generated.size + 1}>`;
+      generated.set(source, alias);
     }
+    return alias;
   }
-
-  if (
-    key === "id" ||
-    key.endsWith("Id") ||
-    key.toLowerCase().includes("token") ||
-    key.endsWith("At") ||
-    key.endsWith("URL") ||
-    key.endsWith("Url")
-  ) {
-    return `<${key}>`;
+  if (key === "location" || key === "url" || key.endsWith("URL") || key.endsWith("Url")) {
+    return normalizeUrl(value, baseURL);
   }
-
-  if (!Number.isNaN(Date.parse(value)) && key.endsWith("At")) {
-    return "<date>";
-  }
-
+  if (CLOCK_FIELDS.has(key) && Number.isFinite(Date.parse(value))) return new Date(value).toISOString();
   return value;
 }
 
-export function normalizeClientValue(value: unknown, key = ""): unknown {
+export function normalizeClientValue(value: unknown, key = "", baseURL?: string, generated = new Map<string, string>()): unknown {
+  if (key === "metadata" || key === "permissions" || key === "rp") return value;
   if (value === null || value === undefined) {
     return value;
   }
 
   if (value instanceof Date) {
-    return "<date>";
+    return value.toISOString();
   }
 
   if (typeof value === "string") {
-    return normalizeScalar(value, key);
+    return normalizeScalar(value, key, baseURL, generated);
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
@@ -44,7 +83,7 @@ export function normalizeClientValue(value: unknown, key = ""): unknown {
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => normalizeClientValue(item));
+    return value.map((item) => normalizeClientValue(item, "", baseURL, generated));
   }
 
   if (typeof value === "object") {
@@ -52,11 +91,11 @@ export function normalizeClientValue(value: unknown, key = ""): unknown {
     return Object.fromEntries(
       Object.keys(object)
         .sort()
-        .filter(
-          (childKey) =>
-            childKey !== "cause" && childKey !== "refreshTokenExpiresAt",
-        )
-        .map((childKey) => [childKey, normalizeClientValue(object[childKey], childKey)]),
+        .map((childKey) => {
+          // Credential accounts use the generated user ID; OAuth accounts use a provider ID.
+          const field = childKey === "accountId" && object.providerId === "credential" ? "userId" : childKey;
+          return [childKey, normalizeClientValue(object[childKey], field, baseURL, generated)];
+        }),
     );
   }
 

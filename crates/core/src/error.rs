@@ -267,6 +267,10 @@ pub enum DatabaseError {
     #[error("Constraint violation: {0}")]
     Constraint(String),
 
+    /// A uniqueness conflict that callers may resolve by generating another value.
+    #[error("Unique constraint violation: {0}")]
+    UniqueConstraint(String),
+
     #[error("Transaction error: {0}")]
     Transaction(String),
 }

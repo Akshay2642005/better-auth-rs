@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Set `AUTH_SECRET` to a random secret of at least 32 characters, then run `cargo run`. The in-memory database resets when the process stops. Use application-owned versioned migrations for persistent databases; `create_auth_tables` only initializes an empty database.
 
-The [quick-start guide](docs/content/docs/quick-start.mdx) includes sign-up and session requests. The [independent consumer](compat-tests/schema-consumer) verifies generated entities against registration, login, Axum sessions, API keys, and TOTP.
+The [quick-start guide](docs/content/docs/quick-start.mdx) includes sign-up and cookie session requests; the check gate compiles and runs the documented application. The [independent consumer](compat-tests/schema-consumer) verifies public schema derives, generated entities, registration, login, Axum sessions, API keys, and TOTP.
 
 ## Plugins and features
 

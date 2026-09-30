@@ -58,8 +58,10 @@ pub struct Organization {
     )]
     pub metadata: Option<serde_json::Value>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -73,6 +75,7 @@ pub struct Member {
     pub user_id: String,
     pub role: String,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -121,8 +124,10 @@ pub struct Invitation {
     #[serde(rename = "inviterId")]
     pub inviter_id: String,
     #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub expires_at: DateTime<Utc>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
 }
 

@@ -1,0 +1,41 @@
+import { expect, test } from "bun:test";
+import { clientDiffs, normalizeClientValue } from "./normalize";
+
+test("business identifiers, token types, expiry fields and redirect origins remain observable", () => {
+  for (const [left, right] of [
+    [{ providerId: "google" }, { providerId: "github" }],
+    [{ configId: "machine" }, { configId: "organization" }],
+    [{ accountId: "provider-user-one" }, { accountId: "provider-user-two" }],
+    [{ providerId: "credential", accountId: "alice", userId: "alice" }, { providerId: "credential", accountId: "mallory", userId: "bob" }],
+    [{ tokenType: "Bearer" }, { tokenType: "invalid" }],
+    [{ accessToken: "expected-provider-token" }, { accessToken: "wrong-provider-token" }],
+    [{ expiresAt: "2026-01-01T00:00:00Z" }, { expiresAt: "2099-01-01T00:00:00Z" }],
+    [{ refreshTokenExpiresAt: null }, {}],
+    [{ metadata: { id: "expected" } }, { metadata: { id: "wrong" } }],
+    [{ metadata: { expiresAt: "2026-01-01T00:00:00Z" } }, { metadata: { expiresAt: "2026-01-01T00:00:05Z" } }],
+    [{ rp: { id: "example.com" } }, { rp: { id: "attacker.com" } }],
+    [{ user: { id: "alice" }, session: { userId: "alice" } }, { user: { id: "bob" }, session: { userId: "mallory" } }],
+    [{ token: "" }, { token: "valid-secret" }],
+    [{ location: "https://trusted.example/callback" }, { location: "https://wrong.example/callback" }],
+  ]) {
+    expect(clientDiffs(left, right).length).toBeGreaterThan(0);
+  }
+});
+
+test("only generated fields and bounded clock skew are normalized", () => {
+  expect(clientDiffs(
+    { id: "random-left", token: "secret-left", createdAt: new Date("2026-01-01T00:00:00Z") },
+    { id: "random-right", token: "secret-right", createdAt: "2026-01-01T00:00:02Z" },
+  )).toEqual([]);
+  expect(clientDiffs({ expiresAt: "invalid" }, { expiresAt: "2026-01-01T00:00:00Z" }).length).toBeGreaterThan(0);
+  expect(clientDiffs({ userId: null }, { userId: "random" }).length).toBeGreaterThan(0);
+  expect(normalizeClientValue({ callbackURL: "https://example.com/callback" })).toEqual({ callbackURL: "https://example.com/callback" });
+  expect(clientDiffs(
+    { user: { id: "alice" }, session: { userId: "alice" } },
+    { user: { id: "bob" }, session: { userId: "bob" } },
+  )).toEqual([]);
+  expect(clientDiffs(
+    { providerId: "credential", accountId: "alice", userId: "alice" },
+    { providerId: "credential", accountId: "bob", userId: "bob" },
+  )).toEqual([]);
+});

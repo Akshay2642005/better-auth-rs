@@ -43,7 +43,7 @@ pub enum OpenApiProfile {
     Core,
     /// Blocking structural contract for the Better Auth surface we intend to match.
     AlignedRs,
-    /// Informational full-surface report over the broader upstream plugin set.
+    /// Broader upstream plugin set, checked against the explicit deferred route backlog.
     AllIn,
 }
 

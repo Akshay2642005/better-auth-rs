@@ -12,6 +12,19 @@ function extractState(url: string | undefined) {
   return state;
 }
 
+function expectAccounts(
+  accounts: Array<{ providerId: string; accountId: string }> | null | undefined,
+  userId: string | undefined,
+  linked?: { providerId: string; accountId: string },
+) {
+  expect(userId).toBeString();
+  expect(accounts).toHaveLength(linked ? 2 : 1);
+  expect(accounts?.find((account) => account.providerId === "credential")?.accountId).toBe(userId);
+  if (linked) {
+    expect(accounts?.find((account) => account.providerId === linked.providerId)?.accountId).toBe(linked.accountId);
+  }
+}
+
 compatScenario("link social creates an account that listAccounts returns", async (ctx) => {
   const primary = ctx.actor();
   const email = ctx.uniqueEmail("phase3-link-social");
@@ -39,6 +52,7 @@ compatScenario("link social creates an account that listAccounts returns", async
     redirect: "manual",
   });
   const accounts = await primary.client.listAccounts();
+  expectAccounts(accounts.data, signup.data?.user.id, { providerId: "google", accountId: sub });
 
   return {
     signup: ctx.snapshot(signup),
@@ -63,7 +77,7 @@ compatScenario("unlink account removes the linked google account", async (ctx) =
     idTokenValid: true,
   });
 
-  await primary.client.signUp.email({
+  const signup = await primary.client.signUp.email({
     email,
     password: "password123",
     name: "Credential User",
@@ -79,6 +93,7 @@ compatScenario("unlink account removes the linked google account", async (ctx) =
   });
 
   const before = await primary.client.listAccounts();
+  expectAccounts(before.data, signup.data?.user.id, { providerId: "google", accountId: sub });
   const googleAccount = before.data?.find((account) => account.providerId === "google");
   if (!googleAccount?.id) {
     throw new Error("missing google account after link");
@@ -89,6 +104,7 @@ compatScenario("unlink account removes the linked google account", async (ctx) =
   expect(unlink.error).toBeNull();
   expect(unlink.data?.status).toBe(true);
   const after = await primary.client.listAccounts();
+  expectAccounts(after.data, signup.data?.user.id);
 
   return {
     before: ctx.snapshot(before),
@@ -109,7 +125,7 @@ compatScenario("link social with idToken adds a google account", async (ctx) => 
     idTokenValid: true,
   });
 
-  await primary.client.signUp.email({
+  const signup = await primary.client.signUp.email({
     email,
     password: "password123",
     name: "Credential User",
@@ -123,6 +139,8 @@ compatScenario("link social with idToken adds a google account", async (ctx) => 
     },
   });
   const accounts = await primary.client.listAccounts();
+  expect(link.error).toBeNull();
+  expectAccounts(accounts.data, signup.data?.user.id, { providerId: "google", accountId: sub });
 
   return {
     link: ctx.snapshot(link),
@@ -133,8 +151,9 @@ compatScenario("link social with idToken adds a google account", async (ctx) => 
 compatScenario("github link social creates an account that listAccounts returns", async (ctx) => {
   const primary = ctx.actor();
   const email = ctx.uniqueEmail("phase3-github-link-social");
+  const accountId = ctx.uniqueToken("phase3-github-link-id");
   await ctx.setGitHubProfile({
-    id: ctx.uniqueToken("phase3-github-link-id"),
+    id: accountId,
     login: ctx.uniqueToken("phase3-github-link-login"),
     emails: [
       {
@@ -161,6 +180,7 @@ compatScenario("github link social creates an account that listAccounts returns"
     redirect: "manual",
   });
   const accounts = await primary.client.listAccounts();
+  expectAccounts(accounts.data, signup.data?.user.id, { providerId: "github", accountId });
 
   return {
     signup: ctx.snapshot(signup),
@@ -176,8 +196,9 @@ compatScenario("github link social creates an account that listAccounts returns"
 compatScenario("github unlink account removes the linked github account", async (ctx) => {
   const primary = ctx.actor();
   const email = ctx.uniqueEmail("phase3-github-unlink-social");
+  const accountId = ctx.uniqueToken("phase3-github-unlink-id");
   await ctx.setGitHubProfile({
-    id: ctx.uniqueToken("phase3-github-unlink-id"),
+    id: accountId,
     login: ctx.uniqueToken("phase3-github-unlink-login"),
     emails: [
       {
@@ -189,7 +210,7 @@ compatScenario("github unlink account removes the linked github account", async 
     ],
   });
 
-  await primary.client.signUp.email({
+  const signup = await primary.client.signUp.email({
     email,
     password: "password123",
     name: "Credential User",
@@ -205,6 +226,7 @@ compatScenario("github unlink account removes the linked github account", async 
   });
 
   const before = await primary.client.listAccounts();
+  expectAccounts(before.data, signup.data?.user.id, { providerId: "github", accountId });
   const githubAccount = before.data?.find((account) => account.providerId === "github");
   if (!githubAccount?.id) {
     throw new Error("missing github account after link");
@@ -215,6 +237,7 @@ compatScenario("github unlink account removes the linked github account", async 
   expect(unlink.error).toBeNull();
   expect(unlink.data?.status).toBe(true);
   const after = await primary.client.listAccounts();
+  expectAccounts(after.data, signup.data?.user.id);
 
   return {
     before: ctx.snapshot(before),

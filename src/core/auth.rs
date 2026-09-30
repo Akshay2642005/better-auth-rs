@@ -147,13 +147,25 @@ impl<S: AuthSchema> AuthBuilder<S> {
             AuthContext::with_metadata(config.clone(), store.clone(), init_parts.metadata);
 
         let body_limit = self.body_limit_config.unwrap_or_default();
+        let mut rate_limit_config = self.rate_limit_config.unwrap_or_default();
+        for plugin in &self.plugins {
+            for (path, limit) in plugin.rate_limits()? {
+                let _ = rate_limit_config.per_endpoint.entry(path).or_insert(limit);
+            }
+        }
+        // Middleware receives the public path before the router removes the base path.
+        for (path, limit) in rate_limit_config.per_endpoint.clone() {
+            let public_path = format!("{}{}", config.base_path.trim_end_matches('/'), path);
+            let _ = rate_limit_config
+                .per_endpoint
+                .entry(public_path)
+                .or_insert(limit);
+        }
 
         // Build middleware chain (order matters: body limit → rate limit → CSRF → CORS → custom)
         let mut middlewares: Vec<Box<dyn Middleware>> = vec![
             Box::new(BodyLimitMiddleware::new(body_limit.clone())),
-            Box::new(RateLimitMiddleware::new(
-                self.rate_limit_config.unwrap_or_default(),
-            )),
+            Box::new(RateLimitMiddleware::new(rate_limit_config)),
             Box::new(CsrfMiddleware::new(
                 self.csrf_config.unwrap_or_default(),
                 config.clone(),

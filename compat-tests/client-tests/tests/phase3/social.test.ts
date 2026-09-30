@@ -1,3 +1,4 @@
+import { expect } from "bun:test";
 import { compatScenario } from "../../support/scenario";
 
 function extractState(url: string | undefined) {
@@ -21,6 +22,23 @@ function summarizeLocation(location: string | null) {
     params: Object.fromEntries(url.searchParams.entries()),
   };
 }
+
+compatScenario("social error redirects preserve relative callbacks and existing query encoding", async (ctx) => {
+  const signIn = await ctx.actor().client.signIn.social({
+    provider: "google",
+    callbackURL: "/dashboard",
+    errorCallbackURL: "/failure+path?existing=keep%20spaces&",
+  });
+  expect(signIn.error).toBeNull();
+  const state = extractState(signIn.data?.url);
+  const callback = await ctx.rawRequest({
+    path: `/api/auth/callback/google?state=${encodeURIComponent(state)}&error=access_denied&error_description=${encodeURIComponent("space + value")}`,
+    redirect: "manual",
+  });
+  expect(callback.status).toBe(302);
+  expect(callback.location).toBe("/failure+path?existing=keep%20spaces&error=access_denied&error_description=space+%2B+value");
+  return ctx.snapshot(callback);
+});
 
 compatScenario("social sign-in rejects invalid callbackURL", async (ctx) => {
   const primary = ctx.actor();
@@ -302,6 +320,9 @@ compatScenario("github social sign-in with unverified fallback email does not li
     redirect: "manual",
   });
   const session = await primary.client.getSession();
+  expect(callback.status).toBe(302);
+  expect(new URL(callback.location!, ctx.baseURL).searchParams.get("error")).toBe("account_not_linked");
+  expect(session.data).toBeNull();
 
   return {
     signIn: {

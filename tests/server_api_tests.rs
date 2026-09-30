@@ -45,6 +45,66 @@ fn required(actions: RequiredActions) -> VerifyKeyOptions {
     }
 }
 
+#[tokio::test]
+async fn zero_key_length_never_authenticates_the_public_prefix()
+-> Result<(), Box<dyn std::error::Error>> {
+    let zero = ApiKeyConfig {
+        key_length: 0,
+        prefix: Some("node_".into()),
+        ..Default::default()
+    };
+    let named = ApiKeyConfig {
+        config_id: "machine".into(),
+        ..zero.clone()
+    };
+    for (plugin, config_id) in [
+        (
+            ApiKeyPlugin::builder()
+                .key_length(0)
+                .prefix("node_".into())
+                .build(),
+            None,
+        ),
+        (ApiKeyPlugin::with_config(zero), None),
+        (
+            ApiKeyPlugin::builder().build().configuration(named),
+            Some("machine".to_string()),
+        ),
+    ] {
+        let (auth, user_id) = build_auth(Some(plugin)).await?;
+        let keys = auth.api_keys()?;
+        let issued = keys
+            .create(
+                &user_id,
+                CreateKeyOptions {
+                    config_id: config_id.clone(),
+                    rate_limit_enabled: Some(false),
+                    ..Default::default()
+                },
+            )
+            .await?;
+        assert_eq!(issued.key.len(), "node_".len() + 64);
+        let options = VerifyKeyOptions {
+            config_id: config_id.clone(),
+            ..Default::default()
+        };
+        let verified = keys.verify(&issued.key, options).await?;
+        assert_eq!(verified.reference_id, user_id);
+        assert!(matches!(
+            keys.verify(
+                "node_",
+                VerifyKeyOptions {
+                    config_id,
+                    ..Default::default()
+                }
+            )
+            .await,
+            Err(ApiKeyVerificationError::Validation(_))
+        ));
+    }
+    Ok(())
+}
+
 // Rust-specific surface: the facade uses the registered plugin and its initialized context.
 #[tokio::test]
 async fn issue_verify_and_revoke_machine_credential() -> Result<(), Box<dyn std::error::Error>> {

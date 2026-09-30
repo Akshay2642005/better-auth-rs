@@ -34,8 +34,10 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
 | `challenge_ttl_secs` | `i64` | `300` (5 min) | Challenge expiration in seconds |
 
 <Callout>
-`rp_id` must be an effective domain of `origin`. This is enforced by `webauthn-rs`, so combinations like `rp_id = "example.com"` with `origin = "https://other.test"` are rejected during configuration.
+`rp_id` must be an effective domain of `origin`. The plugin rejects mismatched values before generating a challenge.
 </Callout>
+
+The plugin follows Better Auth's `userVerification: "preferred"` behavior. Registration and authentication require user presence, but do not require the authenticator's user-verification flag. An authenticator may use a PIN or biometrics without making verification mandatory for subsequent authentication. Challenge, origin, RP ID, signature, and counter checks still apply. Each verification attempt consumes its challenge, including failed attempts.
 
 ## How It Works
 

@@ -20,10 +20,13 @@ pub struct TwoFactor {
     pub failed_verification_count: i64,
     /// End of the account-level verification lock.
     #[serde(rename = "lockedUntil")]
+    #[serde(serialize_with = "crate::utils::date::serialize_option")]
     pub locked_until: Option<DateTime<Utc>>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -68,8 +71,10 @@ pub struct Passkey {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transports: Option<String>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aaguid: Option<String>,
@@ -118,9 +123,11 @@ pub struct DeviceCode {
     #[serde(rename = "userId", skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
     #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub expires_at: DateTime<Utc>,
     pub status: String,
     #[serde(rename = "lastPolledAt", skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::utils::date::serialize_option")]
     pub last_polled_at: Option<DateTime<Utc>>,
     #[serde(rename = "pollingInterval", skip_serializing_if = "Option::is_none")]
     pub polling_interval: Option<i64>,

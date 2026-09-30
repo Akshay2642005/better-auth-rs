@@ -184,11 +184,26 @@ compatScenario("two-factor otp flow completes sign-in and rejects requests witho
   const verifyOtp = await client.twoFactor.verifyOtp({ code: otpRecord.otp });
   expect(verifyOtp.error).toBeNull();
   const session = await client.getSession();
+  expect(session.error).toBeNull();
+  const shortSession = session.data!.session;
+  expect(Math.round((shortSession.expiresAt.getTime() - shortSession.createdAt.getTime()) / 1000))
+    .toBe(24 * 60 * 60);
 
   const missingCookieClient = twoFactorActor(ctx, "missing-cookie");
   const missingCookie = await missingCookieClient.twoFactor.verifyOtp({
     code: otpRecord.otp,
   });
+
+  const remembered = twoFactorActor(ctx, "remembered");
+  expect((await remembered.signIn.email({ email, password, rememberMe: true })).error).toBeNull();
+  expect((await remembered.twoFactor.sendOtp({})).error).toBeNull();
+  const rememberedOtp = await ctx.readTwoFactorOtp({ email }) as { otp: string };
+  expect((await remembered.twoFactor.verifyOtp({ code: rememberedOtp.otp })).error).toBeNull();
+  const rememberedSession = await remembered.getSession();
+  expect(rememberedSession.error).toBeNull();
+  const longSession = rememberedSession.data!.session;
+  expect(Math.round((longSession.expiresAt.getTime() - longSession.createdAt.getTime()) / 1000))
+    .toBe(7 * 24 * 60 * 60);
 
   return {
     signIn: ctx.snapshot(signIn),
@@ -197,6 +212,7 @@ compatScenario("two-factor otp flow completes sign-in and rejects requests witho
     verifyOtp: ctx.snapshot(verifyOtp),
     session: ctx.snapshot(session),
     missingCookie: ctx.snapshot(missingCookie),
+    rememberedSession: ctx.snapshot(rememberedSession),
   };
 });
 

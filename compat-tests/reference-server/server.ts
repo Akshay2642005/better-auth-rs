@@ -5,7 +5,7 @@ import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { apiKey } from "@better-auth/api-key";
-import { admin, deviceAuthorization, twoFactor, username } from "better-auth/plugins";
+import { admin, bearer, deviceAuthorization, twoFactor, username } from "better-auth/plugins";
 import { organization } from "better-auth/plugins/organization";
 import { genericOAuth } from "better-auth/plugins/generic-oauth";
 
@@ -123,7 +123,7 @@ const oauthServer = Bun.serve({
       return jsonResponse({
         access_token: "new-access-token",
         refresh_token: "new-refresh-token",
-        id_token: "google-id-token",
+        id_token: "mock-id-token",
         expires_in: 3600,
         refresh_token_expires_in: 7200,
         scope: "openid,email,profile",
@@ -145,6 +145,7 @@ const oauthServer = Bun.serve({
   },
 });
 const oauthBaseURL = `http://127.0.0.1:${oauthServer.port}`;
+const oauthAuthorizationURL = `http://localhost:${PORT}/__test/oauth/authorize`;
 
 const originalFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -268,19 +269,19 @@ const authOptions = {
     },
   },
   rateLimit: {
-    enabled: false,
+    enabled: ["device-rate-limit", "device-rate-window"].includes(process.env.COMPAT_PROFILE ?? ""),
   },
   socialProviders: {
     github: {
       clientId: "github-client-id",
       clientSecret: "github-client-secret",
-      authorizationEndpoint: `${oauthBaseURL}/oauth/authorize`,
+      authorizationEndpoint: oauthAuthorizationURL,
     },
     google: {
       clientId: "google-client-id",
       clientSecret: "google-client-secret",
       enabled: true,
-      authorizationEndpoint: `${oauthBaseURL}/oauth/authorize`,
+      authorizationEndpoint: oauthAuthorizationURL,
       async verifyIdToken() {
         return socialIdTokenValid;
       },
@@ -319,16 +320,27 @@ const authOptions = {
     },
   },
   plugins: [
+    ...(process.env.COMPAT_PROFILE === "device-bearer" ? [bearer()] : []),
     admin(),
     apiKey([
-      { configId: "default", enableMetadata: true },
+      { configId: "default", enableMetadata: true, defaultKeyLength: process.env.COMPAT_PROFILE === "api-key-zero" ? 0 : 64 },
       { configId: "secondary", enableMetadata: true },
       { configId: "session", enableSessionForAPIKeys: true, apiKeyHeaders: ["x-api-key", "x-machine-key"] },
       { configId: "shared-first", enableSessionForAPIKeys: true, apiKeyHeaders: "x-shared-key" },
       { configId: "shared-second", enableSessionForAPIKeys: true, apiKeyHeaders: "x-shared-key" },
       { configId: "organization", references: "organization", enableMetadata: true },
     ]),
-    deviceAuthorization(),
+    deviceAuthorization({
+      expiresIn: process.env.COMPAT_PROFILE === "device-rate-window" ? "2s" : "30m",
+      generateUserCode: process.env.COMPAT_PROFILE === "device-custom"
+        ? () => "custom-code"
+        : process.env.COMPAT_PROFILE === "device-collision"
+          ? (() => {
+              let issued = 0;
+              return () => ++issued <= 2 ? "same-code" : issued <= 6 ? "next-code" : "after-code";
+            })()
+          : undefined,
+    }),
     organization({
       async sendInvitationEmail({ id, email, role }) {
         await Promise.resolve();
@@ -352,7 +364,7 @@ const authOptions = {
         {
           providerId: "mock",
           endSessionEndpoint: "https://idp.example.test/logout",
-          authorizationUrl: `${oauthBaseURL}/oauth/authorize`,
+          authorizationUrl: oauthAuthorizationURL,
           tokenUrl: `${oauthBaseURL}/oauth/token`,
           userInfoUrl: `${oauthBaseURL}/oauth/userinfo`,
           clientId: "mock-client-id",
@@ -409,6 +421,10 @@ const server = Bun.serve({
 
       if (url.pathname === "/__health") {
         return jsonResponse({ ok: true });
+      }
+
+      if (url.pathname === "/__test/oauth/authorize" && request.method === "GET") {
+        return originalFetch(`${oauthBaseURL}/oauth/authorize${url.search}`, { redirect: "manual" });
       }
 
       if (url.pathname === "/__test/api-key/create" && request.method === "POST") {

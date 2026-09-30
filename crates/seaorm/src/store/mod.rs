@@ -170,7 +170,7 @@ where
 fn map_db_err(err: DbErr) -> AuthError {
     match err.sql_err() {
         Some(SqlErr::UniqueConstraintViolation(message)) => {
-            AuthError::Database(DatabaseError::Constraint(message))
+            AuthError::Database(DatabaseError::UniqueConstraint(message))
         }
         Some(SqlErr::ForeignKeyConstraintViolation(message)) => {
             AuthError::Database(DatabaseError::Constraint(message))

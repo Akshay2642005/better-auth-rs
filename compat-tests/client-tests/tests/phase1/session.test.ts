@@ -1,3 +1,4 @@
+import { expect } from "bun:test";
 import { compatScenario } from "../../support/scenario";
 
 compatScenario("list sessions and revoke a session through the SDK", async (ctx) => {
@@ -16,11 +17,22 @@ compatScenario("list sessions and revoke a session through the SDK", async (ctx)
   });
   const sessions = await first.client.listSessions();
   const current = await first.client.getSession();
+  expect(signup.error).toBeNull();
+  expect(secondSignin.error).toBeNull();
+  expect(sessions.error).toBeNull();
+  expect(sessions.data?.map((session) => session.token)).toEqual([
+    signup.data?.token,
+    secondSignin.data?.token,
+  ]);
+  expect(current.data?.session.token).toBe(signup.data?.token);
   const revoke = await first.client.revokeSession({
     token: current.data?.session?.token ?? "",
   });
   const firstAfter = await first.client.getSession();
   const secondAfter = await second.client.getSession();
+  expect(revoke.error).toBeNull();
+  expect(firstAfter.data).toBeNull();
+  expect(secondAfter.data?.session.token).toBe(secondSignin.data?.token);
 
   return {
     signup: ctx.snapshot(signup),

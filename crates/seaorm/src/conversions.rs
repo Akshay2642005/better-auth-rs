@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use crate::store::entities;
 
 fn to_rfc3339(value: DateTime<Utc>) -> String {
-    value.to_rfc3339()
+    value.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 impl From<&entities::organization::Model> for Organization {

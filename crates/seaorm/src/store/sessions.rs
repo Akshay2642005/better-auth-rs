@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, DbErr, EntityTrait,
-    ExprTrait, IntoActiveModel, QueryFilter, QueryOrder,
+    ExprTrait, IntoActiveModel, QueryFilter,
 };
 
 use better_auth_core::store::SessionStore;
@@ -97,7 +97,6 @@ where
         <S::Session as SeaOrmSessionModel>::Entity::find()
             .filter(<S::Session as SeaOrmSessionModel>::user_id_column().eq(user_id))
             .filter(<S::Session as SeaOrmSessionModel>::active_column().eq(true))
-            .order_by_desc(<S::Session as SeaOrmSessionModel>::created_at_column())
             .all(self.connection())
             .await
             .map_err(map_db_err)

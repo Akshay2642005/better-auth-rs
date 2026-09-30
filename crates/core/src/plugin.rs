@@ -39,6 +39,11 @@ pub trait AuthPlugin<S: AuthSchema>: Send + Sync + std::any::Any {
     /// Routes that this plugin handles
     fn routes(&self) -> Vec<AuthRoute>;
 
+    /// Default endpoint limits, overridden by explicit application limits.
+    fn rate_limits(&self) -> AuthResult<Vec<(String, crate::middleware::EndpointRateLimit)>> {
+        Ok(Vec::new())
+    }
+
     /// Called when the plugin is initialized
     async fn on_init(&self, ctx: &mut AuthInitContext<S>) -> AuthResult<()> {
         let _ = ctx;

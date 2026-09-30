@@ -70,20 +70,29 @@ For a persistent database, run `create_auth_tables` once from your initial migra
 ## Register and sign in
 
 ```sh
-curl http://localhost:3000/auth/sign-up/email \
+COOKIE_JAR=$(mktemp)
+
+curl --fail-with-body http://localhost:3000/auth/sign-up/email \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com","password":"example-password-123","name":"Example"}'
 
-curl http://localhost:3000/auth/sign-in/email \
+curl --fail-with-body http://localhost:3000/auth/sign-in/email \
+  -c "$COOKIE_JAR" \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com","password":"example-password-123"}'
 ```
 
-Both responses include a session `token`. Pass the token as a bearer credential:
+Sign-in sets a signed session cookie. Save the cookie in a cookie jar and send the cookie with subsequent requests:
 
 ```sh
-curl http://localhost:3000/auth/get-session \
-  -H "Authorization: Bearer $SESSION_TOKEN"
+curl --fail-with-body http://localhost:3000/auth/get-session \
+  -b "$COOKIE_JAR"
+
+rm "$COOKIE_JAR"
 ```
 
+The default configuration uses cookies. To accept Bearer credentials, explicitly enable `config.session.bearer` as described in the [session guide](/docs/authentication/sessions).
+
 For business routes, use `CurrentSession<AppAuthSchema>` as shown in the [Axum guide](/docs/integrations/axum). The [independent consumer](../../../../compat-tests/schema-consumer) tests this public schema generation flow with registration, login, protected routes, API keys, and TOTP.
+
+Run `devenv shell -- bun scripts/quick-start-check.ts` to compile this document's application and execute its registration, sign-in, and session commands.

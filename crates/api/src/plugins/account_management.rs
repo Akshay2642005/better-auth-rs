@@ -66,8 +66,12 @@ pub(crate) async fn list_accounts_core(
             account_id: acc.account_id().to_string(),
             provider_id: acc.provider_id().to_string(),
             user_id: acc.user_id().to_string(),
-            created_at: acc.created_at().to_rfc3339(),
-            updated_at: acc.updated_at().to_rfc3339(),
+            created_at: acc
+                .created_at()
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            updated_at: acc
+                .updated_at()
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             scopes: acc
                 .scope()
                 .map(|s| {

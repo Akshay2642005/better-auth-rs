@@ -73,6 +73,7 @@ const profiles = {
     requiredPlugin("openAPI"),
     requiredPlugin("admin"),
     requiredPlugin("apiKey"),
+    requiredPlugin("deviceAuthorization"),
     requiredPlugin("twoFactor"),
     requiredPlugin("organization"),
     requiredPlugin("username"),

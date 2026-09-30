@@ -336,7 +336,7 @@ async fn test_device_verify_strips_hyphens_and_preserves_input_shape() {
     ctx.database
         .create_device_code(CreateDeviceCode {
             device_code: "verify-device-code".to_string(),
-            user_code: "ABCD1234".to_string(),
+            user_code: "ABCD2345".to_string(),
             user_id: None,
             expires_at: Utc::now() + Duration::minutes(5),
             status: DEVICE_STATUS_PENDING.to_string(),
@@ -349,13 +349,13 @@ async fn test_device_verify_strips_hyphens_and_preserves_input_shape() {
         .unwrap();
 
     let response = plugin
-        .handle_device_verify(&device_verify_request("ABCD-1234"), &ctx)
+        .handle_device_verify(&device_verify_request("ABCD-2345"), &ctx)
         .await
         .unwrap();
     let body = json_body(&response);
 
     assert_eq!(response.status, 200);
-    assert_eq!(body["user_code"], "ABCD-1234");
+    assert_eq!(body["user_code"], "ABCD-2345");
     assert_eq!(body["status"], DEVICE_STATUS_PENDING);
 }
 

@@ -13,7 +13,8 @@ use better_auth_core::{
 
 use super::{email_verification::EmailVerificationPlugin, two_factor};
 use better_auth_core::utils::cookie_utils::{
-    create_session_cookie, create_session_cookie_with_max_age,
+    create_session_cookie, create_session_cookie_with_max_age, create_session_like_cookie,
+    related_cookie_name, sign_cookie_value,
 };
 use better_auth_core::utils::password::{self as password_utils, PasswordHasher};
 use better_auth_core::utils::username::{
@@ -21,7 +22,9 @@ use better_auth_core::utils::username::{
 };
 use better_auth_core::wire::UserView;
 
-use crate::plugins::helpers::{SessionIssueError, apply_default_role, issue_user_session};
+use crate::plugins::helpers::{
+    SessionIssueError, apply_default_role, issue_user_session_with_lifetime,
+};
 
 const MESSAGE_INVALID_USERNAME_OR_PASSWORD: &str = "Invalid username or password";
 const MESSAGE_EMAIL_NOT_VERIFIED: &str = "Email not verified";
@@ -710,16 +713,30 @@ async fn finalize_sign_in_with_user_core(
         );
     }
 
-    let issued = issue_user_session(
+    let expires_in = if remember_me == Some(false) {
+        chrono::Duration::days(1)
+    } else {
+        ctx.config.session.expires_in
+    };
+    let issued = issue_user_session_with_lifetime(
         ctx,
         &user.id(),
         meta.ip_address.clone(),
         meta.user_agent.clone(),
+        expires_in,
     )
     .await
     .map_err(SessionIssueError::into_auth_error)?;
     let session = issued.session;
     let token = session.token().to_string();
+    if remember_me == Some(false) {
+        set_cookie_headers.push(create_session_like_cookie(
+            &related_cookie_name(&ctx.config, "dont_remember"),
+            &sign_cookie_value("true", &ctx.config.secret),
+            None,
+            &ctx.config,
+        ));
+    }
 
     let response = SignInResponse {
         redirect: false,

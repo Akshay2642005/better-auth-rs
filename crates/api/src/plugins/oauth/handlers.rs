@@ -412,6 +412,9 @@ fn build_redirect_url(
     callback_url: Option<&str>,
     params: &[(&str, &str)],
 ) -> AuthResult<String> {
+    if callback_url.is_some_and(|target| target.starts_with("//") || target.starts_with("/\\")) {
+        return Err(AuthError::bad_request("Invalid callbackURL"));
+    }
     let base = url::Url::parse(base_url)
         .map_err(|error| AuthError::internal(format!("Invalid base URL: {error}")))?;
     let mut url = if let Some(callback_url) = callback_url {
@@ -422,23 +425,23 @@ fn build_redirect_url(
             .map_err(|error| AuthError::internal(format!("Invalid error URL: {error}")))?
     };
     if !params.is_empty() {
-        let mut query_segments = Vec::new();
-        if let Some(existing_query) = url.query()
-            && !existing_query.is_empty()
-        {
-            query_segments.push(existing_query.to_string());
-        }
-        for (key, value) in params {
-            query_segments.push(format!(
-                "{}={}",
-                urlencoding::encode(key),
-                urlencoding::encode(value),
-            ));
-        }
-        let query = query_segments.join("&");
+        let appended = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(params.iter().copied())
+            .finish();
+        let query = match url.query() {
+            Some(existing) if !existing.is_empty() => {
+                let separator = if existing.ends_with('&') { "" } else { "&" };
+                format!("{existing}{separator}{appended}")
+            }
+            _ => appended,
+        };
         url.set_query(Some(&query));
     }
-    Ok(url.to_string())
+    if callback_url.is_some_and(|target| target.starts_with('/')) {
+        Ok(url[url::Position::BeforePath..].to_string())
+    } else {
+        Ok(url.to_string())
+    }
 }
 
 pub(super) fn auth_base_url(ctx: &AuthContext<impl better_auth_core::AuthSchema>) -> String {
@@ -1676,9 +1679,20 @@ mod tests {
         )
         .expect("redirect URL should build");
 
-        assert_eq!(
-            url,
-            "http://localhost:3000/dashboard+beta?error_description=space%20value"
-        );
+        assert_eq!(url, "/dashboard+beta?error_description=space+value");
+    }
+
+    #[test]
+    fn build_redirect_url_rejects_network_path_references() {
+        for target in ["//other.example/error", "/\\other.example/error"] {
+            assert!(
+                build_redirect_url(
+                    "https://example.com/api/auth",
+                    Some(target),
+                    &[("error", "denied")]
+                )
+                .is_err()
+            );
+        }
     }
 }

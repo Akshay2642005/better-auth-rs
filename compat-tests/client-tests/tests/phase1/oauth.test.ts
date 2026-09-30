@@ -23,6 +23,7 @@ compatScenario("get access token returns stored unexpired token", async (ctx) =>
   });
   expect(accessToken.error).toBeNull();
   expect(accessToken.data?.accessToken).toBe("still-valid-access-token");
+  expect(accessToken.data?.accessTokenExpiresAt?.toISOString()).toBe("2099-01-01T00:00:00.000Z");
 
   return {
     signup: ctx.snapshot(signup),
@@ -52,6 +53,7 @@ compatScenario("get access token refreshes expired token", async (ctx) => {
   });
   expect(accessToken.error).toBeNull();
   expect(accessToken.data?.accessToken).toBe("new-access-token");
+  expect(accessToken.data?.idToken).toBe("mock-id-token");
 
   return {
     signup: ctx.snapshot(signup),
@@ -81,10 +83,12 @@ compatScenario("refresh token returns a fresh token set", async (ctx) => {
   });
   expect(refresh.error).toBeNull();
   expect(refresh.data?.accessToken).toBe("new-access-token");
+  expect(refresh.data?.idToken).toBe("mock-id-token");
+  expect(refresh.data?.accountId).toBe(accountId);
 
   return {
     signup: ctx.snapshot(signup),
-    refresh: ctx.snapshot(refresh),
+    refresh: ctx.snapshot({ ...refresh, data: { ...refresh.data, accountId: "<seeded-account>" } }),
   };
 });
 

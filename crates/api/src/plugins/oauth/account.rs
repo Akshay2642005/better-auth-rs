@@ -195,7 +195,7 @@ async fn valid_access_token(
             ),
             access_token_expires_at: account
                 .access_token_expires_at
-                .map(|value| value.to_rfc3339()),
+                .map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
             scopes: scopes(account),
             id_token: maybe_decrypt(account.id_token.as_deref(), encrypted, &ctx.config.secret)?,
         },
@@ -265,11 +265,11 @@ pub(super) async fn handle_refresh_token(
         access_token: tokens.access_token,
         access_token_expires_at: tokens
             .access_token_expires_at
-            .map(|value| value.to_rfc3339()),
+            .map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
         refresh_token: Some(tokens.refresh_token.unwrap_or(refresh_token)),
         refresh_token_expires_at: account
             .refresh_token_expires_at
-            .map(|value| value.to_rfc3339()),
+            .map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
         scope: account.scope.clone(),
         id_token: maybe_decrypt(
             account.id_token.as_deref(),

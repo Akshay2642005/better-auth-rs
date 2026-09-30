@@ -1,14 +1,12 @@
 use base64::Engine;
 use better_auth_core::entity::{AuthPasskey, AuthSession, AuthUser, AuthVerification};
 use better_auth_core::types::UpdatePasskeyAuthentication;
-use better_auth_core::wire::{PasskeyView, SessionView};
+use better_auth_core::wire::{PasskeyView, SessionView, UserView};
 use better_auth_core::{AuthContext, AuthError, AuthResult, CreatePasskey, CreateVerification};
 use chrono::{Duration, Utc};
 use serde_json::{Value, json};
 use uuid::Uuid;
-use webauthn_rs::prelude::{
-    DiscoverableKey, Passkey as WebauthnPasskey, PublicKeyCredential, RegisterPublicKeyCredential,
-};
+use webauthn_rs_core::proto::{COSEAlgorithm, PublicKeyCredential, RegisterPublicKeyCredential};
 
 use crate::plugins::StatusResponse;
 use crate::plugins::helpers::{SessionIssueError, issue_user_session};
@@ -19,18 +17,24 @@ use super::types::{
     VerifyAuthenticationRequest, VerifyRegistrationRequest,
 };
 use super::webauthn::{
-    StoredAuthenticationState, StoredRegistrationState, authentication_options_json,
-    build_webauthn, challenge_cookie_name, create_challenge_cookie,
-    credential_id_from_authentication, decode_challenge_cookie, decode_credential_id,
-    extract_registration_metadata, generate_ts_user_handle, get_cookie_value, parse_stored_passkey,
-    parse_transports_csv, registration_options_json, resolve_origin, snapshot_passkey,
-    transports_to_csv,
+    AuthenticationChallenge, RegistrationChallenge, StoredAuthenticationState, StoredPasskey,
+    StoredRegistrationState, VERIFICATION_POLICY, authentication_options_json, build_webauthn,
+    challenge_cookie_name, create_challenge_cookie, credential_id_from_authentication,
+    decode_challenge_cookie, decode_credential_id, extract_registration_metadata,
+    generate_ts_user_handle, get_cookie_value, parse_stored_passkey, parse_transports_csv,
+    registration_options_json, resolve_origin, snapshot_passkey, transports_to_csv,
 };
 
 fn response_message<T>(status: u16, message: &str) -> PasskeyHandlerResult<T> {
     Ok(PasskeyHandlerOutcome::Response(
-        better_auth_core::AuthResponse::json(status, &json!({ "message": message }))
-            .map_err(AuthError::from)?,
+        better_auth_core::AuthResponse::json(
+            status,
+            &better_auth_core::types::ErrorCodeMessageResponse {
+                code: AuthError::code_from_message(message),
+                message: message.to_string(),
+            },
+        )
+        .map_err(AuthError::from)?,
     ))
 }
 
@@ -107,13 +111,20 @@ pub(super) async fn generate_register_options_core(
         .email()
         .map(str::to_string)
         .unwrap_or_else(|| user.id().into_owned());
+    let builder = webauthn
+        .new_challenge_register_builder(Uuid::new_v4().as_bytes(), &user_name, &user_display_name)
+        .map_err(|error| {
+            AuthError::internal(format!("Failed to generate register options: {error}"))
+        })?
+        .user_verification_policy(VERIFICATION_POLICY)
+        .credential_algorithms(vec![
+            COSEAlgorithm::EDDSA,
+            COSEAlgorithm::ES256,
+            COSEAlgorithm::RS256,
+        ])
+        .exclude_credentials(Some(exclude_credentials));
     let (options, state) = webauthn
-        .start_passkey_registration(
-            Uuid::new_v4(),
-            &user_name,
-            &user_display_name,
-            Some(exclude_credentials),
-        )
+        .generate_challenge_register(builder)
         .map_err(|error| {
             AuthError::internal(format!("Failed to generate register options: {error}"))
         })?;
@@ -122,7 +133,7 @@ pub(super) async fn generate_register_options_core(
     let expires_at = Utc::now() + Duration::seconds(config.challenge_ttl_secs);
     let serialized_state = serde_json::to_string(&StoredRegistrationState {
         user_id: user.id().to_string(),
-        state,
+        state: RegistrationChallenge { rs: state },
     })?;
     let _ = ctx
         .database
@@ -163,7 +174,8 @@ pub(super) async fn generate_authenticate_options_core<U: AuthUser>(
     let parsed_passkeys = stored_passkeys
         .iter()
         .filter_map(|passkey| parse_stored_passkey(passkey.credential()).ok())
-        .collect::<Vec<WebauthnPasskey>>();
+        .map(|passkey| passkey.cred)
+        .collect::<Vec<_>>();
     let allow_credentials_json = stored_passkeys
         .iter()
         .map(|passkey| {
@@ -180,20 +192,22 @@ pub(super) async fn generate_authenticate_options_core<U: AuthUser>(
         })
         .collect::<Vec<_>>();
 
-    let (options, state) = if parsed_passkeys.is_empty() {
-        let (options, state) = webauthn
-            .start_discoverable_authentication()
-            .map_err(|error| {
-                AuthError::internal(format!("Failed to generate authenticate options: {error}"))
-            })?;
-        (options, StoredAuthenticationState::Discoverable { state })
+    let discoverable = parsed_passkeys.is_empty();
+    let (options, state) = webauthn
+        .new_challenge_authenticate_builder(parsed_passkeys, Some(VERIFICATION_POLICY))
+        .and_then(|builder| {
+            webauthn.generate_challenge_authenticate(
+                builder.allow_backup_eligible_upgrade(!discoverable),
+            )
+        })
+        .map_err(|error| {
+            AuthError::internal(format!("Failed to generate authenticate options: {error}"))
+        })?;
+    let state = AuthenticationChallenge { ast: state };
+    let state = if discoverable {
+        StoredAuthenticationState::Discoverable { state }
     } else {
-        let (options, state) = webauthn
-            .start_passkey_authentication(&parsed_passkeys)
-            .map_err(|error| {
-                AuthError::internal(format!("Failed to generate authenticate options: {error}"))
-            })?;
-        (options, StoredAuthenticationState::Passkey { state })
+        StoredAuthenticationState::Passkey { state }
     };
 
     let token = Uuid::new_v4().to_string();
@@ -241,8 +255,12 @@ pub(super) async fn verify_registration_core(
         Err(_) => return response_message(400, "Challenge not found"),
     };
 
-    let Some(verification) = ctx.database.get_verification_by_identifier(&token).await? else {
-        return response_null(400);
+    let Some(verification) = ctx
+        .database
+        .consume_verification_by_identifier(&token)
+        .await?
+    else {
+        return response_message(400, "Challenge not found");
     };
 
     let stored_state: StoredRegistrationState = match serde_json::from_str(verification.value()) {
@@ -264,8 +282,8 @@ pub(super) async fn verify_registration_core(
         Err(_) => return passkey_registration_failure(),
     };
     let verified_passkey =
-        match webauthn.finish_passkey_registration(&registration, &stored_state.state) {
-            Ok(passkey) => passkey,
+        match webauthn.register_credential(&registration, &stored_state.state.rs, None) {
+            Ok(cred) => StoredPasskey { cred },
             Err(_) => return passkey_registration_failure(),
         };
     let snapshot = match snapshot_passkey(&verified_passkey) {
@@ -290,7 +308,7 @@ pub(super) async fn verify_registration_core(
             user_id: user.id().to_string(),
             name: body.name.clone(),
             credential_id: base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .encode(verified_passkey.cred_id().as_ref()),
+                .encode(verified_passkey.cred.cred_id.as_ref()),
             public_key: metadata.public_key,
             counter: snapshot.counter,
             device_type: snapshot.device_type().to_string(),
@@ -304,15 +322,6 @@ pub(super) async fn verify_registration_core(
         Ok(passkey) => passkey,
         Err(_) => return passkey_registration_failure(),
     };
-
-    if ctx
-        .database
-        .delete_verification(verification.id().as_ref())
-        .await
-        .is_err()
-    {
-        return passkey_registration_failure();
-    }
 
     Ok(PasskeyHandlerOutcome::Success(serde_json::to_value(
         PasskeyView::from(&passkey),
@@ -339,7 +348,11 @@ pub(super) async fn verify_authentication_core(
         Err(_) => return response_message(400, "Challenge not found"),
     };
 
-    let Some(verification) = ctx.database.get_verification_by_identifier(&token).await? else {
+    let Some(verification) = ctx
+        .database
+        .consume_verification_by_identifier(&token)
+        .await?
+    else {
         return response_message(400, "Challenge not found");
     };
 
@@ -375,11 +388,13 @@ pub(super) async fn verify_authentication_core(
 
     let authentication_result = match stored_state {
         StoredAuthenticationState::Passkey { state } => {
-            webauthn.finish_passkey_authentication(&authentication, &state)
+            webauthn.authenticate_credential(&authentication, &state.ast)
         }
-        StoredAuthenticationState::Discoverable { state } => {
-            let discoverable_key = DiscoverableKey::from(stored_passkey.clone());
-            webauthn.finish_discoverable_authentication(&authentication, state, &[discoverable_key])
+        StoredAuthenticationState::Discoverable { mut state } => {
+            state
+                .ast
+                .set_allowed_credentials(vec![stored_passkey.cred.clone()]);
+            webauthn.authenticate_credential(&authentication, &state.ast)
         }
     };
     let authentication_result = match authentication_result {
@@ -387,12 +402,17 @@ pub(super) async fn verify_authentication_core(
         Err(_) => return passkey_authentication_failure(),
     };
 
-    if stored_passkey
-        .update_credential(&authentication_result)
-        .is_none()
-    {
+    if authentication_result.cred_id() != &stored_passkey.cred.cred_id {
         return passkey_authentication_failure();
     }
+    // Another challenge can advance the counter after this challenge captures its credentials.
+    let counter = u64::from(authentication_result.counter());
+    if (counter > 0 || passkey.counter() > 0) && counter <= passkey.counter() {
+        return passkey_authentication_failure();
+    }
+    stored_passkey.cred.counter = authentication_result.counter();
+    stored_passkey.cred.backup_state = authentication_result.backup_state();
+    stored_passkey.cred.backup_eligible = authentication_result.backup_eligible();
 
     let snapshot = match snapshot_passkey(&stored_passkey) {
         Ok(snapshot) => snapshot,
@@ -424,15 +444,6 @@ pub(super) async fn verify_authentication_core(
         return response_message(500, "User not found");
     };
 
-    if ctx
-        .database
-        .delete_verification(verification.id().as_ref())
-        .await
-        .is_err()
-    {
-        return passkey_authentication_failure();
-    }
-
     let session = match issue_user_session(ctx, &user.id(), ip_address, user_agent)
         .await
         .map_err(SessionIssueError::into_auth_error)
@@ -444,6 +455,7 @@ pub(super) async fn verify_authentication_core(
     Ok(PasskeyHandlerOutcome::Success((
         serde_json::to_value(SessionResponse {
             session: SessionView::with_fields(&session, &ctx.config.session)?,
+            user: UserView::from(&user),
         })?,
         session.token().to_string(),
     )))

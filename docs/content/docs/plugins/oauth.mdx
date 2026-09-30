@@ -107,6 +107,8 @@ The OAuth plugin exposes the following endpoints. For full request/response deta
 | `/list-accounts` | GET | List all linked accounts |
 | `/unlink-account` | POST | Unlink a social account |
 
+`errorCallbackURL` may be an absolute URL or a root-relative path. OAuth errors preserve existing query parameters and append `error` and `error_description` with URL form encoding. Root-relative error callbacks remain relative. Redirect targets must pass the configured origin check.
+
 ## Provider Account Info
 
 Use `GET /account-info` to fetch provider-specific user info for a linked account.

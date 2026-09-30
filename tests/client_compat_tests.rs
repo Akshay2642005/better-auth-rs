@@ -77,11 +77,12 @@ async fn wait_for_health(port: u16, child: &mut ManagedChild, timeout: Duration)
     );
 }
 
-fn start_reference_server(port: u16) -> ManagedChild {
+fn start_reference_server(port: u16, profile: &str) -> ManagedChild {
     let child = Command::new("bun")
         .args(["run", "server.ts"])
         .current_dir(project_root().join("compat-tests/reference-server"))
         .env("PORT", port.to_string())
+        .env("COMPAT_PROFILE", profile)
         .env("NO_PROXY", "localhost,127.0.0.1")
         .env("no_proxy", "localhost,127.0.0.1")
         .stdout(Stdio::inherit())
@@ -92,7 +93,7 @@ fn start_reference_server(port: u16) -> ManagedChild {
     ManagedChild::new("ts-reference", child)
 }
 
-fn start_rust_compat_server(port: u16) -> ManagedChild {
+fn start_rust_compat_server(port: u16, profile: &str) -> ManagedChild {
     let child = Command::new("cargo")
         .args([
             "run",
@@ -101,6 +102,7 @@ fn start_rust_compat_server(port: u16) -> ManagedChild {
         ])
         .current_dir(project_root())
         .env("PORT", port.to_string())
+        .env("COMPAT_PROFILE", profile)
         .env("NO_PROXY", "localhost,127.0.0.1")
         .env("no_proxy", "localhost,127.0.0.1")
         .stdout(Stdio::inherit())
@@ -134,11 +136,15 @@ fn run_bun_phase_suite(paths: &[&str], ts_port: u16, rust_port: u16) {
 }
 
 async fn run_client_compat(paths: &[&str]) {
+    run_client_compat_profile(paths, "default").await;
+}
+
+async fn run_client_compat_profile(paths: &[&str], profile: &str) {
     let ts_port = allocate_port();
     let rust_port = allocate_port();
 
-    let mut ts_server = start_reference_server(ts_port);
-    let mut rust_server = start_rust_compat_server(rust_port);
+    let mut ts_server = start_reference_server(ts_port, profile);
+    let mut rust_server = start_rust_compat_server(rust_port, profile);
 
     wait_for_health(ts_port, &mut ts_server, Duration::from_secs(20)).await;
     wait_for_health(rust_port, &mut rust_server, Duration::from_secs(90)).await;
@@ -243,4 +249,19 @@ async fn full_client_compat() {
         "tests/phase12",
     ])
     .await;
+}
+
+#[tokio::test]
+#[ignore = "starts external TS and Rust servers for each configuration"]
+async fn configuration_client_compat() {
+    for profile in [
+        "api-key-zero",
+        "device-custom",
+        "device-collision",
+        "device-rate-limit",
+        "device-rate-window",
+        "device-bearer",
+    ] {
+        run_client_compat_profile(&[&format!("tests/config/{profile}")], profile).await;
+    }
 }

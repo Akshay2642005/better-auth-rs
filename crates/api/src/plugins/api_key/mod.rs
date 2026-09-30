@@ -198,7 +198,7 @@ impl ApiKeyPlugin {
     /// Upstream allows several api-key configurations side by side, each with
     /// its own `config_id`, ownership model and limits.
     pub fn configuration(mut self, config: ApiKeyConfig) -> Self {
-        self.configurations.push(config);
+        self.configurations.push(config.normalized());
         self
     }
 
@@ -250,6 +250,7 @@ pub struct ApiKeyConfig {
     pub references: ApiKeyReferences,
 
     // -- key generation --
+    /// Random characters per key. Zero selects the upstream default of 64.
     pub key_length: usize,
     pub prefix: Option<String>,
     /// Permissions applied when creation does not supply explicit permissions.
@@ -285,6 +286,15 @@ pub struct ApiKeyConfig {
 
     // -- session emulation --
     pub enable_session_for_api_keys: bool,
+}
+
+impl ApiKeyConfig {
+    fn normalized(mut self) -> Self {
+        if self.key_length == 0 {
+            self.key_length = 64;
+        }
+        self
+    }
 }
 
 /// Key expiration constraints.
@@ -395,33 +405,36 @@ impl ApiKeyPlugin {
         #[builder(default = false)] enable_session_for_api_keys: bool,
     ) -> Self {
         Self {
-            configurations: vec![ApiKeyConfig {
-                config_id,
-                references,
-                key_length,
-                prefix,
-                default_permissions,
-                api_key_headers,
-                disable_key_hashing,
-                starting_characters_length,
-                store_starting_characters,
-                max_prefix_length,
-                min_prefix_length,
-                max_name_length,
-                min_name_length,
-                require_name,
-                enable_metadata,
-                key_expiration,
-                rate_limit,
-                enable_session_for_api_keys,
-            }],
+            configurations: vec![
+                ApiKeyConfig {
+                    config_id,
+                    references,
+                    key_length,
+                    prefix,
+                    default_permissions,
+                    api_key_headers,
+                    disable_key_hashing,
+                    starting_characters_length,
+                    store_starting_characters,
+                    max_prefix_length,
+                    min_prefix_length,
+                    max_name_length,
+                    min_name_length,
+                    require_name,
+                    enable_metadata,
+                    key_expiration,
+                    rate_limit,
+                    enable_session_for_api_keys,
+                }
+                .normalized(),
+            ],
             last_expired_check: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn with_config(config: ApiKeyConfig) -> Self {
         Self {
-            configurations: vec![config],
+            configurations: vec![config.normalized()],
             last_expired_check: Arc::new(Mutex::new(None)),
         }
     }

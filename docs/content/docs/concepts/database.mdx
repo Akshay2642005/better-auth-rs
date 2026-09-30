@@ -62,6 +62,23 @@ Call the generated `create_auth_tables(&database).await?` from the application's
 
 The application owns the generated source. The four core entities can be customized through the public schema traits. Plugin tables currently use fixed library entity names and columns; preserve their generated database schema.
 
+For application-owned entities, bind the four model types with `AuthSchema`:
+
+```rust
+#[derive(better_auth::AuthSchema)]
+#[auth(
+    user = "user::Model",
+    session = "session::Model",
+    account = "account::Model",
+    verification = "verification::Model"
+)]
+pub struct AppAuthSchema;
+```
+
+Each model must implement its corresponding auth entity trait. You may place each binding in a separate `#[auth(...)]` attribute. Each binding must appear exactly once.
+
+Auth responses serialize timestamps as UTC ISO 8601 strings with three fractional digits, matching the upstream JavaScript client. Stored database timestamps retain their original precision.
+
 ## Plugin Fields
 
 `build().await` rejects a plugin when the user or session entity cannot persist its required fields. `AuthEntity` derives this capability list from the model fields.
@@ -96,11 +113,12 @@ The canonical worked example is [`examples/postgres_usage.rs`](../../../../examp
 
 ## Testing
 
-Run `devenv shell -- ./scripts/consumer-check.sh` to generate a fresh schema and test an independent consumer against the public package. The check creates SQLite tables, registers and signs in a user, protects an Axum route, creates an API key, and enables TOTP. Database constraint checks cover uniqueness and foreign keys.
+Run `devenv shell -- ./scripts/consumer-check.sh` to generate a fresh schema and test an independent consumer against the public package. The check compiles combined and separate `AuthSchema` attributes, creates SQLite tables, registers and signs in a user, protects an Axum route, creates an API key, and enables TOTP. Database constraint checks cover uniqueness and foreign keys.
 
 Internal behavior tests also use a bundled schema. Dual-server and client SDK compatibility checks compare behavior with the TypeScript reference server.
 
 ## Notes
 
+- Custom stores must report uniqueness conflicts as `DatabaseError::UniqueConstraint`. Device code generation retries only that error, up to three attempts.
 - Better Auth no longer owns a public SeaORM migration path. Auth and app tables should be migrated together by the host application.
 - `MemoryCacheAdapter` and the optional asynchronous `RedisAdapter` are standalone cache utilities. Neither adapter is connected to session persistence. `RedisAdapter::clear` clears the selected Redis database.

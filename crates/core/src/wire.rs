@@ -24,8 +24,10 @@ pub struct UserView {
     pub email_verified: bool,
     pub image: Option<String>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
     pub username: Option<String>,
     #[serde(rename = "displayUsername")]
@@ -38,6 +40,7 @@ pub struct UserView {
     #[serde(rename = "banReason")]
     pub ban_reason: Option<String>,
     #[serde(rename = "banExpires")]
+    #[serde(serialize_with = "crate::utils::date::serialize_option")]
     pub ban_expires: Option<DateTime<Utc>>,
     #[serde(skip)]
     pub metadata: serde_json::Value,
@@ -48,11 +51,14 @@ pub struct UserView {
 pub struct SessionView {
     pub id: String,
     #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub expires_at: DateTime<Utc>,
     pub token: String,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
     #[serde(rename = "ipAddress")]
     pub ip_address: Option<String>,
@@ -87,15 +93,19 @@ pub struct AccountView {
     #[serde(rename = "idToken")]
     pub id_token: Option<String>,
     #[serde(rename = "accessTokenExpiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize_option")]
     pub access_token_expires_at: Option<DateTime<Utc>>,
     #[serde(rename = "refreshTokenExpiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize_option")]
     pub refresh_token_expires_at: Option<DateTime<Utc>>,
     pub scope: Option<String>,
     #[serde(skip_serializing)]
     pub password: Option<String>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -106,10 +116,13 @@ pub struct VerificationView {
     pub identifier: String,
     pub value: String,
     #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub expires_at: DateTime<Utc>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -400,8 +413,10 @@ pub struct OrganizationView {
     )]
     pub metadata: Option<serde_json::Value>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -431,8 +446,10 @@ pub struct InvitationView {
     #[serde(rename = "inviterId")]
     pub inviter_id: String,
     #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub expires_at: DateTime<Utc>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -472,8 +489,6 @@ pub struct PasskeyView {
     pub transports: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: String,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aaguid: Option<String>,
 }
@@ -490,8 +505,9 @@ impl<T: AuthPasskey> From<&T> for PasskeyView {
             device_type: pk.device_type().to_owned(),
             backed_up: pk.backed_up(),
             transports: pk.transports().map(str::to_owned),
-            created_at: pk.created_at().to_rfc3339(),
-            updated_at: pk.updated_at().to_rfc3339(),
+            created_at: pk
+                .created_at()
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             aaguid: pk.aaguid().map(str::to_owned),
         }
     }
