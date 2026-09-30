@@ -1,9 +1,9 @@
 ---
 title: OpenAPI
-description: Auto-generated OpenAPI specification.
+description: Route inventory in OpenAPI format.
 ---
 
-Better Auth RS generates an OpenAPI 3.1 specification from its registered plugins and routes.
+Better Auth RS generates an OpenAPI 3.1 route inventory from its registered plugins and routes.
 
 There is no public HTTP route for the spec. The internal test harness mounts a private endpoint at `GET /auth/__test/openapi.json`, but production integrations should use the programmatic API.
 
@@ -35,10 +35,9 @@ The generated specification includes:
 
 - **Info**: Title, version, and description
 - **Paths**: All registered routes with HTTP methods
-- **Components**: Request/response schemas
 - **Tags**: Grouped by plugin name
 
-Each route entry includes the path, method, summary, and which plugin provides it.
+Each route entry includes the path, method, operation ID, summary, and plugin tag. Responses contain a generic success description. Request bodies, response schemas, parameters, authentication schemes, and complete error responses are not generated.
 
 ## Using with API Tools
 
@@ -47,4 +46,5 @@ The OpenAPI spec can be imported into tools like:
 - Swagger UI
 - Postman
 - Insomnia
-- Any OpenAPI 3.0 compatible client generator
+
+The inventory supports route browsing. It does not contain enough type information to generate a typed client SDK.

@@ -3,29 +3,39 @@ title: Installation
 description: Add Better Auth to your Rust project.
 ---
 
-## Add the Dependency
+## Dependencies
+
+These examples target the current `master` branch. The DX changes are not yet published as a new crate release. For Axum and a generated SeaORM schema, add:
 
 ```toml title="Cargo.toml"
 [dependencies]
-better-auth = { version = "1.0.0-alpha.3", features = ["seaorm2"] }
-tokio = { version = "1", features = ["full"] }
+better-auth = { version = "1.0.0-alpha.3", git = "https://github.com/better-auth-rs/better-auth-rs", branch = "master", features = ["axum", "seaorm2"] }
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 ```
 
-## Feature Flags
+Follow the [quick-start guide](/docs/quick-start) to generate entities, initialize the database, and start a server. Applications own their auth schema and versioned migrations.
 
-Enable additional functionality with feature flags:
-
-```toml title="Cargo.toml"
-[dependencies]
-better-auth = { version = "1.0.0-alpha.3", features = ["axum", "seaorm2"] }
-```
+## Feature flags
 
 | Feature | Description |
-|---------|-------------|
-| `axum` | Axum web framework integration with route mounting and session extractors |
+| --- | --- |
+| `native-tls` | Default TLS backend for outbound HTTP |
+| `rustls` | Alternative TLS backend; use `default-features = false` |
+| `axum` | Route mounting and session extractors |
+| `seaorm2` | SeaORM store and entity derives |
+| `redis-cache` | Standalone asynchronous Redis cache adapter |
 
-No features are enabled by default. The core library works with SeaORM-backed auth persistence and the framework-agnostic request/response types.
+Select exactly one TLS backend. For Rustls:
 
-## Minimum Supported Rust Version
+```toml
+better-auth = { version = "1.0.0-alpha.3", git = "https://github.com/better-auth-rs/better-auth-rs", branch = "master", default-features = false, features = ["rustls", "axum", "seaorm2"] }
+```
 
-Better Auth requires Rust 1.85 or later (Rust 2024 edition).
+The cache adapters are standalone utilities. Enabling `redis-cache` does not change session persistence or register a session cache.
+
+## Rust toolchain
+
+The project uses Rust 2024. The committed `devenv.lock` pins the toolchain used for local checks. The project does not currently declare a tested minimum Rust version.

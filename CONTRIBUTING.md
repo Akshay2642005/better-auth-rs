@@ -83,7 +83,7 @@ devenv shell -- bun run --cwd docs scripts/generate-openapi.mts
 
 There are three layers:
 
-1. Rust unit/integration tests: `cargo test --workspace`
+1. Rust unit/integration tests and the generated public consumer: `cargo test --workspace --features axum,seaorm2,redis-cache` and `./scripts/consumer-check.sh`
 2. Raw wire smoke tests:
    `cargo test --test wire_compat_smoke_tests -- --nocapture`
 3. Dual-server client compatibility tests using the real
@@ -102,16 +102,15 @@ Before committing, run the full check:
 devenv test
 ```
 
-This command installs the locked compatibility dependencies, checks formatting
-and Clippy, runs workspace tests, and runs the dual-server alignment suite.
-The suite compares all supported phases against the pinned TypeScript runtime.
+Local checks and CI use `scripts/check.sh`. The script installs locked compatibility dependencies, checks formatting and Clippy, runs workspace tests with Axum, SeaORM, and Redis features, checks the alternative Rustls configuration, builds Rustdoc, and tests a freshly generated schema in an independent consumer. The dual-server suite compares all supported phases against the pinned TypeScript runtime.
 
 For a focused check, run the applicable command through `devenv shell --`:
 
 ```bash
 devenv shell -- cargo fmt --all -- --check
 devenv shell -- cargo clippy --workspace --locked -- -D warnings
-devenv shell -- cargo clippy --workspace --locked --features axum -- -D warnings
-devenv shell -- cargo test --workspace --locked
+devenv shell -- cargo clippy --workspace --locked --features axum,seaorm2,redis-cache -- -D warnings
+devenv shell -- cargo test --workspace --locked --features axum,seaorm2,redis-cache
+devenv shell -- ./scripts/consumer-check.sh
 devenv shell -- cargo test --test client_compat_tests phase5_client_compat -- --ignored --nocapture
 ```

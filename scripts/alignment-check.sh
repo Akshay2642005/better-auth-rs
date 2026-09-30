@@ -26,14 +26,14 @@ if [[ ! -d compat-tests/client-tests/node_modules ]]; then
 fi
 
 if [[ "$skip_build" != "true" ]]; then
-  cargo build --workspace
-  cargo build --manifest-path compat-tests/rust-server/Cargo.toml
+  cargo build --locked --workspace
+  cargo build --locked --manifest-path compat-tests/rust-server/Cargo.toml
 fi
 
-cargo test --features axum --test axum_integration_tests
-cargo test --test compat_endpoint_tests -- --nocapture
-cargo test --test compat_coverage_tests -- --nocapture
-cargo test --test wire_compat_smoke_tests -- --nocapture
-cargo test --test client_compat_tests phase3_client_compat -- --ignored --nocapture
-cargo test --test client_compat_tests phase5_client_compat -- --ignored --nocapture
-cargo test --test client_compat_tests full_client_compat -- --ignored --nocapture
+cargo test --locked --features axum --test axum_integration_tests
+cargo test --locked --test compat_endpoint_tests -- --nocapture
+cargo test --locked --test compat_coverage_tests -- --nocapture
+cargo test --locked --test wire_compat_smoke_tests -- --nocapture
+cargo test --locked --test client_compat_tests phase3_client_compat -- --ignored --nocapture
+cargo test --locked --test client_compat_tests phase5_client_compat -- --ignored --nocapture
+cargo test --locked --test client_compat_tests full_client_compat -- --ignored --nocapture
