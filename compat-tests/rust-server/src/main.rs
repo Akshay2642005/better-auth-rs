@@ -1,8 +1,8 @@
 use axum::{
+    Json, Router,
     extract::Query,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use better_auth::__private_core::AuthContext as InternalAuthContext;
 use better_auth::integrations::axum::AxumIntegration;
@@ -12,17 +12,18 @@ use better_auth::plugins::api_key::{
     VerifyApiKey,
 };
 use better_auth::plugins::{
+    AccountManagementPlugin, AdminPlugin, ApiKeyPlugin, DeviceAuthorizationPlugin,
+    EmailPasswordPlugin, EmailVerificationPlugin, OAuthPlugin, OrganizationPlugin, PasskeyPlugin,
+    PasswordManagementPlugin, SendTwoFactorOtp, SessionManagementPlugin, TwoFactorPlugin,
+    UserManagementPlugin,
     email_verification::SendVerificationEmail,
     oauth::{
         OAuthIdTokenVerifier, OAuthProvider, OAuthRefreshTokenHandler, OAuthTokenSet,
         OAuthUserInfo, OAuthUserInfoHandler, OAuthUserInfoRequest, OAuthUserInfoResponse,
     },
+    organization::{InvitationEmail, SendInvitationEmail},
     password_management::SendResetPassword,
     user_management::SendChangeEmailConfirmation,
-    AccountManagementPlugin, AdminPlugin, ApiKeyPlugin, DeviceAuthorizationPlugin,
-    EmailPasswordPlugin, EmailVerificationPlugin, OAuthPlugin, OrganizationPlugin, PasskeyPlugin,
-    PasswordManagementPlugin, SendTwoFactorOtp, SessionManagementPlugin, TwoFactorPlugin,
-    UserManagementPlugin,
 };
 use better_auth::prelude::{AuthAccount, AuthUser, CreateAccount, CreateVerification};
 use better_auth::wire::UserView;
@@ -50,6 +51,16 @@ struct VerifyApiKeyBody {
     permissions: Option<serde_json::Value>,
 }
 
+#[derive(Deserialize)]
+struct InvitationIdBody {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct InvitationSenderModeBody {
+    fail: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResetPasswordMode {
     Capture,
@@ -66,6 +77,28 @@ enum OAuthRefreshMode {
 struct CompatResetSender {
     outbox: Arc<Mutex<HashMap<String, String>>>,
     mode: Arc<Mutex<ResetPasswordMode>>,
+}
+
+struct CompatInvitationSender {
+    outbox: Arc<Mutex<Vec<serde_json::Value>>>,
+    fails: Arc<Mutex<bool>>,
+}
+
+#[async_trait::async_trait]
+impl SendInvitationEmail for CompatInvitationSender {
+    async fn send(&self, email: &InvitationEmail) -> better_auth::AuthResult<()> {
+        if *self.fails.lock().await {
+            return Err(better_auth::AuthError::internal(
+                "compat invitation sender failure",
+            ));
+        }
+        self.outbox.lock().await.push(serde_json::json!({
+            "id": email.invitation.id,
+            "email": email.invitation.email,
+            "role": email.invitation.role,
+        }));
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -517,6 +550,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let verification_outbox = Arc::new(Mutex::new(HashMap::new()));
     let change_email_outbox = Arc::new(Mutex::new(HashMap::new()));
     let two_factor_otp_outbox = Arc::new(Mutex::new(HashMap::new()));
+    let invitation_email_outbox = Arc::new(Mutex::new(Vec::new()));
+    let invitation_sender_fails = Arc::new(Mutex::new(false));
     let reset_password_mode = Arc::new(Mutex::new(ResetPasswordMode::Capture));
     let oauth_refresh_mode = Arc::new(Mutex::new(OAuthRefreshMode::Success));
     let social_profile = Arc::new(Mutex::new(default_social_profile()));
@@ -563,12 +598,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         AuthBuilder::<TestSchema>::new(config)
             .store(store)
             .rate_limit(RateLimitConfig::new().enabled(false))
-            .plugin(EmailPasswordPlugin::new().enable_signup(true).username(true))
+            .plugin(
+                EmailPasswordPlugin::new()
+                    .enable_signup(true)
+                    .username(true),
+            )
             .plugin(SessionManagementPlugin::new())
             .plugin(AccountManagementPlugin::new())
             .plugin(DeviceAuthorizationPlugin::new())
             .plugin(api_key_plugin.clone())
-            .plugin(OrganizationPlugin::new())
+            .plugin(
+                OrganizationPlugin::new().custom_send_invitation_email(Arc::new(
+                    CompatInvitationSender {
+                        outbox: invitation_email_outbox.clone(),
+                        fails: invitation_sender_fails.clone(),
+                    },
+                )),
+            )
             .plugin(AdminPlugin::new())
             .plugin(PasskeyPlugin::new())
             .plugin(
@@ -615,6 +661,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let change_email_outbox_for_reset = change_email_outbox.clone();
     let two_factor_otp_outbox_for_get = two_factor_otp_outbox.clone();
     let two_factor_otp_outbox_for_reset = two_factor_otp_outbox.clone();
+    let invitation_email_outbox_for_get = invitation_email_outbox.clone();
+    let invitation_email_outbox_for_reset = invitation_email_outbox.clone();
+    let invitation_sender_fails_for_set = invitation_sender_fails.clone();
+    let invitation_sender_fails_for_reset = invitation_sender_fails.clone();
     let reset_mode_for_reset = reset_password_mode.clone();
     let reset_mode_for_set = reset_password_mode.clone();
     let oauth_mode_for_reset = oauth_refresh_mode.clone();
@@ -636,6 +686,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let auth_for_oauth_seed = auth.clone();
     let auth_for_promote_admin = auth.clone();
     let auth_for_view_backup_codes = auth.clone();
+    let auth_for_invitation_expiry = auth.clone();
     let two_factor_plugin_for_view_backup_codes = two_factor_plugin.clone();
 
     let auth_for_api_key_create = auth.clone();
@@ -715,6 +766,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             )
                                 .into_response()
                         }
+                    }
+                }
+            }),
+        )
+        .route(
+            "/__test/invitation-sender-mode",
+            post(move |Json(body): Json<InvitationSenderModeBody>| {
+                let fails = invitation_sender_fails_for_set.clone();
+                async move {
+                    *fails.lock().await = body.fail;
+                    Json(serde_json::json!({ "status": true }))
+                }
+            }),
+        )
+        .route(
+            "/__test/invitation-emails",
+            get(move |Query(query): Query<EmailQuery>| {
+                let outbox = invitation_email_outbox_for_get.clone();
+                async move {
+                    Json(
+                        outbox
+                            .lock()
+                            .await
+                            .iter()
+                            .filter(|record| record["email"] == query.email)
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                    )
+                }
+            }),
+        )
+        .route(
+            "/__test/shorten-invitation-expiry",
+            post(move |Json(body): Json<InvitationIdBody>| {
+                let auth = auth_for_invitation_expiry.clone();
+                async move {
+                    let expires_at = Utc::now() + chrono::Duration::hours(1);
+                    match auth
+                        .store()
+                        .update_invitation_expiry(&body.id, expires_at)
+                        .await
+                    {
+                        Ok(invitation) => {
+                            Json(serde_json::json!({ "expiresAt": invitation.expires_at }))
+                                .into_response()
+                        }
+                        Err(error) => (
+                            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({ "message": error.to_string() })),
+                        )
+                            .into_response(),
                     }
                 }
             }),
@@ -838,6 +940,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let verification_outbox = verification_outbox_for_reset.clone();
                 let change_email_outbox = change_email_outbox_for_reset.clone();
                 let two_factor_otp_outbox = two_factor_otp_outbox_for_reset.clone();
+                let invitation_email_outbox = invitation_email_outbox_for_reset.clone();
+                let invitation_sender_fails = invitation_sender_fails_for_reset.clone();
                 let reset_mode = reset_mode_for_reset.clone();
                 let oauth_mode = oauth_mode_for_reset.clone();
                 let social_profile = social_profile_for_reset.clone();
@@ -855,6 +959,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     verification_outbox.lock().await.clear();
                     change_email_outbox.lock().await.clear();
                     two_factor_otp_outbox.lock().await.clear();
+                    invitation_email_outbox.lock().await.clear();
+                    *invitation_sender_fails.lock().await = false;
                     *reset_mode.lock().await = ResetPasswordMode::Capture;
                     *oauth_mode.lock().await = OAuthRefreshMode::Success;
                     *social_profile.lock().await = default_social_profile();
@@ -1258,7 +1364,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             return (
                                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                                 Json(serde_json::json!({ "message": error.to_string() })),
-                            )
+                            );
                         }
                     };
 

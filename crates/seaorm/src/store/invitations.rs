@@ -83,6 +83,22 @@ where
             .map_err(map_db_err)
     }
 
+    async fn update_invitation_expiry(
+        &self,
+        id: &str,
+        expires_at: chrono::DateTime<Utc>,
+    ) -> AuthResult<Invitation> {
+        ActiveModel {
+            id: Set(id.to_owned()),
+            expires_at: Set(expires_at),
+            ..Default::default()
+        }
+        .update(self.connection())
+        .await
+        .map(|model| Invitation::from(&model))
+        .map_err(map_db_err)
+    }
+
     async fn list_organization_invitations(
         &self,
         organization_id: &str,

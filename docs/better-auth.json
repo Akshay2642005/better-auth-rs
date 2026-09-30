@@ -602,6 +602,18 @@
         "tags": ["Organization"]
       }
     },
+    "/organization/get-organization": {
+      "get": {
+        "operationId": "get_organization",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "summary": "get organization",
+        "tags": ["Organization"]
+      }
+    },
     "/organization/has-permission": {
       "post": {
         "operationId": "has_permission",

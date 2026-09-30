@@ -443,6 +443,45 @@ pub async fn handle_list_organizations(
     Ok(AuthResponse::json(200, &organizations)?)
 }
 
+/// Get organization metadata for a member, without expanding members or invitations.
+pub async fn handle_get_organization(
+    req: &AuthRequest,
+    ctx: &AuthContext<impl better_auth_core::AuthSchema>,
+) -> AuthResult<AuthResponse> {
+    let (user, session) = require_session(req, ctx).await?;
+    let nonempty = |key: &str| req.query.get(key).filter(|value| !value.is_empty());
+    let organization = if let Some(slug) = nonempty("organizationSlug") {
+        ctx.database.get_organization_by_slug(slug).await?
+    } else if let Some(id) = nonempty("organizationId")
+        .map(String::as_str)
+        .or(session.active_organization_id())
+    {
+        ctx.database.get_organization_by_id(id).await?
+    } else {
+        return Ok(AuthResponse::json(200, &serde_json::Value::Null)?);
+    }
+    .ok_or_else(|| AuthError::bad_request("Organization not found"))?;
+
+    if ctx
+        .database
+        .get_member(&organization.id(), &user.id())
+        .await?
+        .is_none()
+    {
+        _ = ctx
+            .database
+            .update_session_active_organization(session.token(), None)
+            .await?;
+        return Err(AuthError::forbidden(
+            "User is not a member of the organization",
+        ));
+    }
+    Ok(AuthResponse::json(
+        200,
+        &OrganizationResponse::from_organization(&organization),
+    )?)
+}
+
 /// Handle get full organization request
 pub async fn handle_get_full_organization(
     req: &AuthRequest,
@@ -534,6 +573,7 @@ mod tests {
             invitation_limit: Some(100),
             disable_organization_deletion: false,
             roles: HashMap::new(),
+            send_invitation_email: None,
         }
     }
 

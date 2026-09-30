@@ -42,6 +42,8 @@ const resetPasswordOutbox = new Map<string, { url: string; token: string }>();
 const verificationEmailOutbox = new Map<string, { url: string; token: string }>();
 const changeEmailOutbox = new Map<string, { newEmail: string; url: string; token: string }>();
 const twoFactorOtpOutbox = new Map<string, { otp: string }>();
+const invitationEmailOutbox: { id: string; email: string; role: string }[] = [];
+let invitationSenderFails = false;
 let resetPasswordMode: "capture" | "throw" = "capture";
 let oauthRefreshMode: "success" | "error" = "success";
 type SocialProfile = {
@@ -327,7 +329,13 @@ const authOptions = {
       { configId: "organization", references: "organization", enableMetadata: true },
     ]),
     deviceAuthorization(),
-    organization(),
+    organization({
+      async sendInvitationEmail({ id, email, role }) {
+        await Promise.resolve();
+        if (invitationSenderFails) throw new Error("compat invitation sender failure");
+        invitationEmailOutbox.push({ id, email, role });
+      },
+    }),
     passkey(),
     twoFactor({
       otpOptions: {
@@ -418,12 +426,35 @@ const server = Bun.serve({
         verificationEmailOutbox.clear();
         changeEmailOutbox.clear();
         twoFactorOtpOutbox.clear();
+        invitationEmailOutbox.length = 0;
+        invitationSenderFails = false;
         resetPasswordMode = "capture";
         oauthRefreshMode = "success";
         socialProfile = defaultSocialProfile();
         socialIdTokenValid = true;
         githubProfile = defaultGitHubProfile();
         return jsonResponse({ status: true });
+      }
+
+      if (url.pathname === "/__test/invitation-emails" && request.method === "GET") {
+        return jsonResponse(invitationEmailOutbox.filter((record) => record.email === url.searchParams.get("email")));
+      }
+
+      if (url.pathname === "/__test/invitation-sender-mode" && request.method === "POST") {
+        const body = await readJson(request) as { fail: boolean };
+        invitationSenderFails = body.fail;
+        return jsonResponse({ status: true });
+      }
+
+      if (url.pathname === "/__test/shorten-invitation-expiry" && request.method === "POST") {
+        const body = await readJson(request) as { id: string };
+        const expiresAt = new Date(Date.now() + 3600_000);
+        await authContext.adapter.update({
+          model: "invitation",
+          where: [{ field: "id", value: body.id }],
+          update: { expiresAt },
+        });
+        return jsonResponse({ expiresAt });
       }
 
       if (url.pathname === "/__test/verification-email" && request.method === "GET") {

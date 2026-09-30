@@ -192,6 +192,12 @@ pub trait InvitationStore: Send + Sync {
         id: &str,
         status: InvitationStatus,
     ) -> AuthResult<Invitation>;
+    /// Renew an invitation without changing its identity, role, or inviter.
+    async fn update_invitation_expiry(
+        &self,
+        id: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> AuthResult<Invitation>;
     async fn list_organization_invitations(&self, org_id: &str) -> AuthResult<Vec<Invitation>>;
     /// Count still-pending, unexpired invitations for an organization.
     async fn count_pending_organization_invitations(&self, org_id: &str) -> AuthResult<i64>;

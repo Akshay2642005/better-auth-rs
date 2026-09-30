@@ -158,6 +158,9 @@ pub struct InviteMemberRequest {
     pub role: RoleInput,
     #[serde(rename = "organizationId")]
     pub organization_id: Option<String>,
+    /// Renew and send an existing pending invitation.
+    #[serde(default)]
+    pub resend: bool,
 }
 
 #[derive(Debug, Deserialize, Validate)]

@@ -587,6 +587,13 @@ impl InvitationStore for MemoryStore {
     async fn list_organization_invitations(&self, _org_id: &str) -> AuthResult<Vec<Invitation>> {
         Ok(Vec::new())
     }
+    async fn update_invitation_expiry(
+        &self,
+        _id: &str,
+        _expires_at: DateTime<Utc>,
+    ) -> AuthResult<Invitation> {
+        Err(AuthError::internal("unsupported test-store operation"))
+    }
     async fn count_pending_organization_invitations(&self, _org_id: &str) -> AuthResult<i64> {
         Ok(0)
     }

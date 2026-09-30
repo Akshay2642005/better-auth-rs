@@ -118,6 +118,7 @@ const V1_DOCS_PATHS: &[(&str, &str)] = &[
     ("/organization/update", ORGANIZATION_TAG),
     ("/organization/delete", ORGANIZATION_TAG),
     ("/organization/get-full-organization", ORGANIZATION_TAG),
+    ("/organization/get-organization", ORGANIZATION_TAG),
     ("/organization/set-active", ORGANIZATION_TAG),
     ("/organization/list", ORGANIZATION_TAG),
     ("/organization/list-members", ORGANIZATION_TAG),
