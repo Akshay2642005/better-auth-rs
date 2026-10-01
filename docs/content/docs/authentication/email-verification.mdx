@@ -10,32 +10,46 @@ The `EmailVerificationPlugin` handles sending verification emails and validating
 These examples assume you've already defined `AppAuthSchema`. If you want a complete setup from entity definitions through Axum mounting, start with the [Axum integration guide](/docs/integrations/axum).
 
 ```rust
-use chrono::Duration;
-use better_auth::plugins::EmailVerificationPlugin;
-use better_auth::email::ConsoleEmailProvider;
+use std::sync::Arc;
+use better_auth::{AuthError, AuthResult, BetterAuth};
+use better_auth::email::{ConsoleEmailProvider, EmailProvider};
+use better_auth::plugins::{EmailVerificationPlugin, SendVerificationEmail};
+use better_auth::prelude::UserView;
+
+struct VerificationEmail;
+
+#[async_trait::async_trait]
+impl SendVerificationEmail for VerificationEmail {
+    async fn send(&self, user: &UserView, url: &str, _token: &str) -> AuthResult<()> {
+        let email = user.email.as_deref().ok_or_else(|| AuthError::bad_request("Email is required"))?;
+        ConsoleEmailProvider
+            .send(email, "Verify your email", "", url)
+            .await
+    }
+}
 
 let auth = BetterAuth::<AppAuthSchema>::new(config)
     .store(store)
-    .email_provider(ConsoleEmailProvider) // Required for sending emails
     .plugin(
         EmailVerificationPlugin::new()
-            .verification_token_expiry(Duration::hours(24))
-            .auto_verify_new_users(false)
+            .custom_send_verification_email(Arc::new(VerificationEmail))
     )
     .build()
     .await?;
 ```
 
-An [email provider](/docs/concepts/configuration) must be configured for this plugin to send emails. Without one, calling `send-verification-email` will return an error.
+Configure a `SendVerificationEmail` callback for `/send-verification-email`. Setting only the global `EmailProvider` does not enable that endpoint. The example uses `ConsoleEmailProvider` inside the callback for local development.
 
 ### Plugin Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `verification_token_expiry` | `chrono::Duration` | `Duration::hours(24)` | How long verification tokens stay valid |
-| `send_email_notifications` | `bool` | `true` | Actually send the email |
-| `require_verification_for_signin` | `bool` | `false` | Block sign-in for unverified emails |
-| `auto_verify_new_users` | `bool` | `false` | Auto-verify on sign-up |
+| `send_email_notifications` | `bool` | `true` | Use the default email provider for sign-in notifications; custom callbacks are independent |
+| `require_verification_for_signin` | `bool` | `false` | Require verification for username sign-in when attached with `with_email_verification` |
+| `send_on_sign_in` | `bool` | `false` | Send to unverified users when attached with `EmailPasswordPlugin::with_email_verification` |
+| `send_on_sign_up` | `Option<bool>` | `None` | Send for new unverified OAuth users; `None` follows the provider's `require_email_verification` |
+| `auto_sign_in_after_verification` | `bool` | `false` | Create a session after verification |
 
 ## Send Verification Email
 
@@ -56,8 +70,7 @@ Content-Type: application/json
 
 ```json
 {
-  "status": true,
-  "description": "Verification email sent"
+  "status": true
 }
 ```
 
@@ -87,9 +100,13 @@ GET /verify-email?token=<verification_token>
 |--------|-----------|
 | 400 | Token missing, expired, or invalid |
 
-## Automatic Verification on Sign-Up
+## Sending After Sign-Up
 
-When `auto_verify_new_users` is enabled, the plugin listens to the `on_user_created` lifecycle event and automatically sends a verification email to newly registered users.
+Call `/send-verification-email` after a successful sign-up. Registering `EmailVerificationPlugin` does not automatically send mail when a user is created. Users become verified only after completing the verification flow.
+
+For Generic OAuth, attach the verification plugin with `OAuthPlugin::with_email_verification`. New unverified users follow `send_on_sign_up`; subsequent sign-ins send only when the provider requires email verification and `send_on_sign_in` is enabled. Sender failures are logged and preserve the verification decision, matching upstream. See [Generic OAuth / OIDC](/docs/plugins/oauth#generic-oauth--oidc).
+
+Use [SeaORM hooks](/docs/concepts/hooks) for application database operations associated with user creation.
 
 ## Email Provider
 
@@ -99,7 +116,7 @@ The `ConsoleEmailProvider` logs emails to stderr and is useful for development:
 [EMAIL] To: alice@example.com | Subject: Verify your email | Body: ...
 ```
 
-For production, implement the `EmailProvider` trait:
+For production, implement `EmailProvider` and call that provider from your `SendVerificationEmail` callback:
 
 ```rust
 use better_auth::email::EmailProvider;

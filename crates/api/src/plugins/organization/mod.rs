@@ -3,11 +3,32 @@ pub mod rbac;
 pub mod types;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use better_auth_core::entity::AuthSession;
 use better_auth_core::error::AuthResult;
 use better_auth_core::plugin::{AuthContext, AuthPlugin, AuthRoute};
 use better_auth_core::types::{AuthRequest, AuthResponse, HttpMethod};
+
+/// Data supplied when an invitation is created or resent.
+pub struct InvitationEmail {
+    /// The persisted invitation, including its current expiration.
+    pub invitation: better_auth_core::wire::InvitationView,
+    /// The organization receiving the invited member.
+    pub organization: better_auth_core::wire::OrganizationView,
+    /// The member sending the invitation.
+    pub member: better_auth_core::types::Member,
+    /// The user sending the invitation.
+    pub inviter: better_auth_core::wire::UserView,
+}
+
+/// Application callback for invitation email delivery.
+#[async_trait]
+pub trait SendInvitationEmail: Send + Sync {
+    /// Send the invitation email. The plugin logs delivery errors without failing the request.
+    async fn send(&self, email: &InvitationEmail) -> AuthResult<()>;
+}
 
 /// Permission definitions for a role
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -22,7 +43,7 @@ pub struct RolePermissions {
 }
 
 /// Configuration for the Organization plugin
-#[derive(Debug, Clone, better_auth_core::PluginConfig)]
+#[derive(Clone, better_auth_core::PluginConfig)]
 #[plugin(name = "OrganizationPlugin")]
 pub struct OrganizationConfig {
     /// Allow users to create organizations (default: true)
@@ -49,11 +70,47 @@ pub struct OrganizationConfig {
     /// Custom role definitions (extending default roles)
     #[config(default = HashMap::new(), skip)]
     pub roles: HashMap<String, RolePermissions>,
+    /// Optional delivery callback used for new and resent invitations.
+    #[config(default = None, skip)]
+    pub send_invitation_email: Option<Arc<dyn SendInvitationEmail>>,
+}
+
+impl std::fmt::Debug for OrganizationConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrganizationConfig")
+            .field(
+                "allow_user_to_create_organization",
+                &self.allow_user_to_create_organization,
+            )
+            .field("organization_limit", &self.organization_limit)
+            .field("membership_limit", &self.membership_limit)
+            .field("creator_role", &self.creator_role)
+            .field("invitation_expires_in", &self.invitation_expires_in)
+            .field("invitation_limit", &self.invitation_limit)
+            .field(
+                "disable_organization_deletion",
+                &self.disable_organization_deletion,
+            )
+            .field("roles", &self.roles)
+            .field(
+                "send_invitation_email",
+                &self.send_invitation_email.as_ref().map(|_| "custom"),
+            )
+            .finish()
+    }
 }
 
 /// Organization plugin for multi-tenancy support
 pub struct OrganizationPlugin {
     config: OrganizationConfig,
+}
+
+impl OrganizationPlugin {
+    /// Configure delivery for new and resent invitations.
+    pub fn custom_send_invitation_email(mut self, sender: Arc<dyn SendInvitationEmail>) -> Self {
+        self.config.send_invitation_email = Some(sender);
+        self
+    }
 }
 
 /// Metadata key announcing that the organization plugin is installed.
@@ -74,6 +131,7 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for OrganizationPlugin {
         &self,
         ctx: &mut better_auth_core::AuthInitContext<S>,
     ) -> better_auth_core::AuthResult<()> {
+        S::Session::require_plugin_fields("organization", &["active_organization_id"])?;
         ctx.set_metadata(METADATA_ENABLED, serde_json::Value::Bool(true));
         ctx.set_metadata(
             METADATA_ROLES,
@@ -93,6 +151,7 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for OrganizationPlugin {
             AuthRoute::post("/organization/update", "update_organization"),
             AuthRoute::post("/organization/delete", "delete_organization"),
             AuthRoute::get("/organization/list", "list_organizations"),
+            AuthRoute::get("/organization/get-organization", "get_organization"),
             AuthRoute::get(
                 "/organization/get-full-organization",
                 "get_full_organization",
@@ -143,6 +202,9 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for OrganizationPlugin {
             )),
             (HttpMethod::Get, "/organization/list") => Ok(Some(
                 handlers::org::handle_list_organizations(req, ctx).await?,
+            )),
+            (HttpMethod::Get, "/organization/get-organization") => Ok(Some(
+                handlers::org::handle_get_organization(req, ctx).await?,
             )),
             (HttpMethod::Get, "/organization/get-full-organization") => Ok(Some(
                 handlers::org::handle_get_full_organization(req, ctx, &self.config).await?,

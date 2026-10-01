@@ -1,31 +1,37 @@
 use axum::{
-    Json, Router,
     extract::Query,
     response::IntoResponse,
     routing::{get, post},
-};
-use better_auth::integrations::axum::AxumIntegration;
-use better_auth::middleware::RateLimitConfig;
-use better_auth::prelude::{AuthAccount, AuthUser, CreateAccount, CreateVerification};
-use better_auth::plugins::{
-    AccountManagementPlugin, AdminPlugin, ApiKeyPlugin, DeviceAuthorizationPlugin, EmailPasswordPlugin,
-    EmailVerificationPlugin, OAuthPlugin, OrganizationPlugin, PasskeyPlugin,
-    PasswordManagementPlugin, SessionManagementPlugin, UserManagementPlugin,
-    email_verification::SendVerificationEmail, user_management::SendChangeEmailConfirmation,
-    SendTwoFactorOtp, TwoFactorPlugin,
-    oauth::{
-        OAuthIdTokenVerifier, OAuthProvider, OAuthRefreshTokenHandler, OAuthTokenSet, OAuthUserInfo,
-        OAuthUserInfoHandler, OAuthUserInfoRequest, OAuthUserInfoResponse,
-    },
-    password_management::SendResetPassword,
+    Json, Router,
 };
 use better_auth::__private_core::AuthContext as InternalAuthContext;
+use better_auth::integrations::axum::AxumIntegration;
+use better_auth::middleware::RateLimitConfig;
+use better_auth::plugins::api_key::{
+    ApiKeyConfig, ApiKeyReferences, ApiKeyVerificationError, CreateKeyRequest, UpdateKeyRequest,
+    VerifyApiKey,
+};
+use better_auth::plugins::{
+    email_verification::SendVerificationEmail,
+    oauth::{
+        OAuthIdTokenVerifier, OAuthProvider, OAuthRefreshTokenHandler, OAuthTokenSet,
+        OAuthUserInfo, OAuthUserInfoHandler, OAuthUserInfoRequest, OAuthUserInfoResponse,
+    },
+    organization::{InvitationEmail, SendInvitationEmail},
+    password_management::SendResetPassword,
+    user_management::SendChangeEmailConfirmation,
+    AccountManagementPlugin, AdminPlugin, ApiKeyPlugin, DeviceAuthorizationPlugin,
+    EmailPasswordPlugin, EmailVerificationPlugin, OAuthPlugin, OrganizationPlugin, PasskeyPlugin,
+    PasswordManagementPlugin, SendTwoFactorOtp, SessionManagementPlugin, TwoFactorPlugin,
+    UserManagementPlugin,
+};
+use better_auth::prelude::{AuthAccount, AuthUser, CreateAccount, CreateVerification};
 use better_auth::wire::UserView;
 use better_auth::{AuthBuilder, AuthConfig};
 use better_auth_seaorm::sea_orm::{DatabaseConnection, DbErr, EntityTrait};
 use better_auth_seaorm::store::entities::{
-    account, api_key, device_code, invitation, member, organization, passkey, session,
-    two_factor, user, verification,
+    account, api_key, device_code, invitation, member, organization, passkey, session, two_factor,
+    user, verification,
 };
 use better_auth_seaorm::{Database, SeaOrmStore};
 use chrono::{DateTime, Utc};
@@ -35,8 +41,27 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-type TestSchema =
-    better_auth_seaorm::store::__private_test_support::bundled_schema::BundledSchema;
+mod oidc;
+
+type TestSchema = better_auth_seaorm::store::__private_test_support::bundled_schema::BundledSchema;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VerifyApiKeyBody {
+    key: String,
+    config_id: Option<String>,
+    permissions: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct InvitationIdBody {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct InvitationSenderModeBody {
+    fail: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResetPasswordMode {
@@ -54,6 +79,28 @@ enum OAuthRefreshMode {
 struct CompatResetSender {
     outbox: Arc<Mutex<HashMap<String, String>>>,
     mode: Arc<Mutex<ResetPasswordMode>>,
+}
+
+struct CompatInvitationSender {
+    outbox: Arc<Mutex<Vec<serde_json::Value>>>,
+    fails: Arc<Mutex<bool>>,
+}
+
+#[async_trait::async_trait]
+impl SendInvitationEmail for CompatInvitationSender {
+    async fn send(&self, email: &InvitationEmail) -> better_auth::AuthResult<()> {
+        if *self.fails.lock().await {
+            return Err(better_auth::AuthError::internal(
+                "compat invitation sender failure",
+            ));
+        }
+        self.outbox.lock().await.push(serde_json::json!({
+            "id": email.invitation.id,
+            "email": email.invitation.email,
+            "role": email.invitation.role,
+        }));
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -174,12 +221,7 @@ struct CompatVerificationSender {
 
 #[async_trait::async_trait]
 impl SendVerificationEmail for CompatVerificationSender {
-    async fn send(
-        &self,
-        user: &UserView,
-        url: &str,
-        token: &str,
-    ) -> better_auth::AuthResult<()> {
+    async fn send(&self, user: &UserView, url: &str, token: &str) -> better_auth::AuthResult<()> {
         if let Some(email) = user.email() {
             self.outbox.lock().await.insert(
                 email.to_string(),
@@ -311,7 +353,11 @@ impl OAuthRefreshTokenHandler for CompatGoogleRefreshHandler {
             refresh_token: Some("google-refresh-token".to_string()),
             access_token_expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
             refresh_token_expires_at: Some(Utc::now() + chrono::Duration::hours(2)),
-            scopes: vec!["openid".to_string(), "email".to_string(), "profile".to_string()],
+            scopes: vec![
+                "openid".to_string(),
+                "email".to_string(),
+                "profile".to_string(),
+            ],
             id_token: Some("google-id-token".to_string()),
             raw: None,
         })
@@ -412,8 +458,10 @@ fn mock_oauth_plugin(
             "mock",
             OAuthProvider {
                 client_id: "mock-client-id".to_string(),
+                end_session_endpoint: Some("https://idp.example.test/logout".to_string()),
+                post_logout_redirect_uri: None,
                 client_secret: "mock-client-secret".to_string(),
-                auth_url: format!("http://127.0.0.1:{port}/__test/oauth/authorize"),
+                auth_url: format!("http://localhost:{port}/__test/oauth/authorize"),
                 token_url: format!("http://127.0.0.1:{port}/__test/oauth/token"),
                 user_info_url: Some(format!("http://127.0.0.1:{port}/__test/oauth/userinfo")),
                 scopes: vec![
@@ -444,7 +492,7 @@ fn mock_oauth_plugin(
             OAuthProvider::github_with_endpoints(
                 "github-client-id",
                 "github-client-secret",
-                &format!("http://127.0.0.1:{port}/oauth/authorize"),
+                &format!("http://localhost:{port}/__test/oauth/authorize"),
                 &format!("http://127.0.0.1:{port}/__test/github/oauth/token"),
                 &format!("http://127.0.0.1:{port}/__test/github/user"),
                 &format!("http://127.0.0.1:{port}/__test/github/user/emails"),
@@ -454,8 +502,10 @@ fn mock_oauth_plugin(
             "google",
             OAuthProvider {
                 client_id: "google-client-id".to_string(),
+                end_session_endpoint: None,
+                post_logout_redirect_uri: None,
                 client_secret: "google-client-secret".to_string(),
-                auth_url: format!("http://127.0.0.1:{port}/oauth/authorize"),
+                auth_url: format!("http://localhost:{port}/__test/oauth/authorize"),
                 token_url: format!("http://127.0.0.1:{port}/__test/oauth/token"),
                 user_info_url: None,
                 scopes: vec![
@@ -492,11 +542,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(3200);
+    // Claim the selected port before discovery opens outbound connections.
+    let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
 
     let secret = "compat-test-only-key-not-real-minimum-32chars";
-    let config = AuthConfig::new(secret)
+    let device_profile = std::env::var("COMPAT_PROFILE").unwrap_or_default();
+    let mut config = AuthConfig::new(secret)
         .base_url(format!("http://localhost:{port}"))
         .password_min_length(8);
+    if device_profile == "device-bearer" {
+        config.session.bearer = Some(Default::default());
+    }
 
     let database = Database::connect("sqlite::memory:").await?;
     better_auth_seaorm::store::__private_test_support::migrator::run_migrations(&database).await?;
@@ -506,6 +562,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let verification_outbox = Arc::new(Mutex::new(HashMap::new()));
     let change_email_outbox = Arc::new(Mutex::new(HashMap::new()));
     let two_factor_otp_outbox = Arc::new(Mutex::new(HashMap::new()));
+    let invitation_email_outbox = Arc::new(Mutex::new(Vec::new()));
+    let invitation_sender_fails = Arc::new(Mutex::new(false));
     let reset_password_mode = Arc::new(Mutex::new(ResetPasswordMode::Capture));
     let oauth_refresh_mode = Arc::new(Mutex::new(OAuthRefreshMode::Success));
     let social_profile = Arc::new(Mutex::new(default_social_profile()));
@@ -517,16 +575,87 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         TwoFactorPlugin::new().custom_send_otp(Arc::new(CompatTwoFactorOtpSender {
             outbox: two_factor_otp_outbox.clone(),
         }));
+    let api_key_plugin = ApiKeyPlugin::builder()
+        .enable_metadata(true)
+        .key_length(
+            if std::env::var("COMPAT_PROFILE").as_deref() == Ok("api-key-zero") {
+                0
+            } else {
+                64
+            },
+        )
+        .build()
+        .configuration(ApiKeyConfig {
+            config_id: "secondary".to_string(),
+            enable_metadata: true,
+            ..ApiKeyConfig::default()
+        })
+        .configuration(ApiKeyConfig {
+            config_id: "organization".to_string(),
+            references: ApiKeyReferences::Organization,
+            enable_metadata: true,
+            ..ApiKeyConfig::default()
+        });
+    let api_key_plugin = api_key_plugin.configuration(ApiKeyConfig {
+        config_id: "session".to_string(),
+        enable_session_for_api_keys: true,
+        api_key_headers: vec!["x-api-key".to_string(), "x-machine-key".to_string()],
+        ..ApiKeyConfig::default()
+    });
+    let api_key_plugin =
+        ["shared-first", "shared-second"]
+            .into_iter()
+            .fold(api_key_plugin, |plugin, id| {
+                plugin.configuration(ApiKeyConfig {
+                    config_id: id.to_string(),
+                    enable_session_for_api_keys: true,
+                    api_key_headers: vec!["x-shared-key".to_string()],
+                    ..ApiKeyConfig::default()
+                })
+            });
+    let device_plugin = match device_profile.as_str() {
+        "device-rate-window" => {
+            DeviceAuthorizationPlugin::new().expires_in(chrono::Duration::seconds(2))
+        }
+        "device-custom" => {
+            DeviceAuthorizationPlugin::new().generate_user_code_with(|| "custom-code".to_string())
+        }
+        "device-collision" => {
+            let issued = std::sync::atomic::AtomicUsize::new(0);
+            DeviceAuthorizationPlugin::new().generate_user_code_with(move || {
+                match issued.fetch_add(1, std::sync::atomic::Ordering::Relaxed) {
+                    0..2 => "same-code".to_string(),
+                    2..6 => "next-code".to_string(),
+                    _ => "after-code".to_string(),
+                }
+            })
+        }
+        _ => DeviceAuthorizationPlugin::new(),
+    };
     let auth = Arc::new(
         AuthBuilder::<TestSchema>::new(config)
             .store(store)
-            .rate_limit(RateLimitConfig::new().enabled(false))
-            .plugin(EmailPasswordPlugin::new().enable_signup(true))
+            .rate_limit(RateLimitConfig::new().enabled(matches!(
+                device_profile.as_str(),
+                "device-rate-limit" | "device-rate-window"
+            )))
+            .plugin(
+                EmailPasswordPlugin::new()
+                    .enable_signup(true)
+                    .username(true),
+            )
             .plugin(SessionManagementPlugin::new())
             .plugin(AccountManagementPlugin::new())
-            .plugin(DeviceAuthorizationPlugin::new())
-            .plugin(ApiKeyPlugin::builder().enable_metadata(true).build())
-            .plugin(OrganizationPlugin::new())
+            .plugin(device_plugin)
+            .plugin(api_key_plugin.clone())
+            .plugin(
+                OrganizationPlugin::new().custom_send_invitation_email(Arc::new(
+                    CompatInvitationSender {
+                        outbox: invitation_email_outbox.clone(),
+                        fails: invitation_sender_fails.clone(),
+                    },
+                )),
+            )
             .plugin(AdminPlugin::new())
             .plugin(PasskeyPlugin::new())
             .plugin(
@@ -536,10 +665,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })),
             )
             .plugin(
-                EmailVerificationPlugin::new()
-                    .custom_send_verification_email(Arc::new(CompatVerificationSender {
+                EmailVerificationPlugin::new().custom_send_verification_email(Arc::new(
+                    CompatVerificationSender {
                         outbox: verification_outbox.clone(),
-                    })),
+                    },
+                )),
             )
             .plugin(
                 UserManagementPlugin::new()
@@ -552,12 +682,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .require_delete_verification(false),
             )
             .plugin(two_factor_plugin.clone())
-            .plugin(mock_oauth_plugin(
+            .plugin(oidc::configure(mock_oauth_plugin(
                 port,
                 social_profile.clone(),
                 social_id_token_valid.clone(),
                 oauth_refresh_mode.clone(),
-            ))
+            )))
             .build()
             .await?,
     );
@@ -572,6 +702,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let change_email_outbox_for_reset = change_email_outbox.clone();
     let two_factor_otp_outbox_for_get = two_factor_otp_outbox.clone();
     let two_factor_otp_outbox_for_reset = two_factor_otp_outbox.clone();
+    let invitation_email_outbox_for_get = invitation_email_outbox.clone();
+    let invitation_email_outbox_for_reset = invitation_email_outbox.clone();
+    let invitation_sender_fails_for_set = invitation_sender_fails.clone();
+    let invitation_sender_fails_for_reset = invitation_sender_fails.clone();
     let reset_mode_for_reset = reset_password_mode.clone();
     let reset_mode_for_set = reset_password_mode.clone();
     let oauth_mode_for_reset = oauth_refresh_mode.clone();
@@ -593,10 +727,141 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let auth_for_oauth_seed = auth.clone();
     let auth_for_promote_admin = auth.clone();
     let auth_for_view_backup_codes = auth.clone();
+    let auth_for_invitation_expiry = auth.clone();
     let two_factor_plugin_for_view_backup_codes = two_factor_plugin.clone();
+
+    let auth_for_api_key_create = auth.clone();
+    let auth_for_api_key_update = auth.clone();
+    let auth_for_api_key_verify = auth.clone();
+    let api_key_for_create = api_key_plugin.clone();
+    let api_key_for_update = api_key_plugin.clone();
 
     let app = Router::new()
         .route("/__health", get(health_check))
+        .route(
+            "/__test/api-key/create",
+            post(move |Json(body): Json<CreateKeyRequest>| {
+                let auth = auth_for_api_key_create.clone();
+                let plugin = api_key_for_create.clone();
+                async move {
+                    let ctx = auth.context();
+                    match plugin.create_key(ctx, &body).await {
+                        Ok(key) => Json(serde_json::to_value(key).unwrap()).into_response(),
+                        Err(error) => (
+                            axum::http::StatusCode::from_u16(error.status_code()).unwrap(),
+                            Json(serde_json::json!({ "message": error.to_string() })),
+                        )
+                            .into_response(),
+                    }
+                }
+            }),
+        )
+        .route(
+            "/__test/api-key/update",
+            post(move |Json(body): Json<UpdateKeyRequest>| {
+                let auth = auth_for_api_key_update.clone();
+                let plugin = api_key_for_update.clone();
+                async move {
+                    let ctx = auth.context();
+                    match plugin.update_key(ctx, &body).await {
+                        Ok(key) => Json(serde_json::to_value(key).unwrap()).into_response(),
+                        Err(error) => (
+                            axum::http::StatusCode::from_u16(error.status_code()).unwrap(),
+                            Json(serde_json::json!({ "message": error.to_string() })),
+                        )
+                            .into_response(),
+                    }
+                }
+            }),
+        )
+        .route(
+            "/__test/api-key/verify",
+            post(move |Json(body): Json<VerifyApiKeyBody>| {
+                let auth = auth_for_api_key_verify.clone();
+                let plugin = api_key_plugin.clone();
+                async move {
+                    let ctx = auth.context();
+                    let input = VerifyApiKey {
+                        key: &body.key,
+                        config_id: body.config_id.as_deref(),
+                        permissions: body.permissions.as_ref(),
+                    };
+                    match plugin.verify_api_key(&input, ctx).await {
+                        Ok(key) => {
+                            Json(serde_json::json!({ "valid": true, "error": null, "key": key }))
+                                .into_response()
+                        }
+                        Err(ApiKeyVerificationError::Validation(error)) => {
+                            Json(serde_json::json!({
+                                "valid": false, "error": error, "key": null,
+                            }))
+                            .into_response()
+                        }
+                        Err(ApiKeyVerificationError::Internal(error)) => {
+                            tracing::error!(%error, "API key verification failed");
+                            (
+                                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(serde_json::json!({
+                                    "message": error.to_string(),
+                                })),
+                            )
+                                .into_response()
+                        }
+                    }
+                }
+            }),
+        )
+        .route(
+            "/__test/invitation-sender-mode",
+            post(move |Json(body): Json<InvitationSenderModeBody>| {
+                let fails = invitation_sender_fails_for_set.clone();
+                async move {
+                    *fails.lock().await = body.fail;
+                    Json(serde_json::json!({ "status": true }))
+                }
+            }),
+        )
+        .route(
+            "/__test/invitation-emails",
+            get(move |Query(query): Query<EmailQuery>| {
+                let outbox = invitation_email_outbox_for_get.clone();
+                async move {
+                    Json(
+                        outbox
+                            .lock()
+                            .await
+                            .iter()
+                            .filter(|record| record["email"] == query.email)
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                    )
+                }
+            }),
+        )
+        .route(
+            "/__test/shorten-invitation-expiry",
+            post(move |Json(body): Json<InvitationIdBody>| {
+                let auth = auth_for_invitation_expiry.clone();
+                async move {
+                    let expires_at = Utc::now() + chrono::Duration::hours(1);
+                    match auth
+                        .store()
+                        .update_invitation_expiry(&body.id, expires_at)
+                        .await
+                    {
+                        Ok(invitation) => {
+                            Json(serde_json::json!({ "expiresAt": invitation.expires_at }))
+                                .into_response()
+                        }
+                        Err(error) => (
+                            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({ "message": error.to_string() })),
+                        )
+                            .into_response(),
+                    }
+                }
+            }),
+        )
         .route(
             "/__test/verification-email",
             get(move |Query(query): Query<EmailQuery>| {
@@ -659,7 +924,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(move |Query(query): Query<EmailQuery>| {
                 let two_factor_otp_outbox = two_factor_otp_outbox_for_get.clone();
                 async move {
-                    let record = two_factor_otp_outbox.lock().await.get(&query.email).cloned();
+                    let record = two_factor_otp_outbox
+                        .lock()
+                        .await
+                        .get(&query.email)
+                        .cloned();
                     match record {
                         Some(otp) => (
                             axum::http::StatusCode::OK,
@@ -712,6 +981,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let verification_outbox = verification_outbox_for_reset.clone();
                 let change_email_outbox = change_email_outbox_for_reset.clone();
                 let two_factor_otp_outbox = two_factor_otp_outbox_for_reset.clone();
+                let invitation_email_outbox = invitation_email_outbox_for_reset.clone();
+                let invitation_sender_fails = invitation_sender_fails_for_reset.clone();
                 let reset_mode = reset_mode_for_reset.clone();
                 let oauth_mode = oauth_mode_for_reset.clone();
                 let social_profile = social_profile_for_reset.clone();
@@ -729,6 +1000,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     verification_outbox.lock().await.clear();
                     change_email_outbox.lock().await.clear();
                     two_factor_otp_outbox.lock().await.clear();
+                    invitation_email_outbox.lock().await.clear();
+                    *invitation_sender_fails.lock().await = false;
                     *reset_mode.lock().await = ResetPasswordMode::Capture;
                     *oauth_mode.lock().await = OAuthRefreshMode::Success;
                     *social_profile.lock().await = default_social_profile();
@@ -786,12 +1059,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
 
-                    if let Err(error) = auth.store().create_verification(CreateVerification {
-                        identifier: format!("reset-password:{}", body.token),
-                        value: user.id.to_string(),
-                        expires_at,
-                    })
-                    .await
+                    if let Err(error) = auth
+                        .store()
+                        .create_verification(CreateVerification {
+                            identifier: format!("reset-password:{}", body.token),
+                            value: user.id.to_string(),
+                            expires_at,
+                        })
+                        .await
                     {
                         return (
                             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -837,12 +1112,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
 
-                    if let Err(error) = auth.store().create_verification(CreateVerification {
-                        identifier: format!("delete-account-{}", body.token),
-                        value: user.id.to_string(),
-                        expires_at,
-                    })
-                    .await
+                    if let Err(error) = auth
+                        .store()
+                        .create_verification(CreateVerification {
+                            identifier: format!("delete-account-{}", body.token),
+                            value: user.id.to_string(),
+                            expires_at,
+                        })
+                        .await
                     {
                         return (
                             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -891,8 +1168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     for account in accounts {
                         if account.provider_id() == "credential" {
-                            if let Err(error) = auth.store().delete_account(&account.id()).await
-                            {
+                            if let Err(error) = auth.store().delete_account(&account.id()).await {
                                 return (
                                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                                     Json(serde_json::json!({ "message": error.to_string() })),
@@ -1053,8 +1329,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
 
                     let provider_id = body.provider_id.unwrap_or_else(|| "mock".to_string());
-                    let account_id =
-                        body.account_id.unwrap_or_else(|| "mock-account-id".to_string());
+                    let account_id = body
+                        .account_id
+                        .unwrap_or_else(|| "mock-account-id".to_string());
                     let access_token_expires_at = match body
                         .access_token_expires_at
                         .as_deref()
@@ -1095,7 +1372,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
                     for account in accounts {
-                        if account.provider_id() == provider_id && account.account_id() == account_id
+                        if account.provider_id() == provider_id
+                            && account.account_id() == account_id
                         {
                             if let Err(error) = auth.store().delete_account(&account.id()).await {
                                 return (
@@ -1106,29 +1384,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
 
-                    if let Err(error) = auth.store().create_account(CreateAccount {
-                        user_id: user.id.to_string(),
-                        account_id,
-                        provider_id,
-                        access_token: body.access_token,
-                        refresh_token: body.refresh_token,
-                        id_token: body.id_token,
-                        access_token_expires_at,
-                        refresh_token_expires_at,
-                        scope: body.scope,
-                        password: None,
-                    })
-                    .await
+                    let account = match auth
+                        .store()
+                        .create_account(CreateAccount {
+                            user_id: user.id.to_string(),
+                            account_id,
+                            provider_id,
+                            access_token: body.access_token,
+                            refresh_token: body.refresh_token,
+                            id_token: body.id_token,
+                            access_token_expires_at,
+                            refresh_token_expires_at,
+                            scope: body.scope,
+                            password: None,
+                        })
+                        .await
                     {
-                        return (
-                            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({ "message": error.to_string() })),
-                        );
-                    }
+                        Ok(account) => account,
+                        Err(error) => {
+                            return (
+                                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(serde_json::json!({ "message": error.to_string() })),
+                            );
+                        }
+                    };
 
                     (
                         axum::http::StatusCode::OK,
-                        Json(serde_json::json!({ "status": true })),
+                        Json(serde_json::json!({ "status": true, "accountId": account.id() })),
                     )
                 }
             }),
@@ -1241,7 +1524,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Json(serde_json::json!({
                             "access_token": "new-access-token",
                             "refresh_token": "new-refresh-token",
-                            "id_token": "new-id-token",
+                            "id_token": "mock-id-token",
                             "expires_in": 3600,
                             "refresh_token_expires_in": 7200,
                             "scope": "openid,email,profile",
@@ -1265,11 +1548,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/api/auth", auth_router)
         .with_state(auth);
 
-    let addr = format!("0.0.0.0:{port}");
     println!("[rust-server] Listening on http://localhost:{port}");
     println!("READY");
 
-    let listener = TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())

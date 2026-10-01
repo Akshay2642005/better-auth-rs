@@ -2,7 +2,38 @@ use better_auth_schema_registry::{self as registry, EntityRole};
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, LitStr};
+use syn::{
+    Attribute, Data, DeriveInput, Expr, Fields, Lit, LitStr, Meta, Token, punctuated::Punctuated,
+};
+
+fn serde_serialized_name(attrs: &[Attribute], key: &str) -> syn::Result<Option<String>> {
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("serde")) {
+        for meta in attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)? {
+            if !meta.path().is_ident(key) {
+                continue;
+            }
+            let value = match meta {
+                Meta::NameValue(value) => Some(value.value),
+                Meta::List(list) => list
+                    .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)?
+                    .into_iter()
+                    .find_map(|meta| match meta {
+                        Meta::NameValue(value) if value.path.is_ident("serialize") => {
+                            Some(value.value)
+                        }
+                        _ => None,
+                    }),
+                Meta::Path(_) => None,
+            };
+            if let Some(Expr::Lit(value)) = value
+                && let Lit::Str(value) = value.lit
+            {
+                return Ok(Some(value.value()));
+            }
+        }
+    }
+    Ok(None)
+}
 
 fn found_crate_tokens(name: &str) -> Option<TokenStream> {
     match crate_name(name).ok()? {
@@ -100,10 +131,50 @@ pub(crate) fn derive_auth_entity(input: &DeriveInput) -> TokenStream {
         .collect();
 
     let ident = &input.ident;
+    let extra_updates = (|| -> syn::Result<Vec<TokenStream>> {
+        let rule = serde_serialized_name(&input.attrs, "rename_all")?
+            .map(|rule| {
+                serde_rename_rule::RenameRule::from_rename_all_str(&rule)
+                    .map_err(|error| syn::Error::new_spanned(input, error.to_string()))
+            })
+            .transpose()?;
+        let mut updates = Vec::new();
+        for field in &fields.named {
+            let Some(ident) = &field.ident else {
+                continue;
+            };
+            if all_known.iter().any(|known| ident == known) {
+                continue;
+            }
+            let name = serde_serialized_name(&field.attrs, "rename")?.unwrap_or_else(|| {
+                rule.as_ref().map_or_else(
+                    || ident.to_string(),
+                    |rule| rule.apply_to_field(&ident.to_string()),
+                )
+            });
+            updates.push(quote! {
+                #name => active.#ident = #seaorm_root::sea_orm::ActiveValue::Set(
+                    #core_root::serde_json::from_value(value)?,
+                ),
+            });
+        }
+        Ok(updates)
+    })();
+    let extra_updates = match extra_updates {
+        Ok(updates) => updates,
+        Err(error) => return error.to_compile_error(),
+    };
 
     match role {
         EntityRole::User => gen_user(ident, &has, &extra_not_set, &seaorm_root, &core_root),
-        EntityRole::Session => gen_session(ident, &has, &extra_not_set, &seaorm_root, &core_root),
+        EntityRole::Session => gen_session(
+            ident,
+            &has,
+            &extra_not_set,
+            &extra_updates,
+            &seaorm_root,
+            &core_root,
+        ),
         EntityRole::Account => gen_account(ident, &extra_not_set, &seaorm_root, &core_root),
         EntityRole::Verification => {
             gen_verification(ident, &extra_not_set, &seaorm_root, &core_root)
@@ -118,6 +189,11 @@ fn gen_user(
     seaorm_root: &TokenStream,
     core_root: &TokenStream,
 ) -> TokenStream {
+    let plugin_fields: Vec<_> = registry::plugin_field_names(EntityRole::User)
+        .into_iter()
+        .filter(|name| has(name))
+        .collect();
+
     // AuthUser trait — plugin fields return defaults when absent
     let username_impl = if has("username") {
         quote! { fn username(&self) -> Option<&str> { self.username.as_deref() } }
@@ -150,22 +226,22 @@ fn gen_user(
         quote! { fn ban_reason(&self) -> Option<&str> { None } }
     };
     let ban_expires_impl = if has("ban_expires") {
-        quote! { fn ban_expires(&self) -> Option<::chrono::DateTime<::chrono::Utc>> { self.ban_expires } }
+        quote! { fn ban_expires(&self) -> Option<#seaorm_root::sea_orm::entity::prelude::DateTimeUtc> { self.ban_expires } }
     } else {
-        quote! { fn ban_expires(&self) -> Option<::chrono::DateTime<::chrono::Utc>> { None } }
+        quote! { fn ban_expires(&self) -> Option<#seaorm_root::sea_orm::entity::prelude::DateTimeUtc> { None } }
     };
     let metadata_impl = if has("metadata") {
-        quote! { fn metadata(&self) -> &::serde_json::Value { &self.metadata } }
+        quote! { fn metadata(&self) -> &#seaorm_root::sea_orm::entity::prelude::Json { &self.metadata } }
     } else {
-        quote! { fn metadata(&self) -> &::serde_json::Value {
-            static EMPTY: ::std::sync::LazyLock<::serde_json::Value> =
-                ::std::sync::LazyLock::new(|| ::serde_json::json!({}));
+        quote! { fn metadata(&self) -> &#seaorm_root::sea_orm::entity::prelude::Json {
+            static EMPTY: ::std::sync::LazyLock<#seaorm_root::sea_orm::entity::prelude::Json> =
+                ::std::sync::LazyLock::new(|| #seaorm_root::sea_orm::entity::prelude::Json::Object(::std::default::Default::default()));
             &EMPTY
         } }
     };
 
     // new_active — plugin fields get Set(default) when present, omitted when absent
-    let plugin_new_active = plugin_set_fields_user(has, seaorm_root, core_root);
+    let plugin_new_active = plugin_set_fields_user(has, seaorm_root);
 
     // apply_update — only update fields that exist
     let plugin_apply_update = plugin_update_fields_user(has, seaorm_root);
@@ -179,13 +255,14 @@ fn gen_user(
 
     quote! {
         impl #core_root::entity::AuthUser for #ident {
+            const PLUGIN_FIELDS: &'static [&'static str] = &[#(#plugin_fields),*];
             fn id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.id) }
             fn email(&self) -> Option<&str> { self.email.as_deref() }
             fn name(&self) -> Option<&str> { self.name.as_deref() }
             fn email_verified(&self) -> bool { self.email_verified }
             fn image(&self) -> Option<&str> { self.image.as_deref() }
-            fn created_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.created_at }
-            fn updated_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.updated_at }
+            fn created_at(&self) -> #seaorm_root::sea_orm::entity::prelude::DateTimeUtc { self.created_at }
+            fn updated_at(&self) -> #seaorm_root::sea_orm::entity::prelude::DateTimeUtc { self.updated_at }
             #username_impl
             #display_username_impl
             #two_factor_impl
@@ -214,7 +291,7 @@ fn gen_user(
             fn new_active(
                 id: ::std::option::Option<Self::Id>,
                 create_user: #core_root::types::CreateUser,
-                now: ::chrono::DateTime<::chrono::Utc>,
+                now: #seaorm_root::sea_orm::entity::prelude::DateTimeUtc,
             ) -> Self::ActiveModel {
                 Self::ActiveModel {
                     id: #seaorm_root::sea_orm::ActiveValue::Set(
@@ -234,7 +311,7 @@ fn gen_user(
             fn apply_update(
                 active: &mut Self::ActiveModel,
                 update: #core_root::types::UpdateUser,
-                now: ::chrono::DateTime<::chrono::Utc>,
+                now: #seaorm_root::sea_orm::entity::prelude::DateTimeUtc,
             ) {
                 if let ::std::option::Option::Some(email) = update.email {
                     active.email = #seaorm_root::sea_orm::ActiveValue::Set(::std::option::Option::Some(email));
@@ -259,7 +336,6 @@ fn gen_user(
 fn plugin_set_fields_user(
     has: &dyn Fn(&str) -> bool,
     seaorm_root: &TokenStream,
-    core_root: &TokenStream,
 ) -> Vec<TokenStream> {
     let mut out = Vec::new();
     if has("username") {
@@ -286,8 +362,7 @@ fn plugin_set_fields_user(
         out.push(quote! { ban_expires: #seaorm_root::sea_orm::ActiveValue::Set(::std::option::Option::None) });
     }
     if has("metadata") {
-        let _ = core_root; // used in the json! path
-        out.push(quote! { metadata: #seaorm_root::sea_orm::ActiveValue::Set(create_user.metadata.unwrap_or(::serde_json::json!({}))) });
+        out.push(quote! { metadata: #seaorm_root::sea_orm::ActiveValue::Set(create_user.metadata.unwrap_or(#seaorm_root::sea_orm::entity::prelude::Json::Object(::std::default::Default::default()))) });
     }
     out
 }
@@ -365,9 +440,15 @@ fn gen_session(
     ident: &Ident,
     has: &dyn Fn(&str) -> bool,
     extras: &[TokenStream],
+    extra_updates: &[TokenStream],
     seaorm_root: &TokenStream,
     core_root: &TokenStream,
 ) -> TokenStream {
+    let plugin_fields: Vec<_> = registry::plugin_field_names(EntityRole::Session)
+        .into_iter()
+        .filter(|name| has(name))
+        .collect();
+
     let impersonated_by_impl = if has("impersonated_by") {
         quote! { fn impersonated_by(&self) -> Option<&str> { self.impersonated_by.as_deref() } }
     } else {
@@ -409,11 +490,12 @@ fn gen_session(
 
     quote! {
         impl #core_root::entity::AuthSession for #ident {
+            const PLUGIN_FIELDS: &'static [&'static str] = &[#(#plugin_fields),*];
             fn id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.id) }
-            fn expires_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.expires_at }
+            fn expires_at(&self) -> #seaorm_root::sea_orm::entity::prelude::DateTimeUtc { self.expires_at }
             fn token(&self) -> &str { &self.token }
-            fn created_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.created_at }
-            fn updated_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.updated_at }
+            fn created_at(&self) -> #seaorm_root::sea_orm::entity::prelude::DateTimeUtc { self.created_at }
+            fn updated_at(&self) -> #seaorm_root::sea_orm::entity::prelude::DateTimeUtc { self.updated_at }
             fn ip_address(&self) -> Option<&str> { self.ip_address.as_deref() }
             fn user_agent(&self) -> Option<&str> { self.user_agent.as_deref() }
             fn user_id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.user_id) }
@@ -428,6 +510,21 @@ fn gen_session(
             type Entity = Entity;
             type ActiveModel = ActiveModel;
             type Column = Column;
+
+            fn apply_fields(
+                active: &mut Self::ActiveModel,
+                fields: #core_root::serde_json::Map<::std::string::String, #core_root::serde_json::Value>,
+            ) -> #core_root::AuthResult<()> {
+                for (name, value) in fields {
+                    match name.as_str() {
+                        #(#extra_updates)*
+                        _ => return Err(#core_root::AuthError::Config(
+                            format!("Unknown session model field: {name}"),
+                        )),
+                    }
+                }
+                Ok(())
+            }
 
             fn id_column() -> Self::Column { Column::Id }
             fn token_column() -> Self::Column { Column::Token }
@@ -446,7 +543,7 @@ fn gen_session(
                 id: ::std::option::Option<Self::Id>,
                 token: ::std::string::String,
                 create_session: #core_root::types::CreateSession,
-                now: ::chrono::DateTime<::chrono::Utc>,
+                now: #seaorm_root::sea_orm::entity::prelude::DateTimeUtc,
             ) -> Self::ActiveModel {
                 Self::ActiveModel {
                     id: #seaorm_root::sea_orm::ActiveValue::Set(
@@ -467,14 +564,14 @@ fn gen_session(
 
             fn set_expires_at(
                 active: &mut Self::ActiveModel,
-                expires_at: ::chrono::DateTime<::chrono::Utc>,
+                expires_at: #seaorm_root::sea_orm::entity::prelude::DateTimeUtc,
             ) {
                 active.expires_at = #seaorm_root::sea_orm::ActiveValue::Set(expires_at);
             }
 
             fn set_updated_at(
                 active: &mut Self::ActiveModel,
-                updated_at: ::chrono::DateTime<::chrono::Utc>,
+                updated_at: #seaorm_root::sea_orm::entity::prelude::DateTimeUtc,
             ) {
                 active.updated_at = #seaorm_root::sea_orm::ActiveValue::Set(updated_at);
             }
@@ -500,12 +597,12 @@ fn gen_account(
             fn access_token(&self) -> Option<&str> { self.access_token.as_deref() }
             fn refresh_token(&self) -> Option<&str> { self.refresh_token.as_deref() }
             fn id_token(&self) -> Option<&str> { self.id_token.as_deref() }
-            fn access_token_expires_at(&self) -> Option<::chrono::DateTime<::chrono::Utc>> { self.access_token_expires_at }
-            fn refresh_token_expires_at(&self) -> Option<::chrono::DateTime<::chrono::Utc>> { self.refresh_token_expires_at }
+            fn access_token_expires_at(&self) -> Option<#seaorm_root::sea_orm::entity::prelude::DateTimeUtc> { self.access_token_expires_at }
+            fn refresh_token_expires_at(&self) -> Option<#seaorm_root::sea_orm::entity::prelude::DateTimeUtc> { self.refresh_token_expires_at }
             fn scope(&self) -> Option<&str> { self.scope.as_deref() }
             fn password(&self) -> Option<&str> { self.password.as_deref() }
-            fn created_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.created_at }
-            fn updated_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.updated_at }
+            fn created_at(&self) -> #seaorm_root::sea_orm::entity::prelude::DateTimeUtc { self.created_at }
+            fn updated_at(&self) -> #seaorm_root::sea_orm::entity::prelude::DateTimeUtc { self.updated_at }
         }
 
         impl #seaorm_root::SeaOrmAccountModel for #ident {
@@ -530,7 +627,7 @@ fn gen_account(
             fn new_active(
                 id: ::std::option::Option<Self::Id>,
                 create_account: #core_root::types::CreateAccount,
-                now: ::chrono::DateTime<::chrono::Utc>,
+                now: #seaorm_root::sea_orm::entity::prelude::DateTimeUtc,
             ) -> Self::ActiveModel {
                 Self::ActiveModel {
                     id: #seaorm_root::sea_orm::ActiveValue::Set(
@@ -555,7 +652,7 @@ fn gen_account(
             fn apply_update(
                 active: &mut Self::ActiveModel,
                 update: #core_root::types::UpdateAccount,
-                now: ::chrono::DateTime<::chrono::Utc>,
+                now: #seaorm_root::sea_orm::entity::prelude::DateTimeUtc,
             ) {
                 if let ::std::option::Option::Some(access_token) = update.access_token {
                     active.access_token = #seaorm_root::sea_orm::ActiveValue::Set(::std::option::Option::Some(access_token));
@@ -596,9 +693,9 @@ fn gen_verification(
             fn id(&self) -> ::std::borrow::Cow<'_, str> { ::std::borrow::Cow::Borrowed(&self.id) }
             fn identifier(&self) -> &str { &self.identifier }
             fn value(&self) -> &str { &self.value }
-            fn expires_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.expires_at }
-            fn created_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.created_at }
-            fn updated_at(&self) -> ::chrono::DateTime<::chrono::Utc> { self.updated_at }
+            fn expires_at(&self) -> #seaorm_root::sea_orm::entity::prelude::DateTimeUtc { self.expires_at }
+            fn created_at(&self) -> #seaorm_root::sea_orm::entity::prelude::DateTimeUtc { self.created_at }
+            fn updated_at(&self) -> #seaorm_root::sea_orm::entity::prelude::DateTimeUtc { self.updated_at }
         }
 
         impl #seaorm_root::SeaOrmVerificationModel for #ident {
@@ -619,7 +716,7 @@ fn gen_verification(
             fn new_active(
                 id: ::std::option::Option<Self::Id>,
                 verification: #core_root::types::CreateVerification,
-                now: ::chrono::DateTime<::chrono::Utc>,
+                now: #seaorm_root::sea_orm::entity::prelude::DateTimeUtc,
             ) -> Self::ActiveModel {
                 Self::ActiveModel {
                     id: #seaorm_root::sea_orm::ActiveValue::Set(

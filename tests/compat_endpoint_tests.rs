@@ -261,7 +261,7 @@ async fn test_spec_driven_endpoint_validation() {
     let ai_user_id = ai_signup_body["user"]["id"]
         .as_str()
         .expect("sign-up should return user id");
-    _ = auth
+    let account_info_account = auth
         .store()
         .create_account(CreateAccount {
             user_id: ai_user_id.to_string(),
@@ -282,7 +282,7 @@ async fn test_spec_driven_endpoint_validation() {
         get_with_auth_and_query(
             "/account-info",
             &ai_token,
-            vec![("accountId", "mock-account-id")],
+            vec![("accountId", account_info_account.id.as_str())],
         ),
     )
     .await;

@@ -7,6 +7,17 @@ use thiserror::Error;
 /// matching the better-auth OpenAPI spec: `{ "message": "..." }`.
 #[derive(Error, Debug)]
 pub enum AuthError {
+    /// A documented upstream API error whose message is safe to return publicly.
+    #[error("{message}")]
+    Upstream {
+        /// HTTP response status defined by the upstream endpoint.
+        status: u16,
+        /// Stable upstream error code.
+        code: &'static str,
+        /// Documented public error message. Never include internal failure details.
+        message: &'static str,
+    },
+
     #[error("{0}")]
     BadRequest(String),
 
@@ -67,6 +78,11 @@ pub enum AuthError {
     #[error("Database error: {0}")]
     Database(#[from] DatabaseError),
 
+    /// Redis cache failure with the original source error.
+    #[cfg(feature = "redis-cache")]
+    #[error("Redis cache error: {0}")]
+    Redis(#[from] redis::RedisError),
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
@@ -87,6 +103,7 @@ impl AuthError {
     /// HTTP status code for this error.
     pub fn status_code(&self) -> u16 {
         match self {
+            Self::Upstream { status, .. } => *status,
             // 400
             Self::BadRequest(_) | Self::InvalidRequest(_) | Self::Validation(_) => 400,
             // 401
@@ -111,6 +128,8 @@ impl AuthError {
             // 501
             Self::NotImplemented(_) => 501,
             // 500
+            #[cfg(feature = "redis-cache")]
+            Self::Redis(_) => 500,
             Self::Config(_)
             | Self::Database(_)
             | Self::Serialization(_)
@@ -142,6 +161,9 @@ impl AuthError {
     pub fn error_payload(&self) -> (u16, Option<String>, String) {
         let status = self.status_code();
         let (code, message) = match self {
+            Self::Upstream { code, message, .. } => {
+                (Some((*code).to_owned()), (*message).to_owned())
+            }
             Self::BannedUser(message) => (Some("BANNED_USER".to_string()), message.clone()),
             _ => {
                 let message = match status {
@@ -244,6 +266,10 @@ pub enum DatabaseError {
 
     #[error("Constraint violation: {0}")]
     Constraint(String),
+
+    /// A uniqueness conflict that callers may resolve by generating another value.
+    #[error("Unique constraint violation: {0}")]
+    UniqueConstraint(String),
 
     #[error("Transaction error: {0}")]
     Transaction(String),

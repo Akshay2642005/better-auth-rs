@@ -77,6 +77,14 @@ This page is the authoritative v1 route inventory for phases 0-12. The pinned Ty
 | `POST` | `/device/approve` | Approve a pending device request |
 | `POST` | `/device/deny` | Deny a pending device request |
 
+`/device/code` accepts an optional `user_id` that binds the request to that user. Otherwise, the first authenticated `/device` lookup claims the request. Only the bound user receives `client_id` and `scope` during review and can approve or deny the request.
+
+User-code lookup preserves exact custom codes. If exact lookup fails, default-alphabet codes accept lowercase letters and separators. Code generation retries uniqueness conflicts at most three times and propagates other database errors.
+
+When rate limiting is enabled, `/device` permits five requests per client during the configured device expiration window. The default window is 30 minutes. An explicit endpoint rate limit overrides the plugin default.
+
+The counter resets after one full window without an allowed request. Denied requests do not extend the window. The `X-Retry-After` response header reports the remaining wait in seconds, rounded up.
+
 ## API Keys
 
 | Method | Path | Description |

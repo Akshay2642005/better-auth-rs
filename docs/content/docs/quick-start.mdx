@@ -1,88 +1,98 @@
 ---
 title: Quick Start
-description: Get up and running with Better Auth in minutes.
+description: Generate an auth schema and run an Axum server.
 ---
 
-This guide walks through a minimal working example: configure auth, sign up a user, sign in, and use a session token.
+This example starts an Axum server with an in-memory SQLite database. Data resets when the process stops.
 
-For a complete app-owned SeaORM schema setup, start with the [Axum Integration](/docs/integrations/axum) guide or the canonical [`examples/axum_server.rs`](../../../../examples/axum_server.rs) example. The snippet below assumes that `AppAuthSchema` has already been defined there.
+## Dependencies
 
-## Setup
+```toml title="Cargo.toml"
+[dependencies]
+better-auth = { version = "1.0.0-alpha.3", git = "https://github.com/better-auth-rs/better-auth-rs", branch = "master", features = ["axum", "seaorm2"] }
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+```
 
-```rust
+## Generate the schema
+
+```sh
+cargo install better-auth-cli --git https://github.com/better-auth-rs/better-auth-rs --branch master --locked
+better-auth-rs generate --output src/auth_schema.rs
+```
+
+The generated file contains all four core entities, `AppAuthSchema`, and `create_auth_tables`. Add `--plugins two-factor,api-key` when your app registers those plugins. Existing output files are preserved unless you pass `--force`.
+
+## Start the server
+
+Save this complete application as `src/main.rs`:
+
+```rust title="src/main.rs"
+mod auth_schema;
+
+use auth_schema::{AppAuthSchema, create_auth_tables};
 use better_auth::{AuthConfig, BetterAuth};
+use better_auth::integrations::axum::AxumIntegration;
 use better_auth::plugins::{EmailPasswordPlugin, SessionManagementPlugin};
-use better_auth::prelude::{AuthRequest, HttpMethod};
 use better_auth::seaorm::{Database, SeaOrmStore};
-use std::collections::HashMap;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Configure
-    let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
-        .base_url("http://localhost:3000")
-        .password_min_length(8);
     let database = Database::connect("sqlite::memory:").await?;
+    create_auth_tables(&database).await?;
+    let config = AuthConfig::new(std::env::var("AUTH_SECRET")?)
+        .base_url("http://localhost:3000");
     let store = SeaOrmStore::<AppAuthSchema>::new(config.clone(), database);
-
-    // 2. Build
-    let auth = BetterAuth::<AppAuthSchema>::new(config)
-        .store(store)
-        .plugin(EmailPasswordPlugin::new().enable_signup(true))
-        .plugin(SessionManagementPlugin::new())
-        .build()
-        .await?;
-
-    println!("Plugins: {:?}", auth.plugin_names());
-
-    // 3. Sign up
-    let body = serde_json::json!({
-        "email": "user@example.com",
-        "password": "password123",
-        "name": "Test User"
-    });
-
-    let response = auth
-        .handle_request(AuthRequest::from_parts(
-            HttpMethod::Post,
-            "/sign-up/email",
-            HashMap::from([(
-                "content-type".to_string(),
-                "application/json".to_string(),
-            )]),
-            Some(serde_json::to_vec(&body)?),
-            HashMap::new(),
-        ))
-        .await?;
-
-    let data: serde_json::Value = serde_json::from_slice(&response.body)?;
-    let token = data["token"].as_str().unwrap();
-    println!("Signed up: {}", data["user"]["email"]);
-
-    // 4. Use the session token
-    let response = auth
-        .handle_request(AuthRequest::from_parts(
-            HttpMethod::Get,
-            "/get-session",
-            HashMap::from([(
-                "authorization".to_string(),
-                format!("Bearer {}", token),
-            )]),
-            None,
-            HashMap::new(),
-        ))
-        .await?;
-
-    let session: serde_json::Value = serde_json::from_slice(&response.body)?;
-    println!("Session user: {}", session["user"]["email"]);
-
+    let auth = Arc::new(
+        BetterAuth::<AppAuthSchema>::new(config)
+            .store(store)
+            .plugin(EmailPasswordPlugin::new().enable_signup(true))
+            .plugin(SessionManagementPlugin::new())
+            .build()
+            .await?,
+    );
+    let app = axum::Router::new()
+        .nest("/auth", auth.clone().axum_router())
+        .with_state(auth);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+    axum::serve(listener, app).await?;
     Ok(())
 }
 ```
 
-## What's Next
+Set `AUTH_SECRET` to a random secret of at least 32 characters. Run `cargo run`.
 
-- [Email & Password Authentication](/docs/authentication/email-password) — sign-up and sign-in options
-- [Session Management](/docs/authentication/sessions) — token handling, listing, and revocation
-- [Axum Integration](/docs/integrations/axum) — mount auth routes in an Axum server
-- [Configuration](/docs/concepts/configuration) — all config options and defaults
+For a persistent database, run `create_auth_tables` once from your initial migration. The function fails if tables already exist. Use versioned application migrations for subsequent changes.
+
+## Register and sign in
+
+```sh
+COOKIE_JAR=$(mktemp)
+
+curl --fail-with-body http://localhost:3000/auth/sign-up/email \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"example-password-123","name":"Example"}'
+
+curl --fail-with-body http://localhost:3000/auth/sign-in/email \
+  -c "$COOKIE_JAR" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"example-password-123"}'
+```
+
+Sign-in sets a signed session cookie. Save the cookie in a cookie jar and send the cookie with subsequent requests:
+
+```sh
+curl --fail-with-body http://localhost:3000/auth/get-session \
+  -b "$COOKIE_JAR"
+
+rm "$COOKIE_JAR"
+```
+
+The default configuration uses cookies. To accept Bearer credentials, explicitly enable `config.session.bearer` as described in the [session guide](/docs/authentication/sessions).
+
+For business routes, use `CurrentSession<AppAuthSchema>` as shown in the [Axum guide](/docs/integrations/axum). The [independent consumer](../../../../compat-tests/schema-consumer) tests this public schema generation flow with registration, login, protected routes, API keys, and TOTP.
+
+Run `devenv shell -- bun scripts/quick-start-check.ts` to compile this document's application and execute its registration, sign-in, and session commands.

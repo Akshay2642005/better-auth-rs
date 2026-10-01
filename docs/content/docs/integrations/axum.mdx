@@ -5,15 +5,17 @@ description: Integrate Better Auth with the Axum web framework.
 
 Better Auth provides first-class integration with [Axum](https://github.com/tokio-rs/axum) via the `axum` feature flag, including automatic route mounting and schema-aware session extractors.
 
-The canonical end-to-end example lives in [`examples/axum_server.rs`](../../../../examples/axum_server.rs). The code snippets below are shortened excerpts of that example.
+The canonical end-to-end example lives in [`examples/axum_server.rs`](../../../../examples/axum_server.rs). Generate `src/auth_schema.rs` with the [quick-start guide](/docs/quick-start) before using the examples below.
 
 ## Setup
 
 ```toml title="Cargo.toml"
 [dependencies]
-better-auth = { version = "1.0.0-alpha.3", features = ["axum", "seaorm2"] }
+better-auth = { version = "1.0.0-alpha.3", git = "https://github.com/better-auth-rs/better-auth-rs", branch = "master", features = ["axum", "seaorm2"] }
 axum = "0.8"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 ```
 
 ## Mounting Auth Routes
@@ -21,7 +23,9 @@ tokio = { version = "1", features = ["full"] }
 Use `.axum_router()` when `Arc<BetterAuth<YourSchema>>` is the router state:
 
 ```rust
-use better_auth::{AuthConfig, AuthSchema, BetterAuth};
+mod auth_schema;
+use auth_schema::{AppAuthSchema, create_auth_tables};
+use better_auth::{AuthConfig, BetterAuth};
 use better_auth::plugins::{
     EmailPasswordPlugin, SessionManagementPlugin,
     PasswordManagementPlugin, AccountManagementPlugin,
@@ -36,6 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
         .base_url("http://localhost:8080");
     let database = Database::connect("sqlite::memory:").await?;
+    create_auth_tables(&database).await?;
     let store = SeaOrmStore::<AppAuthSchema>::new(config.clone(), database);
 
     let auth = Arc::new(
@@ -68,6 +73,8 @@ For real applications, prefer `axum_router_with_state::<AppState>()` and let
 Axum extract `Arc<BetterAuth<AppAuthSchema>>` from your application state via `FromRef`.
 
 ```rust
+mod auth_schema;
+use auth_schema::{AppAuthSchema, create_auth_tables};
 use axum::extract::FromRef;
 use axum::{Json, Router, routing::get};
 use better_auth::{AuthConfig, BetterAuth};
@@ -100,6 +107,7 @@ async fn profile(session: CurrentSession<AppAuthSchema>) -> Json<serde_json::Val
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = Database::connect("sqlite::memory:").await?;
+    create_auth_tables(&database).await?;
     let config = AuthConfig::new("your-very-secure-secret-key-at-least-32-chars-long")
         .base_url("http://localhost:8080");
     let store = SeaOrmStore::<AppAuthSchema>::new(config.clone(), database.clone());
@@ -144,7 +152,7 @@ With the router nested under `/auth`, endpoints become `/auth/sign-up/email`, `/
 
 ## Session Extractors
 
-Better Auth provides Axum extractors that automatically validate the session token and give you the current user — no manual middleware needed.
+Better Auth provides Axum extractors that validate persisted sessions through the session manager. Expired or inactive sessions are rejected, and eligible sessions are refreshed. `OptionalSession` returns `None` for missing or invalid credentials and propagates database failures. API key session emulation applies to auth plugin routes; business routes that accept machine credentials must call API key verification explicitly.
 
 ### `CurrentSession` — Require Authentication
 
@@ -175,7 +183,7 @@ async fn get_profile(
 
 ### `OptionalSession` — Optional Authentication
 
-Use `OptionalSession<YourSchema>` for routes that should work for both authenticated and anonymous users. Never returns an error — wraps the result in `Option`.
+Use `OptionalSession<YourSchema>` for routes that should work for both authenticated and anonymous users. Missing, expired, or invalid sessions produce `None`. Database and internal errors reject the request with an error response.
 
 ```rust
 use better_auth::integrations::axum::OptionalSession;
@@ -183,7 +191,7 @@ use better_auth::prelude::AuthUser;
 use axum::{Json, response::IntoResponse};
 
 async fn home(
-    session: OptionalSession,
+    session: OptionalSession<AppAuthSchema>,
 ) -> impl IntoResponse {
     let user_info = session.0.map(|s| {
         serde_json::json!({

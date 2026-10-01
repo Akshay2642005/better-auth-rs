@@ -17,6 +17,8 @@ impl MigratorTrait for AuthMigrator {
         vec![
             Box::new(InitialAuthSchema),
             Box::new(ApiKeyReferenceOwnership),
+            Box::new(super::api_key_numbers::ApiKeyNumbers),
+            Box::new(super::two_factor_security::TwoFactorSecurity),
         ]
     }
 
@@ -773,7 +775,7 @@ async fn rebuild_sqlite_api_keys(manager: &SchemaManager<'_>) -> Result<(), DbEr
     Ok(())
 }
 
-async fn create_api_keys(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+pub(super) async fn create_api_keys(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     manager
         .create_table(
             Table::create()
@@ -805,8 +807,8 @@ async fn create_api_keys(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .not_null()
                         .default("default"),
                 )
-                .col(ColumnDef::new(api_key::Column::RefillInterval).integer())
-                .col(ColumnDef::new(api_key::Column::RefillAmount).integer())
+                .col(ColumnDef::new(api_key::Column::RefillInterval).double())
+                .col(ColumnDef::new(api_key::Column::RefillAmount).double())
                 .col(ColumnDef::new(api_key::Column::LastRefillAt).timestamp_with_time_zone())
                 .col(
                     ColumnDef::new(api_key::Column::Enabled)
@@ -820,10 +822,10 @@ async fn create_api_keys(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .not_null()
                         .default(true),
                 )
-                .col(ColumnDef::new(api_key::Column::RateLimitTimeWindow).integer())
-                .col(ColumnDef::new(api_key::Column::RateLimitMax).integer())
-                .col(ColumnDef::new(api_key::Column::RequestCount).integer())
-                .col(ColumnDef::new(api_key::Column::Remaining).integer())
+                .col(ColumnDef::new(api_key::Column::RateLimitTimeWindow).double())
+                .col(ColumnDef::new(api_key::Column::RateLimitMax).double())
+                .col(ColumnDef::new(api_key::Column::RequestCount).double())
+                .col(ColumnDef::new(api_key::Column::Remaining).double())
                 .col(ColumnDef::new(api_key::Column::LastRequest).timestamp_with_time_zone())
                 .col(ColumnDef::new(api_key::Column::ExpiresAt).timestamp_with_time_zone())
                 .col(

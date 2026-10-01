@@ -158,6 +158,9 @@ pub struct InviteMemberRequest {
     pub role: RoleInput,
     #[serde(rename = "organizationId")]
     pub organization_id: Option<String>,
+    /// Renew and send an existing pending invitation.
+    #[serde(default)]
+    pub resend: bool,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -295,6 +298,7 @@ pub struct BasicMemberResponse {
     pub organization_id: String,
     pub role: String,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "better_auth_core::utils::date::serialize")]
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -342,6 +346,7 @@ pub struct CreatedOrganizationResponse {
     pub slug: String,
     pub logo: Option<String>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "better_auth_core::utils::date::serialize")]
     pub created_at: chrono::DateTime<chrono::Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
@@ -354,6 +359,7 @@ pub struct OrganizationResponse {
     pub slug: String,
     pub logo: Option<String>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "better_auth_core::utils::date::serialize")]
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub metadata: Option<serde_json::Value>,
 }
@@ -406,6 +412,7 @@ pub struct MemberResponse {
     pub user_id: String,
     pub role: String,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "better_auth_core::utils::date::serialize")]
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub user: MemberUserView,
 }

@@ -94,25 +94,27 @@ pub(crate) async fn reset_password_core(
     config: &PasswordManagementConfig,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<StatusResponse> {
-    password_utils::validate_password(
-        &body.new_password,
-        ctx.config.password.min_length,
-        usize::MAX,
-        ctx,
-    )?;
-
     let token = body.token.as_deref().unwrap_or("");
     if token.is_empty() {
         return Err(AuthError::bad_request("Invalid token"));
     }
+    password_utils::validate_password(
+        &body.new_password,
+        ctx.config.password.min_length,
+        ctx.config.password.max_length,
+        ctx,
+    )?;
 
     let verification = ctx
         .database
-        .get_verification_by_identifier(&format!("reset-password:{}", token))
+        .consume_verification_by_identifier(&format!("reset-password:{}", token))
         .await?
-        .filter(|verification| verification.expires_at() >= Utc::now())
         .ok_or_else(|| AuthError::bad_request("Invalid token"))?;
     let user_id = verification.value().to_string();
+
+    if ctx.database.get_user_by_id(&user_id).await?.is_none() {
+        return Err(AuthError::bad_request("User not found"));
+    }
 
     let password_hash =
         password_utils::hash_password(config.password_hasher.as_ref(), &body.new_password).await?;
@@ -145,8 +147,6 @@ pub(crate) async fn reset_password_core(
             })
             .await?;
     }
-
-    ctx.database.delete_verification(&verification.id()).await?;
 
     if let Some(callback) = &config.on_password_reset
         && let Some(user) = ctx.database.get_user_by_id(&user_id).await?
@@ -238,7 +238,7 @@ pub(crate) async fn change_password_core(
     password_utils::validate_password(
         &body.new_password,
         ctx.config.password.min_length,
-        usize::MAX,
+        ctx.config.password.max_length,
         ctx,
     )?;
 

@@ -89,6 +89,8 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
 Requests from untrusted origins receive a `403 Forbidden` response.
 Better Auth also validates callback and redirect targets against `trusted_origins` unless `advanced.disable_origin_check` is enabled.
 
+The origin check selects a truthy body `callbackURL` before the query value. It reads `redirectTo`, `errorCallbackURL`, and `newUserCallbackURL` only from the body. Selected truthy values must be strings; other JSON types return `400 Bad Request`. The origin check skips `null`, `false`, `0`, and empty strings; endpoint validation still applies.
+
 ## CORS
 
 Properly configured CORS prevents unauthorized cross-origin access:

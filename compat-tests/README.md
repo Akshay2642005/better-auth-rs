@@ -4,9 +4,12 @@ This directory contains the portable compatibility infrastructure for
 validating `better-auth-rs` against the canonical TypeScript Better Auth
 runtime.
 
+Run the commands below inside `devenv shell`, or prefix each command with
+`devenv shell --`. Run `devenv test` from the repository root for the full gate.
+
 ## Model
 
-The compatibility system now has two layers:
+The compatibility system has two layers:
 
 1. **Client-first Bun scenarios** — the primary gate. These use the real
    `better-auth/client` SDK and run each scenario against both the TS
@@ -15,8 +18,17 @@ The compatibility system now has two layers:
    cookie/header/null-session transport behavior and other cases the
    client layer cannot prove well on its own.
 
-Client drift is a hard failure. Raw response-shape drift is best-effort
-unless it is client-visible or otherwise clearly consumer-relevant.
+Client observations, response shapes, selected headers, and cookie attributes must match. No scenario-level diff allowlist suppresses mismatches.
+
+Each scenario must assert the intended success or failure before returning observations. Comparing two matching failures does not prove a successful flow. Assert identity relationships with the original IDs before normalizing generated values.
+
+The comparator assigns stable aliases to explicitly listed generated IDs and session secrets across each complete scenario. Aliases preserve identity relationships between responses. A credential account's `accountId` uses the generated user identity; other account IDs remain literal. RP IDs, provider IDs, configuration IDs, provider tokens, token types, missing fields, and external redirect origins remain observable. Metadata and permissions are compared literally. Date values retain their meaning; listed clock fields allow at most 10 seconds of skew between sequential runs. Expiry scenarios must also assert the expected lifetime or exact seeded timestamp.
+
+Configuration scenarios start fresh server pairs with the same `COMPAT_PROFILE`. The profiles cover zero-length API keys, custom device codes, code collisions, device rate limits, and explicit Bearer authentication. Passkey scenarios use an ES256 software authenticator to exercise real signature verification, persistence, counters, and challenge consumption.
+
+Generic OAuth scenarios use a shared local OIDC issuer with real signed ID tokens, discovery, JWKS, and token endpoints. They cover nonce binding, issuer and audience checks, key rotation, profile mapping, authorization parameters, client authentication, refresh, and provider logout. The Cargo runner starts the issuer and both auth servers. Run only these scenarios with `devenv shell -- cargo test --test client_compat_tests oidc_client_compat -- --ignored --nocapture`.
+
+Route checks require zero missing routes in the supported profile. The broader upstream profile must match the exact backlog in `deferred-routes.txt`; new gaps and stale backlog entries fail. This backlog records unimplemented plugins, not permission to omit supported behavior.
 
 ## Components
 
@@ -26,9 +38,10 @@ Portable Bun-native TypeScript reference server.
 
 - Runtime: Bun
 - Database: `bun:sqlite`
-- Better Auth version: published `better-auth@1.6.29`
+- Better Auth version: published `better-auth@1.7.6`
 - Test controls: reset state, reset-password token seeding, sender mode,
-  OAuth account seeding, OAuth refresh mode
+  OAuth account seeding, OAuth refresh mode, server-only API key creation,
+  update, and verification
 
 Start directly for debugging:
 
@@ -85,6 +98,7 @@ cargo test --test client_compat_tests phase10_client_compat -- --ignored --nocap
 cargo test --test client_compat_tests phase11_client_compat -- --ignored --nocapture
 cargo test --test client_compat_tests phase12_client_compat -- --ignored --nocapture
 cargo test --test client_compat_tests full_client_compat -- --ignored --nocapture
+cargo test --test client_compat_tests configuration_client_compat -- --ignored --nocapture
 ```
 
 Thin raw wire smoke:

@@ -36,6 +36,7 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
             totp_period: 30,
             totp_digits: 6,
             send_otp: None,
+            account_lockout: Default::default(),
         })
     )
     .build()
@@ -51,6 +52,7 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
 | `totp_period` | `u64` | `30` | TOTP time step in seconds |
 | `totp_digits` | `usize` | `6` | Number of digits in TOTP code |
 | `send_otp` | `Option<Arc<dyn SendTwoFactorOtp>>` | `None` | Callback used by `/two-factor/send-otp`. |
+| `account_lockout` | `AccountLockout` | Enabled, 10 failures, 900 seconds | Shared failure budget across sign-in factors and challenges. |
 
 ## How It Works
 
@@ -62,6 +64,12 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
 4. User scans the TOTP URI in their authenticator app
 5. `twoFactorEnabled` remains `false` until verification unless `skip_verification_on_enable` is enabled
 
+The enrollment response contains `method: "totp"`, `totpURI`, and `backupCodes`.
+
+Pass `method: "otp"` with the password to enable email/SMS codes when `send_otp` is configured. This method enables 2FA immediately, rotates the session, and returns only `{ "method": "otp" }`. It does not create an authenticator secret or backup codes.
+
+A pending TOTP enrollment can be restarted. Once verified, another enable request returns `TOTP_ALREADY_ENABLED` and preserves the existing secret and backup codes. Disable 2FA before replacing a verified authenticator.
+
 ### Sign-In Flow with 2FA
 
 1. User signs in with email/password as normal
@@ -71,6 +79,8 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
    - **OTP**: Code sent via email
    - **Backup code**: One-time recovery code
 4. After successful verification, a session is created
+
+When sign-in sets `rememberMe: false`, the completed two-factor session expires after 24 hours and uses a session cookie. Remembered sessions use the configured session lifetime.
 
 ## API Endpoints
 
@@ -100,8 +110,12 @@ For TS compatibility, Rust keeps backup-code retrieval as a server-only capabili
 - **TOTP secrets** are encrypted before being stored in the database
 - **Backup codes** are stored as encrypted JSON — the plaintext is only returned once during generation
 - **OTP codes** are stored as verification records and expire after 3 minutes
+- **OTP comparison** uses the original code bytes. Password NFKC normalization does not apply to OTP codes.
 - **Password verification** is required to enable/disable 2FA and to regenerate backup codes
-- **Used backup codes** are immediately removed from the stored set
+- **Used backup codes** are removed with a conditional database update, so concurrent requests cannot reuse a code
+- **OTP codes and sign-in challenges** are consumed atomically; an expired latest code also invalidates older codes for the same identifier
+- **TOTP and backup-code challenges** allow five failed attempts before the challenge is invalidated
+- **Account lockout** blocks sign-in factor verification for 15 minutes after 10 consecutive failures across challenges; successful verification clears the counter. As in Better Auth 1.7.6, the account must have an authenticator record. OTP-only enrollment uses the per-code attempt limit.
 
 ## Errors
 
@@ -109,6 +123,7 @@ For TS compatibility, Rust keeps backup-code retrieval as a server-only capabili
 |--------|-----------|
 | 400 | Invalid password |
 | 400 | TOTP not enabled |
+| 400 | TOTP is already enabled |
 | 400 | Two factor isn't enabled |
 | 400 | OTP has expired |
 | 400 | Too many attempts. Please request a new code. |
@@ -116,3 +131,5 @@ For TS compatibility, Rust keeps backup-code retrieval as a server-only capabili
 | 401 | Invalid backup code |
 | 401 | Invalid two factor cookie |
 | 401 | Unauthenticated (missing or invalid session) |
+| 409 | A concurrent request already replaced the backup-code set |
+| 429 | Account temporarily locked after repeated verification failures |

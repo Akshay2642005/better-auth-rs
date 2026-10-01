@@ -1,5 +1,36 @@
+import { expect } from "bun:test";
 import { compatScenario } from "../../support/scenario";
 import { signUpUser } from "./helpers";
+
+compatScenario("organization metadata lookup enforces membership and clears invalid active state", async (ctx) => {
+  const owner = await signUpUser(ctx, "owner", "metadata-owner", "Owner");
+  const outsider = await signUpUser(ctx, "outsider", "metadata-outsider", "Outsider");
+  const query = (actor: string, suffix = "") => ctx.rawRequest({ actor, path: `/api/auth/organization/get-organization${suffix}` });
+  const noActive = await query("owner");
+  expect(noActive.status).toBe(200);
+  expect(noActive.body).toBeNull();
+  const organization = await owner.orgClient.organization.create({ name: "Metadata Organization", slug: ctx.uniqueToken("metadata-org") });
+  expect(organization.error).toBeNull();
+  const active = await query("owner");
+  expect(active.status).toBe(200);
+  expect((active.body as { id: string }).id).toBe(organization.data!.id);
+  expect(active.body).not.toHaveProperty("members");
+  expect(active.body).not.toHaveProperty("invitations");
+  const slug = await query("owner", `?organizationId=missing&organizationSlug=${organization.data!.slug}`);
+  expect(slug.body).toEqual(active.body);
+  const missing = await query("owner", "?organizationId=missing");
+  expect(missing.status).toBe(400);
+  expect((missing.body as { code: string }).code).toBe("ORGANIZATION_NOT_FOUND");
+  await outsider.orgClient.organization.create({ name: "Other Organization", slug: ctx.uniqueToken("other-org") });
+  const forbidden = await query("outsider", `?organizationId=${organization.data!.id}`);
+  expect(forbidden.status).toBe(403);
+  expect((forbidden.body as { code: string }).code).toBe("USER_IS_NOT_A_MEMBER_OF_THE_ORGANIZATION");
+  const afterForbidden = await query("outsider");
+  expect(afterForbidden.body).toBeNull();
+  const anonymous = await query("anonymous");
+  expect(anonymous.status).toBe(401);
+  return { noActive, active, slug, missing, forbidden, afterForbidden, anonymous };
+});
 
 compatScenario("organization core lifecycle matches TS", async (ctx) => {
   const owner = await signUpUser(ctx, "owner", "phase6-core-owner", "Org Owner");

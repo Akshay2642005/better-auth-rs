@@ -1,6 +1,7 @@
 //! SeaORM-backed persistence implementation for built-in auth tables.
 
 mod accounts;
+mod api_key_numbers;
 mod api_keys;
 mod bundled_schema;
 mod device_codes;
@@ -12,6 +13,7 @@ mod organizations;
 mod passkeys;
 mod sessions;
 mod two_factor;
+mod two_factor_security;
 mod users;
 mod verifications;
 
@@ -168,7 +170,7 @@ where
 fn map_db_err(err: DbErr) -> AuthError {
     match err.sql_err() {
         Some(SqlErr::UniqueConstraintViolation(message)) => {
-            AuthError::Database(DatabaseError::Constraint(message))
+            AuthError::Database(DatabaseError::UniqueConstraint(message))
         }
         Some(SqlErr::ForeignKeyConstraintViolation(message)) => {
             AuthError::Database(DatabaseError::Constraint(message))
@@ -192,12 +194,4 @@ fn parse_optional_rfc3339(
     field: &str,
 ) -> Result<Option<DateTime<Utc>>, AuthError> {
     value.map(|inner| parse_rfc3339(inner, field)).transpose()
-}
-
-fn to_i32(value: i64, field: &str) -> Result<i32, AuthError> {
-    i32::try_from(value).map_err(|_| AuthError::bad_request(format!("{field} exceeds i32 range")))
-}
-
-fn to_optional_i32(value: Option<i64>, field: &str) -> Result<Option<i32>, AuthError> {
-    value.map(|inner| to_i32(inner, field)).transpose()
 }

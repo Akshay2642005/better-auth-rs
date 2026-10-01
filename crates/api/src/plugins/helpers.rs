@@ -19,7 +19,9 @@ pub fn expires_in_to_at(expires_in_secs: Option<i64>) -> AuthResult<Option<Strin
             let dt = chrono::Utc::now()
                 .checked_add_signed(duration)
                 .ok_or_else(|| AuthError::bad_request("expiresIn is out of range"))?;
-            Ok(Some(dt.to_rfc3339()))
+            Ok(Some(
+                dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            ))
         }
         None => Ok(None),
     }
@@ -236,6 +238,23 @@ pub async fn issue_user_session<S: better_auth_core::AuthSchema>(
     ip_address: Option<String>,
     user_agent: Option<String>,
 ) -> Result<IssuedSession<S>, SessionIssueError> {
+    issue_user_session_with_lifetime(
+        ctx,
+        user_id,
+        ip_address,
+        user_agent,
+        ctx.config.session.expires_in,
+    )
+    .await
+}
+
+pub(crate) async fn issue_user_session_with_lifetime<S: better_auth_core::AuthSchema>(
+    ctx: &AuthContext<S>,
+    user_id: &str,
+    ip_address: Option<String>,
+    user_agent: Option<String>,
+    expires_in: chrono::Duration,
+) -> Result<IssuedSession<S>, SessionIssueError> {
     let mut user = ctx
         .database
         .get_user_by_id(user_id)
@@ -270,7 +289,7 @@ pub async fn issue_user_session<S: better_auth_core::AuthSchema>(
 
     let session = ctx
         .session_manager()
-        .create_session(&user, ip_address, user_agent)
+        .create_session_with_lifetime(&user, ip_address, user_agent, expires_in)
         .await?;
 
     Ok(IssuedSession { user, session })

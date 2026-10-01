@@ -10,10 +10,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use url::Url;
 use uuid::Uuid;
-use webauthn_rs::prelude::{
-    Base64UrlSafeData, CreationChallengeResponse, CredentialID, DiscoverableAuthentication,
-    Passkey as WebauthnPasskey, PublicKeyCredential, RegisterPublicKeyCredential,
-    RequestChallengeResponse, Webauthn, WebauthnBuilder,
+use webauthn_rs_core::WebauthnCore;
+use webauthn_rs_core::proto::{
+    AuthenticationState, Base64UrlSafeData, CreationChallengeResponse, Credential, CredentialID,
+    PublicKeyCredential, RegisterPublicKeyCredential, RegistrationState, RequestChallengeResponse,
+    UserVerificationPolicy,
 };
 
 use super::PasskeyConfig;
@@ -50,18 +51,30 @@ impl PasskeySnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct StoredRegistrationState {
     pub user_id: String,
-    pub state: webauthn_rs::prelude::PasskeyRegistration,
+    pub state: RegistrationChallenge,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct RegistrationChallenge {
+    pub rs: RegistrationState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct AuthenticationChallenge {
+    pub ast: AuthenticationState,
+}
+
+// Preserve the existing persisted credential envelope when using the core API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct StoredPasskey {
+    pub cred: Credential,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub(crate) enum StoredAuthenticationState {
-    Passkey {
-        state: webauthn_rs::prelude::PasskeyAuthentication,
-    },
-    Discoverable {
-        state: DiscoverableAuthentication,
-    },
+    Passkey { state: AuthenticationChallenge },
+    Discoverable { state: AuthenticationChallenge },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,7 +117,7 @@ pub(super) fn build_webauthn(
     config: &PasskeyConfig,
     auth_config: &AuthConfig,
     origin: &str,
-) -> AuthResult<Webauthn> {
+) -> AuthResult<WebauthnCore> {
     let rp_id = if config.rp_id.is_empty() {
         Url::parse(&auth_config.base_url)
             .ok()
@@ -116,14 +129,27 @@ pub(super) fn build_webauthn(
     let parsed_origin = Url::parse(origin)
         .map_err(|error| AuthError::bad_request(format!("Invalid passkey origin: {error}")))?;
 
-    WebauthnBuilder::new(&rp_id, &parsed_origin)
-        .map_err(|error| AuthError::config(format!("Invalid passkey config: {error}")))?
-        .rp_name(&config.rp_name)
-        .timeout(Duration::from_millis(OPTIONS_TIMEOUT_MS))
-        .allow_any_port(true)
-        .build()
-        .map_err(|error| AuthError::config(format!("Invalid passkey config: {error}")))
+    if !parsed_origin
+        .domain()
+        .is_some_and(|domain| domain == rp_id || domain.ends_with(&format!(".{rp_id}")))
+    {
+        return Err(AuthError::config(
+            "Passkey RP ID must be an effective domain of the origin",
+        ));
+    }
+    Ok(WebauthnCore::new_unsafe_experts_only(
+        &config.rp_name,
+        &rp_id,
+        vec![parsed_origin],
+        Duration::from_millis(OPTIONS_TIMEOUT_MS),
+        Some(false),
+        Some(false),
+    ))
 }
+
+// Better Auth treats UV as a UI preference and permits absent UV after verified registration.
+pub(super) const VERIFICATION_POLICY: UserVerificationPolicy =
+    UserVerificationPolicy::Discouraged_DO_NOT_USE;
 
 pub(super) fn create_challenge_cookie(
     auth_config: &AuthConfig,
@@ -283,46 +309,20 @@ pub(super) fn decode_credential_id(credential_id: &str) -> AuthResult<Credential
     Ok(bytes.into())
 }
 
-pub(super) fn parse_stored_passkey(serialized: &str) -> AuthResult<WebauthnPasskey> {
-    serde_json::from_str(serialized)
-        .map_err(|error| AuthError::internal(format!("Failed to decode stored passkey: {error}")))
+pub(super) fn parse_stored_passkey(serialized: &str) -> AuthResult<StoredPasskey> {
+    let mut passkey: StoredPasskey = serde_json::from_str(serialized).map_err(|error| {
+        AuthError::internal(format!("Failed to decode stored passkey: {error}"))
+    })?;
+    passkey.cred.registration_policy = VERIFICATION_POLICY;
+    Ok(passkey)
 }
 
-pub(super) fn extract_passkey_snapshot_fields(value: &Value) -> AuthResult<(u64, bool, bool)> {
-    // webauthn-rs does not expose stable accessors for all persisted passkey
-    // attributes we need at registration time. We intentionally depend on the
-    // current 0.5.x serialized shape here and fail closed if it drifts.
-    let Some(cred) = value.get("cred").and_then(Value::as_object) else {
-        return Err(AuthError::internal(
-            "Stored passkey JSON missing credential payload",
-        ));
-    };
-    let counter = cred
-        .get("counter")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| AuthError::internal("Stored passkey JSON missing counter"))?;
-    let backed_up = cred
-        .get("backup_state")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| AuthError::internal("Stored passkey JSON missing backup_state"))?;
-    let backup_eligible = cred
-        .get("backup_eligible")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| AuthError::internal("Stored passkey JSON missing backup_eligible"))?;
-
-    Ok((counter, backed_up, backup_eligible))
-}
-
-pub(super) fn snapshot_passkey(passkey: &WebauthnPasskey) -> AuthResult<PasskeySnapshot> {
-    let serialized = serde_json::to_string(passkey)?;
-    let value: Value = serde_json::from_str(&serialized)?;
-    let (counter, backed_up, backup_eligible) = extract_passkey_snapshot_fields(&value)?;
-
+pub(super) fn snapshot_passkey(passkey: &StoredPasskey) -> AuthResult<PasskeySnapshot> {
     Ok(PasskeySnapshot {
-        serialized,
-        counter,
-        backed_up,
-        backup_eligible,
+        serialized: serde_json::to_string(passkey)?,
+        counter: u64::from(passkey.cred.counter),
+        backed_up: passkey.cred.backup_state,
+        backup_eligible: passkey.cred.backup_eligible,
     })
 }
 

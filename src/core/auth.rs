@@ -8,7 +8,7 @@ use better_auth_core::{
     AuthResult, AuthSchema, AuthStore, BeforeRequestAction, EmailProvider,
     ErrorCodeMessageResponse, HttpMethod, OkResponse, OpenApiBuilder, OpenApiSpec, SessionManager,
     UpdateUser, UpdateUserRequest, core_paths,
-    entity::{AuthSession, AuthUser},
+    entity::AuthUser,
     hooks::{RequestHookContext, with_request_hook_context_value},
     middleware::{
         self, BodyLimitConfig, BodyLimitMiddleware, CorsConfig, CorsMiddleware, CsrfConfig,
@@ -147,13 +147,25 @@ impl<S: AuthSchema> AuthBuilder<S> {
             AuthContext::with_metadata(config.clone(), store.clone(), init_parts.metadata);
 
         let body_limit = self.body_limit_config.unwrap_or_default();
+        let mut rate_limit_config = self.rate_limit_config.unwrap_or_default();
+        for plugin in &self.plugins {
+            for (path, limit) in plugin.rate_limits()? {
+                let _ = rate_limit_config.per_endpoint.entry(path).or_insert(limit);
+            }
+        }
+        // Middleware receives the public path before the router removes the base path.
+        for (path, limit) in rate_limit_config.per_endpoint.clone() {
+            let public_path = format!("{}{}", config.base_path.trim_end_matches('/'), path);
+            let _ = rate_limit_config
+                .per_endpoint
+                .entry(public_path)
+                .or_insert(limit);
+        }
 
         // Build middleware chain (order matters: body limit → rate limit → CSRF → CORS → custom)
         let mut middlewares: Vec<Box<dyn Middleware>> = vec![
             Box::new(BodyLimitMiddleware::new(body_limit.clone())),
-            Box::new(RateLimitMiddleware::new(
-                self.rate_limit_config.unwrap_or_default(),
-            )),
+            Box::new(RateLimitMiddleware::new(rate_limit_config)),
             Box::new(CsrfMiddleware::new(
                 self.csrf_config.unwrap_or_default(),
                 config.clone(),
@@ -200,17 +212,14 @@ impl<S: AuthSchema> BetterAuth<S> {
 
         let request_context = RequestHookContext::from_request(&req);
         with_request_hook_context_value(request_context, async {
-            match self.handle_request_inner(&mut req).await {
-                Ok(response) => {
-                    // Run after-request middleware chain
-                    middleware::run_after(&self.middlewares, &req, response).await
-                }
-                Err(err) => {
-                    // Convert error to standardized response, then run after-middleware
-                    let response = err.to_auth_response();
-                    middleware::run_after(&self.middlewares, &req, response).await
-                }
-            }
+            let mut response = match self.handle_request_inner(&mut req).await {
+                Ok(response) => response,
+                Err(error) => error.to_auth_response(),
+            };
+            self.session_manager
+                .finish_response(&req, &mut response)
+                .await?;
+            middleware::run_after(&self.middlewares, &req, response).await
         })
         .await
     }
@@ -256,16 +265,8 @@ impl<S: AuthSchema> BetterAuth<S> {
                     BeforeRequestAction::Respond(response) => {
                         return Ok(response);
                     }
-                    BeforeRequestAction::InjectSession {
-                        user_id,
-                        session_token: _,
-                    } => {
-                        // Set the virtual user id on the request so that
-                        // `extract_current_user` can resolve the user without
-                        // creating a real database session.  This mirrors the
-                        // TypeScript `ctx.context.session` virtual-session
-                        // approach — no DB writes on every API-key request.
-                        internal_req.set_virtual_user_id(user_id);
+                    BeforeRequestAction::InjectSession { session } => {
+                        internal_req.set_virtual_session(*session);
                     }
                 }
             }
@@ -290,6 +291,13 @@ impl<S: AuthSchema> BetterAuth<S> {
     /// Get the configuration.
     pub fn config(&self) -> &AuthConfig {
         &self.config
+    }
+
+    /// Return the initialized context for server-only plugin APIs.
+    ///
+    /// The context includes metadata registered by every installed plugin.
+    pub fn context(&self) -> &AuthContext<S> {
+        &self.context
     }
 
     /// Get the shared auth store used by Better Auth.
@@ -415,19 +423,21 @@ impl<S: AuthSchema> BetterAuth<S> {
         if body.contains_key("email") {
             return Err(AuthError::bad_request("Email can not be updated"));
         }
-
         // Upstream rejects `input: false` schema fields before it writes, and
         // only knows plugin-contributed fields when that plugin is installed.
         // Either way the key is stripped below, so it never reaches the store.
         let admin_enabled = better_auth_api::plugins::helpers::admin_plugin_enabled(&self.context);
         let two_factor_enabled = better_auth_api::plugins::two_factor::is_enabled(&self.context);
+
         for (key, value) in body.iter() {
-            let core_denied = UpdateUserRequest::NON_WRITABLE_CORE_FIELDS.contains(&key.as_str());
+            let core_denied =
+                UpdateUserRequest::NON_WRITABLE_CORE_FIELDS.contains(&key.as_str());
             let plugin_denied = UpdateUserRequest::is_denied_by_plugin(
                 key.as_str(),
                 admin_enabled,
                 two_factor_enabled,
             );
+
             if (core_denied || plugin_denied) && UpdateUserRequest::is_js_truthy(value) {
                 return Err(AuthError::bad_request(format!(
                     "{key} is not allowed to be set"
@@ -436,11 +446,19 @@ impl<S: AuthSchema> BetterAuth<S> {
         }
 
         let mut clean_body = body.clone();
+
         clean_body.retain(|key, _| {
             let key = key.as_str();
             !UpdateUserRequest::NON_WRITABLE_CORE_FIELDS.contains(&key)
                 && !UpdateUserRequest::is_plugin_non_writable(key)
         });
+
+        if self.context.get_metadata("username.enabled")
+            != Some(&serde_json::Value::Bool(true))
+        {
+            _ = clean_body.remove("username");
+            _ = clean_body.remove("displayUsername");
+        }
 
         let update_req: UpdateUserRequest =
             serde_json::from_value(serde_json::Value::Object(clean_body))
@@ -522,32 +540,14 @@ impl<S: AuthSchema> BetterAuth<S> {
         Ok(response)
     }
 
-    /// Extract current user from request (validates session).
-    ///
-    /// If a virtual session was injected by a `before_request` hook (e.g.
-    /// API-key session emulation), the user is resolved directly by ID
-    /// **without** a database session lookup — matching the TypeScript
-    /// `ctx.context.session` virtual-session behaviour.
-    async fn extract_current_user(&self, req: &AuthRequest) -> AuthResult<S::User> {
-        // Fast path: virtual session injected by before_request hook
-        if let Some(uid) = req.virtual_user_id() {
-            let user = self.store.get_user_by_id(uid).await?;
-            return user.ok_or(AuthError::UserNotFound);
-        }
-
-        let token = self
-            .session_manager
-            .extract_session_token(req)
-            .ok_or(AuthError::Unauthenticated)?;
-
-        let session = self
-            .session_manager
-            .get_session(&token)
-            .await?
-            .ok_or(AuthError::SessionNotFound)?;
-
-        let user = self.store.get_user_by_id(&session.user_id()).await?;
-
-        user.ok_or(AuthError::UserNotFound)
+    /// Resolve the authoritative user for a profile update.
+    async fn extract_current_user(
+        &self,
+        req: &AuthRequest,
+    ) -> AuthResult<better_auth_core::wire::UserView> {
+        self.context
+            .require_authoritative_session(req)
+            .await
+            .map(|(user, _)| user)
     }
 }

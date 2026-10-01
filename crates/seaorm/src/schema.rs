@@ -66,6 +66,18 @@ pub trait SeaOrmSessionModel:
     fn set_expires_at(active: &mut Self::ActiveModel, expires_at: DateTime<Utc>);
     fn set_updated_at(active: &mut Self::ActiveModel, updated_at: DateTime<Utc>);
     fn set_active_organization_id(active: &mut Self::ActiveModel, organization_id: Option<String>);
+    /// Apply fields validated against the application's session configuration.
+    fn apply_fields(
+        _active: &mut Self::ActiveModel,
+        fields: serde_json::Map<String, serde_json::Value>,
+    ) -> AuthResult<()> {
+        if fields.is_empty() {
+            return Ok(());
+        }
+        Err(better_auth_core::AuthError::Config(
+            "The session model does not implement additional field updates".into(),
+        ))
+    }
 }
 
 pub trait SeaOrmAccountModel:

@@ -2,21 +2,29 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rand::seq::SliceRandom;
 use sha2::{Digest, Sha256};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use better_auth_core::entity::{AuthApiKey as _, AuthUser};
-use better_auth_core::store::ConsumeApiKeyResult;
+use better_auth_core::entity::AuthUser;
 use better_auth_core::{AuthContext, AuthError, AuthResult, BeforeRequestAction};
 use better_auth_core::{AuthRequest, AuthResponse};
 
 pub(super) mod handlers;
 pub(super) mod types;
+mod verification;
+
+pub use verification::{
+    ApiKeyErrorDetails, ApiKeyValidationError, ApiKeyVerificationError, VerifyApiKey,
+};
 
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod crud_tests;
+
 use handlers::*;
 use types::*;
+pub use types::{CreateKeyRequest, CreateKeyResponse, UpdateKeyRequest};
 
 // ---------------------------------------------------------------------------
 // Error codes -- mirrors the TypeScript `API_KEY_ERROR_CODES`
@@ -41,8 +49,10 @@ pub enum ApiKeyErrorCode {
     ExpiresInTooLarge,
     InvalidRemaining,
     RefillAmountAndIntervalRequired,
+    RefillIntervalAndAmountRequired,
     NameRequired,
     InvalidUserIdFromApiKey,
+    InvalidReferenceIdFromApiKey,
     NoDefaultConfiguration,
     OrganizationIdRequired,
     OrganizationPluginRequired,
@@ -72,8 +82,10 @@ impl ApiKeyErrorCode {
             Self::ExpiresInTooLarge => "EXPIRES_IN_IS_TOO_LARGE",
             Self::InvalidRemaining => "INVALID_REMAINING",
             Self::RefillAmountAndIntervalRequired => "REFILL_AMOUNT_AND_INTERVAL_REQUIRED",
+            Self::RefillIntervalAndAmountRequired => "REFILL_INTERVAL_AND_AMOUNT_REQUIRED",
             Self::NameRequired => "NAME_REQUIRED",
             Self::InvalidUserIdFromApiKey => "INVALID_USER_ID_FROM_API_KEY",
+            Self::InvalidReferenceIdFromApiKey => "INVALID_REFERENCE_ID_FROM_API_KEY",
             Self::NoDefaultConfiguration => "NO_DEFAULT_API_KEY_CONFIGURATION_FOUND",
             Self::OrganizationIdRequired => "ORGANIZATION_ID_REQUIRED",
             Self::OrganizationPluginRequired => "ORGANIZATION_PLUGIN_REQUIRED",
@@ -105,10 +117,14 @@ impl ApiKeyErrorCode {
             Self::ExpiresInTooLarge => "The expiresIn is larger than the predefined maximum value.",
             Self::InvalidRemaining => "The remaining count is either too large or too small.",
             Self::RefillAmountAndIntervalRequired => {
-                "refillAmount and refillInterval must both be provided together"
+                "refillAmount is required when refillInterval is provided"
+            }
+            Self::RefillIntervalAndAmountRequired => {
+                "refillInterval is required when refillAmount is provided"
             }
             Self::NameRequired => "API Key name is required.",
             Self::InvalidUserIdFromApiKey => "The user id from the API key is invalid.",
+            Self::InvalidReferenceIdFromApiKey => "The reference id from the API key is invalid.",
             Self::NoDefaultConfiguration => "No default api-key configuration found.",
             Self::OrganizationIdRequired => {
                 "Organization ID is required for organization-owned API keys."
@@ -131,26 +147,24 @@ impl ApiKeyErrorCode {
     }
 }
 
+impl serde::Serialize for ApiKeyErrorCode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
 pub(super) fn api_key_error(code: ApiKeyErrorCode) -> AuthError {
-    AuthError::bad_request(code.message())
-}
-
-/// Structured error returned by `validate_api_key`.
-pub(super) struct ApiKeyValidationError {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "read by the test module's verify_key helper")
-    )]
-    pub(super) code: ApiKeyErrorCode,
-    pub(super) message: String,
-}
-
-impl ApiKeyValidationError {
-    fn new(code: ApiKeyErrorCode) -> Self {
-        Self {
-            message: code.message().to_string(),
-            code,
-        }
+    let status = match code {
+        ApiKeyErrorCode::UnauthorizedSession => 401,
+        ApiKeyErrorCode::OrganizationPluginRequired => 500,
+        ApiKeyErrorCode::UserNotMemberOfOrganization
+        | ApiKeyErrorCode::InsufficientApiKeyPermissions => 403,
+        _ => 400,
+    };
+    AuthError::Upstream {
+        status,
+        code: code.as_str(),
+        message: code.message(),
     }
 }
 
@@ -170,12 +184,12 @@ pub enum ApiKeyReferences {
 }
 
 /// API Key management plugin.
+#[derive(Clone)]
 pub struct ApiKeyPlugin {
-    /// The registered configurations. The first is used when a request names
-    /// no `configId` and none is marked `default`.
+    /// Registered configurations. Unscoped requests use the default configuration.
     pub(super) configurations: Vec<ApiKeyConfig>,
     /// Throttle for `delete_expired_api_keys` -- stores the last check instant.
-    last_expired_check: Mutex<Option<std::time::Instant>>,
+    last_expired_check: Arc<Mutex<Option<std::time::Instant>>>,
 }
 
 impl ApiKeyPlugin {
@@ -184,7 +198,7 @@ impl ApiKeyPlugin {
     /// Upstream allows several api-key configurations side by side, each with
     /// its own `config_id`, ownership model and limits.
     pub fn configuration(mut self, config: ApiKeyConfig) -> Self {
-        self.configurations.push(config);
+        self.configurations.push(config.normalized());
         self
     }
 
@@ -208,11 +222,6 @@ impl ApiKeyPlugin {
             .iter()
             .find(|config| is_default_config_id(&config.config_id))
             .ok_or_else(|| api_key_error(ApiKeyErrorCode::NoDefaultConfiguration))
-    }
-
-    /// The default configuration, used by paths that are not config-scoped.
-    pub(super) fn default_configuration(&self) -> AuthResult<&ApiKeyConfig> {
-        self.resolve_configuration(None)
     }
 }
 
@@ -241,12 +250,14 @@ pub struct ApiKeyConfig {
     pub references: ApiKeyReferences,
 
     // -- key generation --
+    /// Random characters per key. Zero selects the upstream default of 64.
     pub key_length: usize,
     pub prefix: Option<String>,
-    pub default_remaining: Option<i64>,
+    /// Permissions applied when creation does not supply explicit permissions.
+    pub default_permissions: Option<std::collections::HashMap<String, Vec<String>>>,
 
     // -- header --
-    pub api_key_header: String,
+    pub api_key_headers: Vec<String>,
 
     // -- hashing --
     pub disable_key_hashing: bool,
@@ -277,10 +288,19 @@ pub struct ApiKeyConfig {
     pub enable_session_for_api_keys: bool,
 }
 
+impl ApiKeyConfig {
+    fn normalized(mut self) -> Self {
+        if self.key_length == 0 {
+            self.key_length = 64;
+        }
+        self
+    }
+}
+
 /// Key expiration constraints.
 #[derive(Debug, Clone)]
 pub struct KeyExpirationConfig {
-    /// Default `expiresIn` (in milliseconds) when none is provided. `None` = no default.
+    /// Default `expiresIn` (in seconds) when none is provided. `None` = no default.
     pub default_expires_in: Option<i64>,
     /// If true, clients cannot set a custom `expiresIn`.
     pub disable_custom_expires_time: bool,
@@ -306,17 +326,17 @@ impl Default for KeyExpirationConfig {
 pub struct RateLimitDefaults {
     pub enabled: bool,
     /// Default time window in milliseconds.
-    pub time_window: i64,
+    pub time_window: f64,
     /// Default max requests per window.
-    pub max_requests: i64,
+    pub max_requests: f64,
 }
 
 impl Default for RateLimitDefaults {
     fn default() -> Self {
         Self {
             enabled: true,
-            time_window: 86_400_000, // 24 hours
-            max_requests: 10,
+            time_window: 86_400_000.0, // 24 hours
+            max_requests: 10.0,
         }
     }
 }
@@ -328,8 +348,8 @@ impl Default for ApiKeyConfig {
             references: ApiKeyReferences::default(),
             key_length: 64,
             prefix: None,
-            default_remaining: None,
-            api_key_header: "x-api-key".to_string(),
+            default_permissions: None,
+            api_key_headers: vec!["x-api-key".to_string()],
             disable_key_hashing: false,
             starting_characters_length: 6,
             store_starting_characters: true,
@@ -358,7 +378,7 @@ impl Default for ApiKeyConfig {
 ///     .key_length(48)
 ///     .prefix("ba_".to_string())
 ///     .enable_metadata(true)
-///     .rate_limit(RateLimitDefaults { enabled: true, time_window: 60_000, max_requests: 5 })
+///     .rate_limit(RateLimitDefaults { enabled: true, time_window: 60_000.0, max_requests: 5.0 })
 ///     .build();
 /// ```
 #[bon::bon]
@@ -369,8 +389,8 @@ impl ApiKeyPlugin {
         #[builder(default)] references: ApiKeyReferences,
         #[builder(default = 64)] key_length: usize,
         prefix: Option<String>,
-        default_remaining: Option<i64>,
-        #[builder(default = "x-api-key".to_string())] api_key_header: String,
+        default_permissions: Option<std::collections::HashMap<String, Vec<String>>>,
+        #[builder(default = vec!["x-api-key".to_string()])] api_key_headers: Vec<String>,
         #[builder(default = false)] disable_key_hashing: bool,
         #[builder(default = 6)] starting_characters_length: usize,
         #[builder(default = true)] store_starting_characters: bool,
@@ -385,34 +405,37 @@ impl ApiKeyPlugin {
         #[builder(default = false)] enable_session_for_api_keys: bool,
     ) -> Self {
         Self {
-            configurations: vec![ApiKeyConfig {
-                config_id,
-                references,
-                key_length,
-                prefix,
-                default_remaining,
-                api_key_header,
-                disable_key_hashing,
-                starting_characters_length,
-                store_starting_characters,
-                max_prefix_length,
-                min_prefix_length,
-                max_name_length,
-                min_name_length,
-                require_name,
-                enable_metadata,
-                key_expiration,
-                rate_limit,
-                enable_session_for_api_keys,
-            }],
-            last_expired_check: Mutex::new(None),
+            configurations: vec![
+                ApiKeyConfig {
+                    config_id,
+                    references,
+                    key_length,
+                    prefix,
+                    default_permissions,
+                    api_key_headers,
+                    disable_key_hashing,
+                    starting_characters_length,
+                    store_starting_characters,
+                    max_prefix_length,
+                    min_prefix_length,
+                    max_name_length,
+                    min_name_length,
+                    require_name,
+                    enable_metadata,
+                    key_expiration,
+                    rate_limit,
+                    enable_session_for_api_keys,
+                }
+                .normalized(),
+            ],
+            last_expired_check: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn with_config(config: ApiKeyConfig) -> Self {
         Self {
-            configurations: vec![config],
-            last_expired_check: Mutex::new(None),
+            configurations: vec![config.normalized()],
+            last_expired_check: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -478,16 +501,16 @@ impl ApiKeyPlugin {
                 }
             }
         };
-        if should_run {
-            let _ = ctx.database.delete_expired_api_keys().await;
+        if should_run && let Err(error) = ctx.database.delete_expired_api_keys().await {
+            tracing::error!(%error, "Failed to delete expired API keys");
         }
     }
 
     // -- Validation helpers --
 
     pub(super) fn validate_prefix(config: &ApiKeyConfig, prefix: Option<&str>) -> AuthResult<()> {
-        if let Some(p) = prefix {
-            let len = p.len();
+        if let Some(p) = prefix.filter(|prefix| !prefix.is_empty()) {
+            let len = p.encode_utf16().count();
             if len < config.min_prefix_length || len > config.max_prefix_length {
                 return Err(api_key_error(ApiKeyErrorCode::InvalidPrefixLength));
             }
@@ -505,11 +528,11 @@ impl ApiKeyPlugin {
         name: Option<&str>,
         is_create: bool,
     ) -> AuthResult<()> {
-        if is_create && config.require_name && name.is_none() {
+        if is_create && config.require_name && name.is_none_or(str::is_empty) {
             return Err(api_key_error(ApiKeyErrorCode::NameRequired));
         }
-        if let Some(n) = name {
-            let len = n.len();
+        if let Some(n) = name.filter(|name| !is_create || !name.is_empty()) {
+            let len = n.encode_utf16().count();
             if len < config.min_name_length || len > config.max_name_length {
                 return Err(api_key_error(ApiKeyErrorCode::InvalidNameLength));
             }
@@ -519,15 +542,15 @@ impl ApiKeyPlugin {
 
     pub(super) fn validate_expires_in(
         config: &ApiKeyConfig,
-        expires_in: Option<i64>,
-    ) -> AuthResult<Option<i64>> {
+        expires_in: Option<f64>,
+    ) -> AuthResult<Option<f64>> {
         let cfg = &config.key_expiration;
         if let Some(secs) = expires_in {
             if cfg.disable_custom_expires_time {
                 return Err(api_key_error(ApiKeyErrorCode::KeyDisabledExpiration));
             }
             // expiresIn is in seconds; min/max are in days
-            let days = secs as f64 / 86_400.0;
+            let days = secs / 86_400.0;
             if days < cfg.min_expires_in as f64 {
                 return Err(api_key_error(ApiKeyErrorCode::ExpiresInTooSmall));
             }
@@ -536,7 +559,7 @@ impl ApiKeyPlugin {
             }
             Ok(Some(secs))
         } else {
-            Ok(cfg.default_expires_in)
+            Ok(cfg.default_expires_in.map(|seconds| seconds as f64))
         }
     }
 
@@ -544,25 +567,36 @@ impl ApiKeyPlugin {
         config: &ApiKeyConfig,
         metadata: &Option<serde_json::Value>,
     ) -> AuthResult<()> {
-        if metadata.is_some() && !config.enable_metadata {
-            return Err(api_key_error(ApiKeyErrorCode::MetadataDisabled));
-        }
-        if let Some(v) = metadata
-            && !v.is_object()
-            && !v.is_null()
-        {
-            return Err(api_key_error(ApiKeyErrorCode::InvalidMetadataType));
+        if let Some(value) = metadata.as_ref().filter(|value| match value {
+            serde_json::Value::Null => false,
+            serde_json::Value::Bool(value) => *value,
+            serde_json::Value::Number(value) => value.as_f64() != Some(0.0),
+            serde_json::Value::String(value) => !value.is_empty(),
+            _ => true,
+        }) {
+            if !config.enable_metadata {
+                return Err(api_key_error(ApiKeyErrorCode::MetadataDisabled));
+            }
+            if !value.is_object() && !value.is_array() {
+                return Err(api_key_error(ApiKeyErrorCode::InvalidMetadataType));
+            }
         }
         Ok(())
     }
 
     pub(super) fn validate_refill(
-        refill_interval: Option<i64>,
-        refill_amount: Option<i64>,
+        refill_interval: Option<f64>,
+        refill_amount: Option<f64>,
     ) -> AuthResult<()> {
-        match (refill_interval, refill_amount) {
-            (Some(_), None) | (None, Some(_)) => Err(api_key_error(
+        match (
+            refill_interval.filter(|value| *value != 0.0),
+            refill_amount.filter(|value| *value != 0.0),
+        ) {
+            (None, Some(_)) => Err(api_key_error(
                 ApiKeyErrorCode::RefillAmountAndIntervalRequired,
+            )),
+            (Some(_), None) => Err(api_key_error(
+                ApiKeyErrorCode::RefillIntervalAndAmountRequired,
             )),
             _ => Ok(()),
         }
@@ -577,8 +611,14 @@ impl ApiKeyPlugin {
         req: &AuthRequest,
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
-        let (user, _session) = ctx.require_session(req).await?;
-        let body: CreateKeyRequest = match better_auth_core::validate_request_body(req) {
+        let (user, _session) = ctx
+            .require_session(req)
+            .await
+            .map_err(|error| match error {
+                AuthError::Unauthenticated => api_key_error(ApiKeyErrorCode::UnauthorizedSession),
+                error => error,
+            })?;
+        let body: CreateKeyRequest = match parse_api_key_body(req) {
             Ok(v) => v,
             Err(resp) => return Ok(resp),
         };
@@ -607,7 +647,10 @@ impl ApiKeyPlugin {
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
         let (user, _session) = ctx.require_session(req).await?;
-        let query = ListKeysQuery::from_request(req);
+        let query = match ListKeysQuery::from_request(req) {
+            Ok(query) => query,
+            Err(response) => return Ok(response),
+        };
         let response = list_keys_core(user.id(), &query, self, ctx).await?;
         Ok(AuthResponse::json(200, &response)?)
     }
@@ -617,8 +660,14 @@ impl ApiKeyPlugin {
         req: &AuthRequest,
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
-        let (user, _session) = ctx.require_session(req).await?;
-        let body: UpdateKeyRequest = match better_auth_core::validate_request_body(req) {
+        let (user, _session) = ctx
+            .require_session(req)
+            .await
+            .map_err(|error| match error {
+                AuthError::Unauthenticated => api_key_error(ApiKeyErrorCode::UnauthorizedSession),
+                error => error,
+            })?;
+        let body: UpdateKeyRequest = match parse_api_key_body(req) {
             Ok(v) => v,
             Err(resp) => return Ok(resp),
         };
@@ -632,100 +681,15 @@ impl ApiKeyPlugin {
         ctx: &AuthContext<impl better_auth_core::AuthSchema>,
     ) -> AuthResult<AuthResponse> {
         let (user, _session) = ctx.require_session(req).await?;
-        let body: DeleteKeyRequest = match better_auth_core::validate_request_body(req) {
+        if user.banned() {
+            return Err(AuthError::authentication_failed("User is banned"));
+        }
+        let body: DeleteKeyRequest = match parse_api_key_body(req) {
             Ok(v) => v,
             Err(resp) => return Ok(resp),
         };
         let response = delete_key_core(&body, user.id(), self, ctx).await?;
         Ok(AuthResponse::json(200, &response)?)
-    }
-
-    /// Core validation logic used by `before_request` and tests.
-    ///
-    /// Validation chain: exists -> disabled -> expired -> permissions ->
-    /// remaining/refill -> rate limit.
-    ///
-    /// Returns `Ok(ApiKeyView)` on success, or `Err(ApiKeyValidationError)` with
-    /// a structured error code.
-    pub(super) async fn validate_api_key(
-        &self,
-        ctx: &AuthContext<impl better_auth_core::AuthSchema>,
-        raw_key: &str,
-        required_permissions: Option<&serde_json::Value>,
-    ) -> Result<ApiKeyView, ApiKeyValidationError> {
-        // The key has to be hashed before it can be looked up, so the lookup
-        // uses the addressed configuration's hashing setting. Everything after
-        // the lookup switches to the configuration that issued the key, which
-        // is what carries its rate limit and expiry policy.
-        let lookup_config = self
-            .default_configuration()
-            .map_err(|_| ApiKeyValidationError::new(ApiKeyErrorCode::NoDefaultConfiguration))?;
-        let hashed = if lookup_config.disable_key_hashing {
-            raw_key.to_string()
-        } else {
-            Self::hash_key(raw_key)
-        };
-
-        // Look up by hash
-        let api_key = ctx
-            .database
-            .get_api_key_by_hash(&hashed)
-            .await
-            .map_err(|_| ApiKeyValidationError::new(ApiKeyErrorCode::InvalidApiKey))?
-            .ok_or_else(|| ApiKeyValidationError::new(ApiKeyErrorCode::InvalidApiKey))?;
-
-        let config = self
-            .resolve_configuration(Some(&api_key.config_id))
-            .map_err(|_| ApiKeyValidationError::new(ApiKeyErrorCode::NoDefaultConfiguration))?;
-
-        // 1. Disabled?
-        if !api_key.enabled() {
-            return Err(ApiKeyValidationError::new(ApiKeyErrorCode::KeyDisabled));
-        }
-
-        // 2. Expired?
-        if let Some(expires_at_str) = api_key.expires_at()
-            && let Ok(expires_at) = chrono::DateTime::parse_from_rfc3339(expires_at_str)
-            && chrono::Utc::now() > expires_at
-        {
-            let _ = ctx.database.delete_api_key(&api_key.id()).await;
-            return Err(ApiKeyValidationError::new(ApiKeyErrorCode::KeyExpired));
-        }
-
-        // 3. Permissions check
-        if let Some(required) = required_permissions {
-            let key_perms_str = api_key.permissions().unwrap_or("");
-            if key_perms_str.is_empty() {
-                return Err(ApiKeyValidationError::new(ApiKeyErrorCode::KeyNotFound));
-            }
-            if !check_permissions(key_perms_str, required) {
-                return Err(ApiKeyValidationError::new(ApiKeyErrorCode::KeyNotFound));
-            }
-        }
-
-        // 4. Atomically consume one use: decrement remaining (with refill),
-        // increment rate-limit counter, update timestamps. All counter
-        // mutations happen inside a transaction against the locked row to
-        // prevent concurrent requests from corrupting counters.
-        let updated = match ctx
-            .database
-            .consume_api_key_usage(&api_key.id(), config.rate_limit.enabled)
-            .await
-            .map_err(|_| ApiKeyValidationError::new(ApiKeyErrorCode::FailedToUpdateApiKey))?
-        {
-            ConsumeApiKeyResult::Allowed(key) => *key,
-            ConsumeApiKeyResult::RateLimited => {
-                return Err(ApiKeyValidationError::new(ApiKeyErrorCode::RateLimited));
-            }
-            ConsumeApiKeyResult::UsageExhausted => {
-                return Err(ApiKeyValidationError::new(ApiKeyErrorCode::UsageExceeded));
-            }
-        };
-
-        // Throttled cleanup
-        self.maybe_delete_expired(ctx).await;
-
-        Ok(ApiKeyView::from(&updated))
     }
 }
 
@@ -743,64 +707,27 @@ better_auth_core::impl_auth_plugin! {
         get  "/api-key/list"                      => handle_list,               "api_key_list";
     }
     extra {
+        async fn on_init(&self, _ctx: &mut better_auth_core::AuthInitContext<S>) -> AuthResult<()> {
+            if self.configurations.len() > 1 {
+                let mut ids = std::collections::HashSet::new();
+                for config in &self.configurations {
+                    if config.config_id.is_empty() {
+                        return Err(AuthError::config("configId is required for each API key configuration in the api-key plugin."));
+                    }
+                    if !ids.insert(&config.config_id) {
+                        return Err(AuthError::config("configId must be unique for each API key configuration in the api-key plugin."));
+                    }
+                }
+            }
+            Ok(())
+        }
+
         async fn before_request(
             &self,
             req: &AuthRequest,
             ctx: &AuthContext<S>,
         ) -> AuthResult<Option<BeforeRequestAction>> {
-            let config = self.default_configuration()?;
-            if !config.enable_session_for_api_keys {
-                return Ok(None);
-            }
-
-            // Check for API key in the configured header
-            let raw_key = match req.headers.get(&config.api_key_header) {
-                Some(k) if !k.is_empty() => k.clone(),
-                _ => return Ok(None),
-            };
-
-            // Validate the key (reuses the full verify logic)
-            let view = self
-                .validate_api_key(ctx, &raw_key, None)
-                .await
-                .map_err(|e| AuthError::bad_request(e.message))?;
-
-            // Look up the user
-            let user = ctx
-                .database
-                .get_user_by_id(&view.reference_id)
-                .await?
-                .ok_or_else(|| api_key_error(ApiKeyErrorCode::InvalidUserIdFromApiKey))?;
-
-            // Build a virtual session response for `GET /get-session`.
-            //
-            // The POST form is deliberately left to the route, which gates it
-            // on `session.defer_session_refresh` and answers 405 otherwise —
-            // answering here would let an API key bypass that gate.
-            if req.path() == "/get-session" && req.method() == &better_auth_core::HttpMethod::Get {
-                let session_json = serde_json::json!({
-                    "user": {
-                        "id": user.id(),
-                        "email": user.email(),
-                        "name": user.name(),
-                    },
-                    "session": {
-                        "id": view.id,
-                        "token": raw_key,
-                        "userId": view.reference_id,
-                    }
-                });
-                return Ok(Some(BeforeRequestAction::Respond(AuthResponse::json(
-                    200,
-                    &session_json,
-                )?)));
-            }
-
-            // For all other routes, inject the session
-            Ok(Some(BeforeRequestAction::InjectSession {
-                user_id: view.reference_id,
-                session_token: raw_key,
-            }))
+            self.api_key_session(req, ctx).await
         }
     }
 }

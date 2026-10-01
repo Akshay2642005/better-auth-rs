@@ -1,4 +1,5 @@
 use better_auth_core::wire::UserView;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -23,6 +24,8 @@ pub(crate) struct SocialSignInRequest {
     #[serde(rename = "additionalData")]
     pub additional_data: Option<serde_json::Map<String, serde_json::Value>>,
     pub scopes: Option<Vec<String>>,
+    #[serde(rename = "additionalParams")]
+    pub additional_params: Option<IndexMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -39,9 +42,13 @@ pub(crate) struct LinkSocialRequest {
     pub id_token: Option<OAuthIdTokenRequest>,
     #[serde(rename = "requestSignUp")]
     pub request_sign_up: Option<bool>,
+    #[serde(rename = "loginHint")]
+    pub login_hint: Option<String>,
     #[serde(rename = "additionalData")]
     pub additional_data: Option<serde_json::Map<String, serde_json::Value>>,
     pub scopes: Option<Vec<String>>,
+    #[serde(rename = "additionalParams")]
+    pub additional_params: Option<IndexMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -56,34 +63,6 @@ pub(crate) struct OAuthIdTokenRequest {
     #[serde(rename = "expiresAt")]
     pub expires_at: Option<i64>,
     pub scopes: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize, Validate)]
-pub(crate) struct GetAccessTokenRequest {
-    #[validate(length(min = 1, message = "Provider ID is required"))]
-    #[serde(rename = "providerId")]
-    pub provider_id: String,
-    #[serde(rename = "accountId")]
-    pub account_id: Option<String>,
-    #[serde(rename = "userId")]
-    pub user_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Validate)]
-pub(crate) struct RefreshTokenRequest {
-    #[validate(length(min = 1, message = "Provider ID is required"))]
-    #[serde(rename = "providerId")]
-    pub provider_id: String,
-    #[serde(rename = "accountId")]
-    pub account_id: Option<String>,
-    #[serde(rename = "userId")]
-    pub user_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub(crate) struct AccountInfoQuery {
-    #[serde(rename = "accountId")]
-    pub account_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -125,23 +104,33 @@ pub(crate) struct RefreshTokenResponse {
     pub id_token: Option<String>,
     #[serde(rename = "providerId")]
     pub provider_id: String,
-    #[serde(rename = "accountId")]
-    pub account_id: String,
+    #[serde(rename = "accountId", skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct AccountInfoUser {
-    pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     #[serde(rename = "emailVerified")]
     pub email_verified: bool,
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AccountInfoAccount {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub provider_id: String,
+    pub account_id: String,
+}
+
+#[derive(Debug, Serialize)]
 pub(crate) struct AccountInfoResponse {
     pub user: AccountInfoUser,
     pub data: serde_json::Value,
+    pub account: AccountInfoAccount,
 }

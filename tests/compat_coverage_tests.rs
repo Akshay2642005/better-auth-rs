@@ -10,7 +10,7 @@
 
 mod compat;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use better_auth::prelude::HttpMethod;
 
@@ -20,7 +20,42 @@ use compat::schema::{OpenApiProfile, load_openapi_spec_with_profile};
 /// Analyze which endpoints from the reference spec are implemented.
 #[tokio::test]
 async fn test_route_coverage_analysis() {
-    let spec = load_openapi_spec_with_profile(OpenApiProfile::AllIn);
+    let missing = missing_routes(OpenApiProfile::AllIn).await;
+    let deferred: BTreeSet<String> = include_str!("../compat-tests/deferred-routes.txt")
+        .lines()
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(
+        missing, deferred,
+        "Route gaps changed. Implement regressions and remove completed backlog entries; review new upstream routes explicitly."
+    );
+}
+
+#[tokio::test]
+async fn supported_routes_have_no_gaps() {
+    let missing = missing_routes(OpenApiProfile::AlignedRs).await;
+    assert!(
+        missing.is_empty(),
+        "Supported routes are missing: {missing:?}"
+    );
+}
+
+fn canonical_path(path: &str) -> String {
+    path.split('/')
+        .map(|part| {
+            if part.starts_with('{') && part.ends_with('}') {
+                "{}"
+            } else {
+                part
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+async fn missing_routes(profile: OpenApiProfile) -> BTreeSet<String> {
+    let spec = load_openapi_spec_with_profile(profile);
     let auth = create_test_auth().await;
 
     // Collect reference endpoints from the typed spec
@@ -44,8 +79,14 @@ async fn test_route_coverage_analysis() {
         if path_item.patch.is_some() {
             method_set.insert("patch".to_string());
         }
+        if path_item.head.is_some() {
+            method_set.insert("head".to_string());
+        }
+        if path_item.options.is_some() {
+            method_set.insert("options".to_string());
+        }
         if !method_set.is_empty() {
-            ref_endpoints.insert(path.clone(), method_set);
+            ref_endpoints.insert(canonical_path(path), method_set);
         }
     }
 
@@ -53,14 +94,7 @@ async fn test_route_coverage_analysis() {
     let mut impl_endpoints: BTreeMap<String, HashSet<String>> = BTreeMap::new();
 
     // Core routes
-    for (path, method) in &[
-        ("/ok", "get"),
-        ("/error", "get"),
-        ("/update-user", "post"),
-        ("/delete-user", "post"),
-        ("/change-email", "post"),
-        ("/delete-user/callback", "get"),
-    ] {
+    for (path, method) in &[("/ok", "get"), ("/error", "get"), ("/update-user", "post")] {
         impl_endpoints
             .entry(path.to_string())
             .or_default()
@@ -80,7 +114,7 @@ async fn test_route_coverage_analysis() {
                 HttpMethod::Head => "head",
             };
             impl_endpoints
-                .entry(route.path.clone())
+                .entry(canonical_path(&route.path))
                 .or_default()
                 .insert(method_str.to_string());
         }
@@ -163,4 +197,5 @@ async fn test_route_coverage_analysis() {
     }
 
     eprintln!("\n══════════════════════════════════════════════════════\n");
+    missing.into_iter().collect()
 }

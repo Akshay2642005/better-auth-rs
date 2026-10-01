@@ -54,6 +54,12 @@ pub trait UserStore<S: AuthSchema>: Send + Sync {
 pub trait SessionStore<S: AuthSchema>: Send + Sync {
     async fn create_session(&self, create_session: CreateSession) -> AuthResult<S::Session>;
     async fn get_session(&self, token: &str) -> AuthResult<Option<S::Session>>;
+    /// Persist application session fields and update the modification timestamp.
+    async fn update_session_fields(
+        &self,
+        token: &str,
+        fields: serde_json::Map<String, serde_json::Value>,
+    ) -> AuthResult<Option<S::Session>>;
     async fn get_user_sessions(&self, user_id: &str) -> AuthResult<Vec<S::Session>>;
     async fn update_session_expiry(
         &self,
@@ -103,6 +109,12 @@ pub trait VerificationStore<S: AuthSchema>: Send + Sync {
         &self,
         identifier: &str,
         value: &str,
+    ) -> AuthResult<Option<S::Verification>>;
+    /// Atomically consume the newest record and delete every record for the identifier.
+    /// Expired records are consumed but return `None`; only one concurrent caller succeeds.
+    async fn consume_verification_by_identifier(
+        &self,
+        identifier: &str,
     ) -> AuthResult<Option<S::Verification>>;
     async fn delete_verification(&self, id: &str) -> AuthResult<()>;
     async fn delete_expired_verifications(&self) -> AuthResult<usize>;
@@ -180,6 +192,12 @@ pub trait InvitationStore: Send + Sync {
         id: &str,
         status: InvitationStatus,
     ) -> AuthResult<Invitation>;
+    /// Renew an invitation without changing its identity, role, or inviter.
+    async fn update_invitation_expiry(
+        &self,
+        id: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> AuthResult<Invitation>;
     async fn list_organization_invitations(&self, org_id: &str) -> AuthResult<Vec<Invitation>>;
     /// Count still-pending, unexpired invitations for an organization.
     async fn count_pending_organization_invitations(&self, org_id: &str) -> AuthResult<i64>;
@@ -195,6 +213,32 @@ pub trait TwoFactorStore: Send + Sync {
         user_id: &str,
         backup_codes: &str,
     ) -> AuthResult<TwoFactor>;
+    /// Update an existing authenticator enrollment.
+    async fn update_two_factor(
+        &self,
+        id: &str,
+        update: crate::types::UpdateTwoFactor,
+    ) -> AuthResult<TwoFactor>;
+    /// Replace backup codes only if the stored value still equals the caller's snapshot.
+    async fn compare_exchange_two_factor_backup_codes(
+        &self,
+        id: &str,
+        previous: &str,
+        replacement: &str,
+    ) -> AuthResult<bool>;
+    /// Atomically count a failed verification and lock the account once the budget is spent.
+    async fn record_two_factor_failure(
+        &self,
+        id: &str,
+        max_attempts: i64,
+        locked_until: chrono::DateTime<chrono::Utc>,
+    ) -> AuthResult<()>;
+    /// Reset failed verifications, optionally requiring an expired lock.
+    async fn reset_two_factor_failures(
+        &self,
+        id: &str,
+        locked_before: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> AuthResult<()>;
     async fn delete_two_factor(&self, user_id: &str) -> AuthResult<()>;
 }
 
@@ -229,10 +273,12 @@ pub trait ApiKeyStore: Send + Sync {
 pub enum ConsumeApiKeyResult {
     /// The key was valid and counters were updated. Contains the updated key.
     Allowed(Box<ApiKey>),
-    /// The key's rate limit was exceeded.
-    RateLimited,
-    /// The key's usage quota (`remaining`) was exhausted and no refill is
-    /// configured. The key has been deleted.
+    /// The rate limit was exceeded after consuming the request's usage quota.
+    RateLimited {
+        /// Milliseconds until the current rate-limit window ends.
+        try_again_in: f64,
+    },
+    /// The quota was exhausted. Non-refillable keys at zero quota are deleted.
     UsageExhausted,
 }
 

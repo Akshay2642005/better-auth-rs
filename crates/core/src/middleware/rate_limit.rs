@@ -23,7 +23,7 @@ pub struct RateLimitConfig {
 /// Rate limit parameters for a single endpoint.
 #[derive(Debug, Clone)]
 pub struct EndpointRateLimit {
-    /// Sliding window duration.
+    /// Idle duration after the last allowed request before the counter resets.
     pub window: Duration,
 
     /// Maximum number of requests allowed within the window.
@@ -78,15 +78,40 @@ impl RateLimitConfig {
     }
 }
 
-/// In-memory sliding-window rate limiter.
+/// In-memory rate limiter with a counter that resets after an idle window.
 ///
 /// For production use with multiple instances, a `CacheAdapter`-backed
 /// implementation should be used instead. This implementation is suitable
 /// for single-process deployments and testing.
 pub struct RateLimitMiddleware {
     config: RateLimitConfig,
-    /// Keyed by (client_identifier, path) → list of request timestamps.
-    buckets: Mutex<HashMap<String, Vec<Instant>>>,
+    /// Keyed by (client_identifier, path).
+    buckets: Mutex<HashMap<String, RateLimitBucket>>,
+}
+
+struct RateLimitBucket {
+    count: u32,
+    last_request: Instant,
+}
+
+impl RateLimitBucket {
+    fn consume(&mut self, now: Instant, limit: &EndpointRateLimit) -> Option<u64> {
+        let elapsed = now.duration_since(self.last_request);
+        if self.count == 0 || elapsed >= limit.window {
+            self.count = 1;
+        } else if self.count >= limit.max_requests {
+            let remaining = limit.window - elapsed;
+            return Some(
+                remaining
+                    .as_secs()
+                    .saturating_add(u64::from(remaining.subsec_nanos() != 0)),
+            );
+        } else {
+            self.count += 1;
+        }
+        self.last_request = now;
+        None
+    }
 }
 
 impl RateLimitMiddleware {
@@ -129,41 +154,28 @@ impl Middleware for RateLimitMiddleware {
         let limit = self.limit_for_path(&req.path);
         let key = format!("{}:{}", Self::client_key(req), req.path);
         let now = Instant::now();
-        let window = limit.window;
-
         let mut buckets = self
             .buckets
             .lock()
             .map_err(|_| crate::error::AuthError::internal("Rate-limit lock poisoned"))?;
-        let timestamps = buckets.entry(key).or_default();
-
-        // Remove timestamps outside the window
-        timestamps.retain(|&t| now.duration_since(t) < window);
-
-        if timestamps.len() as u32 >= limit.max_requests {
-            let retry_after = timestamps
-                .first()
-                .map(|&t| {
-                    window
-                        .as_secs()
-                        .saturating_sub(now.duration_since(t).as_secs())
-                })
-                .unwrap_or(window.as_secs());
-
+        let bucket = buckets.entry(key).or_insert(RateLimitBucket {
+            count: 0,
+            last_request: now,
+        });
+        if let Some(retry_after) = bucket.consume(now, limit) {
             return Ok(Some(
                 AuthResponse::json(
                     429,
-                    &crate::types::RateLimitErrorResponse {
-                        code: "RATE_LIMIT_EXCEEDED",
-                        message: "Too many requests",
-                        retry_after,
+                    &crate::types::ErrorCodeMessageResponse {
+                        code: None,
+                        message: "Too many requests. Please try again later.".to_string(),
                     },
                 )?
-                .with_header("Retry-After", retry_after.to_string()),
+                .with_header("content-type", "text/plain;charset=UTF-8")
+                .with_header("X-Retry-After", retry_after.to_string()),
             ));
         }
 
-        timestamps.push(now);
         Ok(None)
     }
 }
@@ -174,17 +186,58 @@ mod tests {
     use crate::types::HttpMethod;
     use std::collections::HashMap as StdHashMap;
 
+    #[test]
+    fn counter_resets_only_after_idle_window_and_denials_do_not_extend_it() {
+        let start = Instant::now();
+        let limit = EndpointRateLimit {
+            window: Duration::from_secs(2),
+            max_requests: 5,
+        };
+        let mut bucket = RateLimitBucket {
+            count: 0,
+            last_request: start,
+        };
+        assert_eq!(bucket.consume(start, &limit), None);
+        for _ in 0..4 {
+            assert_eq!(
+                bucket.consume(start + Duration::from_millis(1300), &limit),
+                None
+            );
+        }
+        assert_eq!(
+            bucket.consume(start + Duration::from_millis(2200), &limit),
+            Some(2)
+        );
+        assert_eq!(
+            bucket.consume(start + Duration::from_millis(3200), &limit),
+            Some(1)
+        );
+        assert_eq!(
+            bucket.consume(start + Duration::from_millis(3300), &limit),
+            None
+        );
+        for _ in 0..4 {
+            assert_eq!(
+                bucket.consume(start + Duration::from_millis(3300), &limit),
+                None
+            );
+        }
+        assert_eq!(
+            bucket.consume(start + Duration::from_millis(3300), &limit),
+            Some(2)
+        );
+    }
+
     fn make_request(path: &str, ip: &str) -> AuthRequest {
         let mut headers = StdHashMap::new();
         headers.insert("x-forwarded-for".to_string(), ip.to_string());
-        AuthRequest {
-            method: HttpMethod::Post,
-            path: path.to_string(),
+        AuthRequest::from_parts(
+            HttpMethod::Post,
+            path.to_string(),
             headers,
-            body: None,
-            query: StdHashMap::new(),
-            virtual_user_id: None,
-        }
+            None,
+            StdHashMap::new(),
+        )
     }
 
     // Rust-specific surface: Rust middleware implementations are library-specific behavior with no direct TS analogue.

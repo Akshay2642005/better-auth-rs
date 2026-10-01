@@ -3,7 +3,7 @@ use chrono::Duration;
 use std::sync::Arc;
 
 use better_auth_core::entity::AuthUser;
-use better_auth_core::wire::{SessionView, UserView};
+use better_auth_core::wire::UserView;
 use better_auth_core::{AuthContext, AuthPlugin, AuthRoute};
 use better_auth_core::{AuthError, AuthResult};
 use better_auth_core::{AuthRequest, AuthResponse, HttpMethod};
@@ -302,7 +302,6 @@ impl UserManagementPlugin {
     ) -> AuthResult<AuthResponse> {
         let (user, session) = ctx.require_session(req).await?;
         let user = UserView::from(&user);
-        let session = SessionView::from(&session);
         let body: DeleteUserRequest = match better_auth_core::validate_request_body(req) {
             Ok(v) => v,
             Err(resp) => return Ok(resp),

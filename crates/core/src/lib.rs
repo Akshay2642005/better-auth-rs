@@ -40,9 +40,9 @@ pub mod wire;
 pub use better_auth_macros::{AuthSchema, PluginConfig};
 pub use config::{
     AccountConfig, AccountLinkingConfig, AdvancedConfig, AdvancedDatabaseConfig, Argon2Config,
-    AuthConfig, CookieAttributes, CookieCacheConfig, CookieCacheStrategy, CookieOverride,
-    CrossSubDomainConfig, IpAddressConfig, JwtConfig, OAuthStateStrategy, PasswordConfig, SameSite,
-    SessionConfig, core_paths, extract_origin,
+    AuthConfig, BearerConfig, CookieAttributes, CookieCacheConfig, CookieCacheStrategy,
+    CookieOverride, CrossSubDomainConfig, IpAddressConfig, JwtConfig, OAuthStateStrategy,
+    PasswordConfig, SameSite, SessionConfig, SessionFieldConfig, core_paths, extract_origin,
 };
 pub use email::{ConsoleEmailProvider, EmailProvider};
 pub use entity::{
@@ -60,6 +60,8 @@ pub use middleware::{
 pub use openapi::{OpenApiBuilder, OpenApiInfo, OpenApiOperation, OpenApiResponse, OpenApiSpec};
 pub use plugin::{AuthContext, AuthInitContext, AuthPlugin, AuthRoute, BeforeRequestAction};
 pub use schema::AuthSchema;
+#[doc(hidden)]
+pub use serde_json;
 pub use session::SessionManager;
 pub use store::{
     AuthStore, AuthTransaction, CacheAdapter, ConsumeApiKeyResult, MemoryCacheAdapter, transaction,
@@ -72,8 +74,8 @@ pub use types::{
     Invitation, InvitationStatus, ListUsersParams, Member, OkResponse, Organization, Passkey,
     RateLimitErrorResponse, RequestMeta, StatusMessageResponse, StatusResponse,
     SuccessMessageResponse, SuccessResponse, TwoFactor, UpdateAccount, UpdateApiKey,
-    UpdateDeviceCode, UpdateOrganization, UpdatePasskey, UpdateUser, UpdateUserRequest,
-    UpdateUserResponse, ValidationErrorResponse,
+    UpdateDeviceCode, UpdateOrganization, UpdatePasskey, UpdateTwoFactor, UpdateUser,
+    UpdateUserRequest, UpdateUserResponse, ValidationErrorResponse,
 };
 pub use utils::password::{PasswordHasher, hash_password, verify_password};
 #[doc(hidden)]

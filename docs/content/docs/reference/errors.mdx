@@ -42,6 +42,7 @@ For 5xx errors, the actual error details are hidden and a generic message is ret
 | `Internal` | 500 | Unexpected internal error |
 | `PasswordHash` | 500 | Password hashing failure |
 | `Jwt` | 500 | JWT encoding/decoding error |
+| `Redis` | 500 | Redis operation failed; available with `redis-cache` |
 
 ## DatabaseError Variants
 
@@ -65,7 +66,7 @@ fn handle_result(result: AuthResult<()>) {
         Ok(()) => println!("Success"),
         Err(e) => {
             println!("Status: {}", e.status_code());
-            println!("Message: {}", e.message());
+            println!("Message: {}", e);
         }
     }
 }
@@ -161,10 +162,10 @@ AuthError::not_implemented("Feature not available yet");
 When using the Axum integration, `AuthError` is automatically converted to an HTTP response:
 
 ```rust
-use axum::{Json, response::IntoResponse};
+use axum::Json;
 use better_auth::error::AuthError;
 
-async fn my_handler() -> Result<impl IntoResponse, AuthError> {
+async fn my_handler() -> Result<Json<serde_json::Value>, AuthError> {
     // AuthError automatically becomes the right HTTP status + JSON body
     Err(AuthError::bad_request("Something went wrong"))
 }

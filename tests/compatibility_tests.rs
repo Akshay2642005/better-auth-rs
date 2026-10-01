@@ -153,15 +153,21 @@ async fn test_database() -> DatabaseConnection {
 }
 
 async fn create_full_auth() -> BetterAuth<TestSchema> {
-    let config = AuthConfig::new("test-secret-key-that-is-at-least-32-characters-long")
+    let mut config = AuthConfig::new("test-secret-key-that-is-at-least-32-characters-long")
         .base_url("http://localhost:3000")
         .password_min_length(8);
+
+    config.session.bearer = Some(Default::default());
 
     let store = SeaOrmStore::<TestSchema>::new(config.clone(), test_database().await);
 
     AuthBuilder::<TestSchema>::new(config)
         .store(store)
-        .plugin(EmailPasswordPlugin::new().enable_signup(true))
+        .plugin(
+            EmailPasswordPlugin::new()
+                .enable_signup(true)
+                .username(true),
+        )
         .plugin(better_auth::plugins::SessionManagementPlugin::new())
         .plugin(better_auth::plugins::PasswordManagementPlugin::new())
         .plugin(better_auth::plugins::EmailVerificationPlugin::new())

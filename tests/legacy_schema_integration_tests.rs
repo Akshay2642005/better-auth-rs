@@ -59,6 +59,16 @@ mod user {
     impl ActiveModelBehavior for ActiveModel {}
 
     impl AuthUser for Model {
+        const PLUGIN_FIELDS: &'static [&'static str] = &[
+            "username",
+            "display_username",
+            "two_factor_enabled",
+            "role",
+            "banned",
+            "ban_reason",
+            "ban_expires",
+            "metadata",
+        ];
         fn id(&self) -> Cow<'_, str> {
             Cow::Owned(self.id.to_string())
         }
@@ -230,6 +240,8 @@ mod session {
     impl ActiveModelBehavior for ActiveModel {}
 
     impl AuthSession for Model {
+        const PLUGIN_FIELDS: &'static [&'static str] =
+            &["impersonated_by", "active_organization_id"];
         fn id(&self) -> Cow<'_, str> {
             Cow::Owned(self.id.to_string())
         }
@@ -618,9 +630,11 @@ async fn run_app_migrations(database: &DatabaseConnection) -> Result<(), sea_orm
 }
 
 fn test_config() -> AuthConfig {
-    AuthConfig::new("test-secret-key-that-is-at-least-32-characters-long")
+    let mut config = AuthConfig::new("test-secret-key-that-is-at-least-32-characters-long")
         .base_url("http://localhost:3000")
-        .password_min_length(8)
+        .password_min_length(8);
+    config.session.bearer = Some(Default::default());
+    config
 }
 
 async fn create_auth() -> BetterAuth<LegacySchema> {

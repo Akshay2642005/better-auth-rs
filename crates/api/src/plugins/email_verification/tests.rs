@@ -23,7 +23,6 @@ fn test_default_config() {
     assert_eq!(config.verification_token_expiry, Duration::hours(24));
     assert!(config.send_email_notifications);
     assert!(!config.require_verification_for_signin);
-    assert!(!config.auto_verify_new_users);
     assert!(!config.send_on_sign_in);
     assert!(!config.auto_sign_in_after_verification);
     assert!(config.send_verification_email.is_none());
@@ -72,14 +71,6 @@ fn test_builder_send_email_notifications() {
 fn test_builder_require_verification_for_signin() {
     let plugin = EmailVerificationPlugin::new().require_verification_for_signin(true);
     assert!(plugin.config.require_verification_for_signin);
-}
-
-// Rust-specific surface: `EmailVerificationPlugin` builder methods and
-// `EmailVerificationConfig` are public Rust APIs with no direct TS analogue.
-#[test]
-fn test_builder_auto_verify_new_users() {
-    let plugin = EmailVerificationPlugin::new().auto_verify_new_users(true);
-    assert!(plugin.config.auto_verify_new_users);
 }
 
 // Rust-specific surface: `EmailVerificationPlugin` builder methods and
@@ -396,85 +387,79 @@ async fn test_send_verification_on_sign_in_creates_token() {
     assert_eq!(call_count.load(Ordering::Relaxed), 1);
 }
 
-// ------------------------------------------------------------------
-// on_user_created -- custom sender fires even when
-// send_email_notifications is false
-// ------------------------------------------------------------------
-
-// Upstream reference: packages/better-auth/src/api/routes/email-verification.test.ts :: describe("Email Verification") and packages/better-auth/src/api/routes/email-verification.ts; adapted to the Rust email verification plugin.
+// Upstream reference: packages/better-auth/src/api/routes/email-verification.test.ts; exercises the public sign-up, send, and verify routes.
 #[tokio::test]
-async fn test_on_user_created_custom_sender_fires_without_notifications() {
-    let call_count = Arc::new(AtomicU32::new(0));
-    let counter = call_count.clone();
-    struct CountingSender(Arc<AtomicU32>);
+async fn test_signup_then_explicit_verification_uses_custom_sender_once() {
+    struct CapturingSender(Arc<std::sync::Mutex<Vec<String>>>);
     #[async_trait]
-    impl SendVerificationEmail for CountingSender {
-        async fn send(&self, _user: &UserView, _url: &str, _token: &str) -> AuthResult<()> {
-            self.0.fetch_add(1, Ordering::Relaxed);
+    impl SendVerificationEmail for CapturingSender {
+        async fn send(&self, _user: &UserView, _url: &str, token: &str) -> AuthResult<()> {
+            self.0.lock().unwrap().push(token.to_owned());
             Ok(())
         }
     }
 
-    let plugin = EmailVerificationPlugin::new()
-        .send_email_notifications(false)
-        .custom_send_verification_email(Arc::new(CountingSender(counter)));
-
+    let tokens = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let plugin = Arc::new(
+        EmailVerificationPlugin::new()
+            .send_email_notifications(false)
+            .custom_send_verification_email(Arc::new(CapturingSender(tokens.clone()))),
+    );
+    let signup = crate::plugins::EmailPasswordPlugin::new()
+        .enable_signup(true)
+        .with_email_verification(plugin.clone());
     let ctx = test_helpers::create_test_context().await;
-    let user = ctx
-        .database
-        .create_user(
-            CreateUser::new()
-                .with_email("newuser@test.com")
-                .with_name("New"),
-        )
-        .await
-        .unwrap();
+    let request = test_helpers::create_auth_json_request_no_query(
+        HttpMethod::Post,
+        "/sign-up/email",
+        None,
+        Some(serde_json::json!({
+            "email": "newuser@test.com", "password": "Password123!", "name": "New"
+        })),
+    );
+    let response = signup.on_request(&request, &ctx).await.unwrap().unwrap();
+    assert_eq!(response.status, 200);
 
-    plugin.on_user_created(&user, &ctx).await.unwrap();
-
-    // Custom sender should have been called even though
-    // send_email_notifications is false.
-    assert_eq!(call_count.load(Ordering::Relaxed), 1);
-}
-
-// Upstream reference: packages/better-auth/src/api/routes/email-verification.test.ts :: describe("Email Verification") and packages/better-auth/src/api/routes/email-verification.ts; adapted to the Rust email verification plugin.
-#[tokio::test]
-async fn test_on_user_created_verified_user_skips_email() {
-    let call_count = Arc::new(AtomicU32::new(0));
-    let counter = call_count.clone();
-    struct CountingSender(Arc<AtomicU32>);
-    #[async_trait]
-    impl SendVerificationEmail for CountingSender {
-        async fn send(&self, _user: &UserView, _url: &str, _token: &str) -> AuthResult<()> {
-            self.0.fetch_add(1, Ordering::Relaxed);
-            Ok(())
-        }
-    }
-
-    let plugin = EmailVerificationPlugin::new()
-        .custom_send_verification_email(Arc::new(CountingSender(counter)));
-
-    let ctx = test_helpers::create_test_context().await;
-    let user = ctx
-        .database
-        .create_user(
-            CreateUser::new()
-                .with_email("newuser@test.com")
-                .with_name("New"),
-        )
-        .await
-        .unwrap();
-    // Mark verified
-    let update = UpdateUser {
-        email_verified: Some(true),
-        ..Default::default()
+    let request = test_helpers::create_auth_json_request_no_query(
+        HttpMethod::Post,
+        "/send-verification-email",
+        None,
+        Some(serde_json::json!({ "email": "newuser@test.com" })),
+    );
+    let response = plugin.on_request(&request, &ctx).await.unwrap().unwrap();
+    assert_eq!(response.status, 200);
+    let token = {
+        let sent = tokens.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        sent[0].clone()
     };
-    let verified = ctx.database.update_user(&user.id, update).await.unwrap();
 
-    plugin.on_user_created(&verified, &ctx).await.unwrap();
+    let request = test_helpers::create_auth_request(
+        HttpMethod::Get,
+        "/verify-email",
+        None,
+        None,
+        HashMap::from([("token".into(), token)]),
+    );
+    let response = plugin.on_request(&request, &ctx).await.unwrap().unwrap();
+    assert_eq!(response.status, 200);
+    let user = ctx
+        .database
+        .get_user_by_email("newuser@test.com")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(user.email_verified);
 
-    // Should NOT have been called because user is already verified.
-    assert_eq!(call_count.load(Ordering::Relaxed), 0);
+    let request = test_helpers::create_auth_json_request_no_query(
+        HttpMethod::Post,
+        "/send-verification-email",
+        None,
+        Some(serde_json::json!({ "email": "newuser@test.com" })),
+    );
+    let response = plugin.on_request(&request, &ctx).await.unwrap().unwrap();
+    assert_eq!(response.status, 200);
+    assert_eq!(tokens.lock().unwrap().len(), 1);
 }
 
 // ------------------------------------------------------------------

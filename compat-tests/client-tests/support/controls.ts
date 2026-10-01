@@ -189,7 +189,7 @@ export async function seedOAuthAccount(
     scope?: string | null;
   },
 ) {
-  await postControl(baseURL, "/__test/seed-oauth-account", {
+  const result = await postControl(baseURL, "/__test/seed-oauth-account", {
     email,
     providerId,
     accountId,
@@ -201,5 +201,5 @@ export async function seedOAuthAccount(
     scope,
   });
 
-  return accountId;
+  return result.accountId;
 }

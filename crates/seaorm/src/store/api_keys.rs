@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder,
-    QuerySelect, Set, TransactionTrait,
+    QuerySelect, Set, SqliteTransactionMode, TransactionOptions, TransactionTrait,
 };
 use uuid::Uuid;
 
@@ -13,7 +13,7 @@ use crate::schema::AuthSchema;
 use crate::types::{ApiKey, CreateApiKey, UpdateApiKey};
 
 use super::entities::api_key::{ActiveModel, Column, Entity};
-use super::{SeaOrmStore, map_db_err, parse_optional_rfc3339, to_i32, to_optional_i32};
+use super::{SeaOrmStore, map_db_err, parse_optional_rfc3339};
 
 /// Apply `UpdateApiKey` fields to a SeaORM active model.
 fn apply_update_fields(mut active: ActiveModel, update: UpdateApiKey) -> AuthResult<ActiveModel> {
@@ -24,25 +24,22 @@ fn apply_update_fields(mut active: ActiveModel, update: UpdateApiKey) -> AuthRes
         active.enabled = Set(enabled);
     }
     if let Some(remaining) = update.remaining {
-        active.remaining = Set(Some(to_i32(remaining, "remaining")?));
+        active.remaining = Set(Some(remaining));
     }
     if let Some(rate_limit_enabled) = update.rate_limit_enabled {
         active.rate_limit_enabled = Set(rate_limit_enabled);
     }
     if let Some(rate_limit_time_window) = update.rate_limit_time_window {
-        active.rate_limit_time_window = Set(Some(to_i32(
-            rate_limit_time_window,
-            "rate_limit_time_window",
-        )?));
+        active.rate_limit_time_window = Set(Some(rate_limit_time_window));
     }
     if let Some(rate_limit_max) = update.rate_limit_max {
-        active.rate_limit_max = Set(Some(to_i32(rate_limit_max, "rate_limit_max")?));
+        active.rate_limit_max = Set(Some(rate_limit_max));
     }
     if let Some(refill_interval) = update.refill_interval {
-        active.refill_interval = Set(Some(to_i32(refill_interval, "refill_interval")?));
+        active.refill_interval = Set(Some(refill_interval));
     }
     if let Some(refill_amount) = update.refill_amount {
-        active.refill_amount = Set(Some(to_i32(refill_amount, "refill_amount")?));
+        active.refill_amount = Set(Some(refill_amount));
     }
     if let Some(permissions) = update.permissions {
         active.permissions = Set(Some(permissions));
@@ -60,7 +57,7 @@ fn apply_update_fields(mut active: ActiveModel, update: UpdateApiKey) -> AuthRes
         )?);
     }
     if let Some(request_count) = update.request_count {
-        active.request_count = Set(Some(to_i32(request_count, "request_count")?));
+        active.request_count = Set(Some(request_count));
     }
     if let Some(last_refill_at) = update.last_refill_at {
         active.last_refill_at = Set(parse_optional_rfc3339(
@@ -87,18 +84,15 @@ where
             key_hash: Set(input.key_hash),
             reference_id: Set(input.reference_id),
             config_id: Set(input.config_id),
-            refill_interval: Set(to_optional_i32(input.refill_interval, "refill_interval")?),
-            refill_amount: Set(to_optional_i32(input.refill_amount, "refill_amount")?),
+            refill_interval: Set(input.refill_interval),
+            refill_amount: Set(input.refill_amount),
             last_refill_at: Set(None),
             enabled: Set(input.enabled),
             rate_limit_enabled: Set(input.rate_limit_enabled),
-            rate_limit_time_window: Set(to_optional_i32(
-                input.rate_limit_time_window,
-                "rate_limit_time_window",
-            )?),
-            rate_limit_max: Set(to_optional_i32(input.rate_limit_max, "rate_limit_max")?),
-            request_count: Set(Some(0)),
-            remaining: Set(to_optional_i32(input.remaining, "remaining")?),
+            rate_limit_time_window: Set(input.rate_limit_time_window),
+            rate_limit_max: Set(input.rate_limit_max),
+            request_count: Set(Some(0.0)),
+            remaining: Set(input.remaining),
             last_request: Set(None),
             expires_at: Set(parse_optional_rfc3339(
                 input.expires_at.as_deref(),
@@ -166,98 +160,108 @@ where
         id: &str,
         global_rate_limit_enabled: bool,
     ) -> AuthResult<ConsumeApiKeyResult> {
-        let conn = self.connection();
-        conn.transaction::<_, ConsumeApiKeyResult, AuthError>(|txn| {
-            let id = id.to_owned();
-            Box::pin(async move {
-                let Some(model) = Entity::find_by_id(id.clone())
-                    .lock_exclusive()
-                    .one(txn)
-                    .await
-                    .map_err(map_db_err)?
-                else {
-                    return Err(AuthError::not_found("API Key not found"));
-                };
+        // SQLite must acquire its write reservation before reading usage counters.
+        let transaction = self
+            .connection()
+            .begin_with_options(TransactionOptions {
+                sqlite_transaction_mode: Some(SqliteTransactionMode::Immediate),
+                ..Default::default()
+            })
+            .await
+            .map_err(map_db_err)?;
+        let txn = &transaction;
+        let id = id.to_owned();
+        let result = async {
+            let Some(model) = Entity::find_by_id(id.clone())
+                .lock_exclusive()
+                .one(txn)
+                .await
+                .map_err(map_db_err)?
+            else {
+                return Err(AuthError::not_found("API Key not found"));
+            };
 
-                let now = Utc::now();
-                let mut update = UpdateApiKey::default();
+            let now = Utc::now();
+            let mut update = UpdateApiKey::default();
 
-                // -- Remaining / refill (from locked row) --
-                if let Some(remaining) = model.remaining {
-                    let remaining = remaining as i64;
-                    let refill_interval = model.refill_interval.map(|v| v as i64);
-                    let refill_amount = model.refill_amount.map(|v| v as i64);
-                    let mut current = remaining;
-
-                    if let (Some(interval), Some(amount)) = (refill_interval, refill_amount) {
-                        let last_refill = model.last_refill_at.or(Some(model.created_at));
-                        if let Some(last) = last_refill {
-                            let elapsed_ms = (now - last).num_milliseconds();
-                            if elapsed_ms > interval {
-                                current = amount;
-                                update.last_refill_at = Some(Some(now.to_rfc3339()));
-                            }
-                        }
-                    }
-
-                    if current <= 0 && refill_amount.is_none() {
-                        // Usage exhausted, no refill — delete the key
-                        let _ = Entity::delete_by_id(id)
-                            .exec(txn)
-                            .await
-                            .map_err(map_db_err)?;
-                        return Ok(ConsumeApiKeyResult::UsageExhausted);
-                    }
-
-                    if current <= 0 {
-                        return Ok(ConsumeApiKeyResult::UsageExhausted);
-                    }
-
-                    update.remaining = Some(current - 1);
+            if let Some(remaining) = model.remaining {
+                if remaining == 0.0 && model.refill_amount.is_none() {
+                    let _ = Entity::delete_by_id(id)
+                        .exec(txn)
+                        .await
+                        .map_err(map_db_err)?;
+                    return Ok(ConsumeApiKeyResult::UsageExhausted);
                 }
 
-                // -- Rate limiting (from locked row) --
-                let rate_limit_active = global_rate_limit_enabled && model.rate_limit_enabled;
-                if rate_limit_active {
-                    if let (Some(tw), Some(max)) = (
-                        model.rate_limit_time_window.map(|v| v as i64),
-                        model.rate_limit_max.map(|v| v as i64),
-                    ) {
-                        let request_count = model.request_count.unwrap_or(0) as i64;
-
-                        let window_expired = model
-                            .last_request
-                            .map(|lr| (now - lr).num_milliseconds() > tw)
-                            .unwrap_or(true);
-
-                        if window_expired {
-                            update.request_count = Some(1);
-                        } else if request_count >= max {
-                            return Ok(ConsumeApiKeyResult::RateLimited);
-                        } else {
-                            update.request_count = Some(request_count + 1);
-                        }
-
-                        update.last_request = Some(Some(now.to_rfc3339()));
-                    } else {
-                        update.last_request = Some(Some(now.to_rfc3339()));
-                    }
+                if let (Some(interval), Some(amount)) = (model.refill_interval, model.refill_amount)
+                    && interval != 0.0
+                    && amount != 0.0
+                    && (now.timestamp_millis()
+                        - model
+                            .last_refill_at
+                            .unwrap_or(model.created_at)
+                            .timestamp_millis()) as f64
+                        > interval
+                {
+                    update.remaining = Some(amount - 1.0);
+                    update.last_refill_at = Some(Some(now.to_rfc3339()));
+                } else if remaining > 0.0 {
+                    update.remaining = Some(remaining - 1.0);
                 } else {
+                    return Ok(ConsumeApiKeyResult::UsageExhausted);
+                }
+            }
+
+            if global_rate_limit_enabled && model.rate_limit_enabled {
+                if let (Some(window), Some(max)) =
+                    (model.rate_limit_time_window, model.rate_limit_max)
+                {
+                    let elapsed = model
+                        .last_request
+                        .map(|last| (now.timestamp_millis() - last.timestamp_millis()) as f64);
+                    if let Some(elapsed) = elapsed
+                        && elapsed <= window
+                        && model.request_count.unwrap_or(0.0) >= max
+                    {
+                        // TS consumes quota before rejecting a rate-limited request.
+                        // A rejection preserves the rate-limit window and updated_at.
+                        if update.remaining.is_some() {
+                            let updated_at = model.updated_at;
+                            let mut active =
+                                apply_update_fields(model.into_active_model(), update)?;
+                            active.updated_at = Set(updated_at);
+                            let _ = active.update(txn).await.map_err(map_db_err)?;
+                        }
+                        return Ok(ConsumeApiKeyResult::RateLimited {
+                            try_again_in: (window - elapsed).ceil(),
+                        });
+                    }
+
+                    update.request_count =
+                        Some(if elapsed.is_none_or(|elapsed| elapsed > window) {
+                            1.0
+                        } else {
+                            model.request_count.unwrap_or(0.0) + 1.0
+                        });
                     update.last_request = Some(Some(now.to_rfc3339()));
                 }
+            } else {
+                update.last_request = Some(Some(now.to_rfc3339()));
+            }
 
-                let active = apply_update_fields(model.into_active_model(), update)?;
-                let updated = active.update(txn).await.map_err(map_db_err)?;
-                Ok(ConsumeApiKeyResult::Allowed(Box::new(ApiKey::from(
-                    &updated,
-                ))))
-            })
-        })
-        .await
-        .map_err(|e| match e {
-            sea_orm::TransactionError::Connection(db_err) => map_db_err(db_err),
-            sea_orm::TransactionError::Transaction(auth_err) => auth_err,
-        })
+            let active = apply_update_fields(model.into_active_model(), update)?;
+            let updated = active.update(txn).await.map_err(map_db_err)?;
+            Ok(ConsumeApiKeyResult::Allowed(Box::new(ApiKey::from(
+                &updated,
+            ))))
+        }
+        .await;
+        if result.is_ok() {
+            transaction.commit().await.map_err(map_db_err)?;
+        } else {
+            transaction.rollback().await.map_err(map_db_err)?;
+        }
+        result
     }
 
     async fn delete_api_key(&self, id: &str) -> AuthResult<()> {
@@ -280,3 +284,7 @@ where
             .map_err(map_db_err)
     }
 }
+
+#[cfg(test)]
+#[path = "api_key_concurrency_tests.rs"]
+mod concurrency_tests;

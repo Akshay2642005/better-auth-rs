@@ -19,8 +19,18 @@ use super::types::{HasPermissionRequest, HasPermissionResponse};
 pub(crate) async fn require_session<S: better_auth_core::AuthSchema>(
     req: &AuthRequest,
     ctx: &AuthContext<S>,
-) -> AuthResult<(S::User, S::Session)> {
-    ctx.require_session(req).await
+) -> AuthResult<(
+    better_auth_core::wire::UserView,
+    better_auth_core::wire::SessionView,
+)> {
+    ctx.require_session(req).await.map_err(|error| match error {
+        AuthError::Unauthenticated => AuthError::Upstream {
+            status: 401,
+            code: "UNAUTHORIZED",
+            message: "Unauthorized",
+        },
+        error => error,
+    })
 }
 
 /// Helper function to get organization ID from request or session

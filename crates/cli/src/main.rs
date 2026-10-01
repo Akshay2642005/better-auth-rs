@@ -1,6 +1,6 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
-use std::process;
 
 use clap::{Parser, Subcommand};
 
@@ -15,56 +15,79 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Generate the auth schema file with SeaORM entity definitions.
+    /// Generate SeaORM entities and an initial database creation scaffold.
     ///
-    /// By default generates core-only entities. Use --plugins to include
-    /// plugin-specific fields (e.g. username, admin ban fields).
+    /// Use application-owned versioned migrations to upgrade an existing database.
     Generate {
-        /// Write output to a file instead of stdout.
+        /// Write output to a new file instead of stdout.
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Comma-separated list of plugins whose fields to include.
-        /// Available: username, two-factor, device-authorization, api-key, admin, organization, passkey.
-        /// Use "all" to include every plugin's fields.
-        #[arg(short, long, value_delimiter = ',')]
+        /// Replace an existing output file.
+        #[arg(long, requires = "output")]
+        force: bool,
+
+        /// Include plugin fields and tables. Use "all" for every supported plugin.
+        #[arg(short, long, value_delimiter = ',', value_parser = parse_plugin)]
         plugins: Vec<String>,
     },
 }
 
-fn main() {
-    let cli = Cli::parse();
-
-    match cli.command {
-        Command::Generate { output, plugins } => {
-            let plugins = if plugins.iter().any(|p| p == "all") {
-                generate::list_plugins()
-                    .into_iter()
-                    .map(String::from)
-                    .collect()
-            } else {
-                plugins
-            };
-
-            let schema = generate::generate_schema(&plugins);
-
-            match output {
-                Some(path) => {
-                    if let Some(parent) = path.parent()
-                        && !parent.exists()
-                        && let Err(e) = fs::create_dir_all(parent)
-                    {
-                        eprintln!("failed to create directory {}: {e}", parent.display());
-                        process::exit(1);
-                    }
-                    if let Err(e) = fs::write(&path, &schema) {
-                        eprintln!("failed to write {}: {e}", path.display());
-                        process::exit(1);
-                    }
-                    eprintln!("wrote auth schema to {}", path.display());
-                }
-                None => print!("{schema}"),
-            }
-        }
+fn parse_plugin(value: &str) -> Result<String, String> {
+    let plugins = generate::list_plugins();
+    if value == "all" || plugins.contains(&value) {
+        Ok(value.to_owned())
+    } else {
+        Err(format!(
+            "unknown plugin `{value}`; available: {}, all",
+            plugins.join(", ")
+        ))
     }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let Cli {
+        command:
+            Command::Generate {
+                output,
+                force,
+                mut plugins,
+            },
+    } = Cli::parse();
+    if plugins.iter().any(|plugin| plugin == "all") {
+        plugins = generate::list_plugins()
+            .into_iter()
+            .map(String::from)
+            .collect();
+    }
+    plugins.sort();
+    plugins.dedup();
+    let schema = generate::generate_schema(&plugins);
+    if let Some(path) = output {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)?;
+        }
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(force)
+            .truncate(force)
+            .create_new(!force)
+            .open(&path)
+            .map_err(|error| {
+                std::io::Error::new(
+                    error.kind(),
+                    format!(
+                        "cannot write {}: {error}; use --force to replace an existing file",
+                        path.display()
+                    ),
+                )
+            })?;
+        file.write_all(schema.as_bytes())?;
+        eprintln!("wrote initial auth schema to {}", path.display());
+    } else {
+        print!("{schema}");
+    }
+    Ok(())
 }

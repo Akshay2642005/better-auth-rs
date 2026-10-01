@@ -1,3 +1,4 @@
+import { expect } from "bun:test";
 import { createAuthClient } from "better-auth/client";
 import { usernameClient } from "better-auth/client/plugins";
 import { compatScenario } from "../../support/scenario";
@@ -26,9 +27,29 @@ compatScenario("sign in with valid credentials returns user and token", async (c
     email,
     password: "password123",
   });
+  const rememberedSession = await primary.client.getSession();
+  expect(rememberedSession.error).toBeNull();
+  const longSession = rememberedSession.data!.session;
+  expect(Math.round((longSession.expiresAt.getTime() - longSession.createdAt.getTime()) / 1000))
+    .toBe(7 * 24 * 60 * 60);
+
+  const temporary = ctx.actor("temporary");
+  const temporarySignin = await temporary.client.signIn.email({
+    email,
+    password: "password123",
+    rememberMe: false,
+  });
+  const temporarySession = await temporary.client.getSession();
+  expect(temporarySession.error).toBeNull();
+  const shortSession = temporarySession.data!.session;
+  expect(Math.round((shortSession.expiresAt.getTime() - shortSession.createdAt.getTime()) / 1000))
+    .toBe(24 * 60 * 60);
 
   return {
     signin: ctx.snapshot(signin),
+    rememberedSession: ctx.snapshot(rememberedSession),
+    temporarySignin: ctx.snapshot(temporarySignin),
+    temporarySession: ctx.snapshot(temporarySession),
   };
 });
 
@@ -91,10 +112,30 @@ compatScenario("sign in with valid username returns user and token", async (ctx)
     username: "phase0_user",
     password: "password123",
   });
+  const rememberedSession = await username.getSession();
+  expect(rememberedSession.error).toBeNull();
+  const longSession = rememberedSession.data!.session;
+  expect(Math.round((longSession.expiresAt.getTime() - longSession.createdAt.getTime()) / 1000))
+    .toBe(7 * 24 * 60 * 60);
+
+  const temporary = usernameActor(ctx, "temporary");
+  const temporarySignin = await temporary.signIn.username({
+    username: "phase0_user",
+    password: "password123",
+    rememberMe: false,
+  });
+  const temporarySession = await temporary.getSession();
+  expect(temporarySession.error).toBeNull();
+  const shortSession = temporarySession.data!.session;
+  expect(Math.round((shortSession.expiresAt.getTime() - shortSession.createdAt.getTime()) / 1000))
+    .toBe(24 * 60 * 60);
 
   return {
     signup: ctx.snapshot(signup),
     signin: ctx.snapshot(signin),
+    rememberedSession: ctx.snapshot(rememberedSession),
+    temporarySignin: ctx.snapshot(temporarySignin),
+    temporarySession: ctx.snapshot(temporarySession),
   };
 });
 

@@ -319,7 +319,7 @@ pub struct CurrentSession<T: AuthSchema> {
 ///
 /// Like [`CurrentSession`] but returns `None` instead of a 401 error when
 /// no valid session is found. Useful for routes that behave differently
-/// for authenticated vs anonymous users.
+/// for authenticated vs anonymous users. Database and internal errors remain rejections.
 ///
 /// # Example
 ///
@@ -336,37 +336,6 @@ pub struct CurrentSession<T: AuthSchema> {
 #[derive(Debug, Clone)]
 pub struct OptionalSession<T: AuthSchema>(pub Option<CurrentSession<T>>);
 
-/// Extract a session token from the request parts.
-///
-/// Checks the `Authorization: Bearer <token>` header first, then falls
-/// back to the configured session cookie.
-#[cfg(feature = "axum")]
-fn extract_token_from_parts(parts: &Parts, cookie_name: &str) -> Option<String> {
-    // Try Bearer token first
-    if let Some(auth_header) = parts.headers.get("authorization")
-        && let Ok(auth_str) = auth_header.to_str()
-        && let Some(token) = auth_str.strip_prefix("Bearer ")
-    {
-        return Some(token.to_string());
-    }
-
-    // Fall back to cookie
-    if let Some(cookie_header) = parts.headers.get("cookie")
-        && let Ok(cookie_str) = cookie_header.to_str()
-    {
-        for part in cookie_str.split(';') {
-            let part = part.trim();
-            if let Some(value) = part.strip_prefix(&format!("{}=", cookie_name))
-                && !value.is_empty()
-            {
-                return Some(value.to_string());
-            }
-        }
-    }
-
-    None
-}
-
 #[cfg(feature = "axum")]
 impl<S, T> FromRequestParts<S> for CurrentSession<T>
 where
@@ -378,25 +347,9 @@ where
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let auth = Arc::<BetterAuth<T>>::from_ref(state);
-        let cookie_name = &auth.config().session.cookie_name;
-        let token = extract_token_from_parts(parts, cookie_name)
-            .ok_or_else(|| AuthError::Unauthenticated.into_response())?;
-
-        let session = auth
-            .store()
-            .get_session(&token)
+        resolve_session(parts, &auth)
             .await
-            .map_err(IntoResponse::into_response)?
-            .ok_or_else(|| AuthError::SessionNotFound.into_response())?;
-
-        let user = auth
-            .store()
-            .get_user_by_id(&session.user_id())
-            .await
-            .map_err(IntoResponse::into_response)?
-            .ok_or_else(|| AuthError::UserNotFound.into_response())?;
-
-        Ok(CurrentSession { user, session })
+            .map_err(IntoResponse::into_response)
     }
 }
 
@@ -410,9 +363,46 @@ where
     type Rejection = Response;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        match CurrentSession::<T>::from_request_parts(parts, state).await {
-            Ok(session) => Ok(OptionalSession::<T>(Some(session))),
-            Err(_) => Ok(OptionalSession::<T>(None)),
+        let auth = Arc::<BetterAuth<T>>::from_ref(state);
+        match resolve_session(parts, &auth).await {
+            Ok(session) => Ok(OptionalSession(Some(session))),
+            Err(
+                AuthError::Unauthenticated | AuthError::SessionNotFound | AuthError::UserNotFound,
+            ) => Ok(OptionalSession(None)),
+            Err(error) => Err(error.into_response()),
         }
     }
+}
+
+#[cfg(feature = "axum")]
+async fn resolve_session<T: AuthSchema>(
+    parts: &Parts,
+    auth: &BetterAuth<T>,
+) -> better_auth_core::AuthResult<CurrentSession<T>> {
+    let mut request = AuthRequest::new(HttpMethod::Get, parts.uri.path());
+    request.headers = parts
+        .headers
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.to_string(), value.to_string()))
+        })
+        .collect();
+    let token = auth
+        .session_manager()
+        .extract_session_token(&request)
+        .ok_or(AuthError::Unauthenticated)?;
+    let session = auth
+        .session_manager()
+        .get_session(&token)
+        .await?
+        .ok_or(AuthError::SessionNotFound)?;
+    let user = auth
+        .store()
+        .get_user_by_id(&session.user_id())
+        .await?
+        .ok_or(AuthError::UserNotFound)?;
+    Ok(CurrentSession { user, session })
 }

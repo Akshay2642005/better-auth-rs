@@ -8,6 +8,9 @@ pub struct Model {
     pub secret: String,
     pub backup_codes: String,
     pub user_id: String,
+    pub verified: bool,
+    pub failed_verification_count: i64,
+    pub locked_until: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }

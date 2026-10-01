@@ -5,7 +5,58 @@
 //! `admin`, `password_management`, `session_management`, `email_verification`).
 
 use crate::config::AuthConfig;
+use base64::{
+    Engine as _, alphabet,
+    engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig, general_purpose::STANDARD},
+};
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
+
+const COOKIE_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'!')
+    .remove(b'~')
+    .remove(b'*')
+    .remove(b'\'')
+    .remove(b'(')
+    .remove(b')');
+const COOKIE_BASE64: GeneralPurpose = GeneralPurpose::new(
+    &alphabet::STANDARD,
+    GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+);
 use cookie::{Cookie, SameSite as CookieSameSite};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
+/// Sign a cookie value using the upstream HMAC-SHA256 format.
+#[expect(clippy::expect_used, reason = "HMAC-SHA256 accepts every key length")]
+pub fn sign_cookie_value(value: &str, secret: &str) -> String {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
+        .expect("HMAC-SHA256 accepts every key length");
+    mac.update(value.as_bytes());
+    let signed = format!("{value}.{}", STANDARD.encode(mac.finalize().into_bytes()));
+    utf8_percent_encode(&signed, COOKIE_COMPONENT).to_string()
+}
+
+/// Verify a signed cookie. Invalid or malformed signatures are unauthenticated.
+pub fn verify_cookie_value(value: &str, secret: &str) -> Option<String> {
+    let decoded = percent_decode_str(value).decode_utf8().ok()?;
+    let (value, signature) = decoded.rsplit_once('.')?;
+    let signature = COOKIE_BASE64.decode(signature).ok()?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).ok()?;
+    mac.update(value.as_bytes());
+    mac.verify_slice(&signature).ok()?;
+    Some(value.to_string())
+}
+
+/// Read a cookie by its exact name.
+pub fn get_cookie(req: &crate::AuthRequest, name: &str) -> Option<String> {
+    cookie::Cookie::split_parse(req.headers.get("cookie")?)
+        .flatten()
+        .find(|cookie| cookie.name() == name)
+        .map(|cookie| cookie.value().to_string())
+}
 
 /// Build a `Set-Cookie` header value for an arbitrary cookie using the auth
 /// config's session cookie attributes for consistency.
@@ -31,9 +82,12 @@ pub fn create_session_cookie_with_max_age(
     max_age_seconds: Option<i64>,
     config: &AuthConfig,
 ) -> String {
+    let signed = token
+        .filter(|token| !token.is_empty())
+        .map(|token| sign_cookie_value(token, &config.secret));
     create_session_like_cookie(
         &config.session.cookie_name,
-        token.unwrap_or(""),
+        signed.as_deref().unwrap_or(""),
         max_age_seconds,
         config,
     )

@@ -7,6 +7,46 @@ use crate::error::AuthResult;
 use crate::schema::AuthSchema;
 use crate::store::AuthStore;
 use crate::types::CreateSession;
+use crate::utils::cookie_utils::{
+    create_clear_cookie, create_session_cookie, get_cookie, related_cookie_name,
+    verify_cookie_value,
+};
+use crate::wire::{SessionView, UserView};
+use crate::{AuthError, AuthRequest, HttpMethod};
+use serde::{Deserialize, Serialize};
+
+#[cfg(test)]
+mod cache_tests;
+mod cookie_cache;
+mod response;
+#[cfg(test)]
+mod response_tests;
+
+/// Authenticated session data independent of the application's storage models.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionData {
+    /// Session visible to the caller.
+    pub session: SessionView,
+    /// User visible to the caller.
+    pub user: UserView,
+}
+
+/// Session read result, including the deferred-refresh signal.
+pub struct SessionResolution {
+    /// Authenticated session, when a valid credential was supplied.
+    pub data: Option<SessionData>,
+    /// Whether a deferred GET requires a subsequent POST refresh.
+    pub needs_refresh: Option<bool>,
+}
+
+/// Select whether an authentication check may use a cookie cache.
+#[derive(Clone, Copy)]
+pub enum SessionRead {
+    /// Allow a valid signed cookie cache.
+    Cached,
+    /// Read the session from the server store, for sensitive operations.
+    Authoritative,
+}
 
 /// Session manager handles session creation, validation, and cleanup
 pub struct SessionManager<S: AuthSchema> {
@@ -35,7 +75,24 @@ impl<S: AuthSchema> SessionManager<S> {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> AuthResult<S::Session> {
-        let expires_at = Utc::now() + self.config.session.expires_in;
+        self.create_session_with_lifetime(
+            user,
+            ip_address,
+            user_agent,
+            self.config.session.expires_in,
+        )
+        .await
+    }
+
+    /// Create a session with a lifetime that overrides the configured default.
+    pub async fn create_session_with_lifetime(
+        &self,
+        user: &impl AuthUser,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+        expires_in: chrono::Duration,
+    ) -> AuthResult<S::Session> {
+        let expires_at = Utc::now() + expires_in;
 
         let create_session = CreateSession {
             user_id: user.id().to_string(),
@@ -50,89 +107,192 @@ impl<S: AuthSchema> SessionManager<S> {
         Ok(session)
     }
 
-    /// Get session by token
+    /// Read a session directly from the server store and refresh its expiry.
     pub async fn get_session(&self, token: &str) -> AuthResult<Option<S::Session>> {
-        let mut session = self.database.get_session(token).await?;
-
-        // Check if session exists and is not expired
-        let should_refresh = if let Some(ref s) = session {
-            let now = Utc::now();
-
-            if s.expires_at() < now || !s.active() {
-                // Session expired or inactive — best-effort cleanup. A DB
-                // hiccup here shouldn't turn "your session is expired" into
-                // a 500; the row will be caught by the next access or the
-                // periodic `cleanup_expired_sessions` sweep.
-                if let Err(err) = self.database.delete_session(token).await {
-                    tracing::warn!(
-                        error = %err,
-                        "Failed to delete expired session; will be retried later"
-                    );
-                }
-                return Ok(None);
-            }
-
-            // Update session if configured to do so
-            if !self.config.session.disable_session_refresh {
-                match self.config.session.update_age {
-                    Some(age) => {
-                        // Only refresh if the session was last updated more than
-                        // `update_age` ago.
-                        let updated = s.updated_at();
-                        Utc::now().signed_duration_since(updated) >= age
-                    }
-                    // No update_age set → refresh on every access.
-                    None => true,
-                }
-            } else {
-                false
-            }
-        } else {
-            false
+        let Some(session) = self.database.get_session(token).await? else {
+            return Ok(None);
         };
-
-        if should_refresh {
+        if session.expires_at() < Utc::now() || !session.active() {
+            self.database.delete_session(token).await?;
+            return Ok(None);
+        }
+        if self.needs_refresh(&session) {
             let new_expires_at = Utc::now() + self.config.session.expires_in;
+            self.database
+                .update_session_expiry(token, new_expires_at)
+                .await?;
+            return self.database.get_session(token).await;
+        }
+        Ok(Some(session))
+    }
+
+    fn needs_refresh(&self, session: &impl AuthSession) -> bool {
+        !self.config.session.disable_session_refresh
+            && session.expires_at() - self.config.session.expires_in
+                + self.config.session.update_age.unwrap_or_default()
+                <= Utc::now()
+    }
+
+    /// Resolve an HTTP session and queue any cookie updates on the request.
+    pub async fn resolve(
+        &self,
+        req: &AuthRequest,
+        read: SessionRead,
+    ) -> AuthResult<SessionResolution> {
+        let none = || SessionResolution {
+            data: None,
+            needs_refresh: None,
+        };
+        if let Some(session) = req.virtual_session() {
+            let user = self
+                .database
+                .get_user_by_id(&session.user_id)
+                .await?
+                .ok_or(AuthError::UserNotFound)?;
+            return Ok(SessionResolution {
+                data: Some(SessionData {
+                    session: session.clone(),
+                    user: UserView::from(&user),
+                }),
+                needs_refresh: None,
+            });
+        }
+        let cache = self
+            .config
+            .session
+            .cookie_cache
+            .as_ref()
+            .filter(|cache| cache.enabled);
+        let token = self.extract_session_token(req);
+        if token.is_none() && cache.is_some() {
+            return Ok(none());
+        }
+        let cache_value =
+            cookie_cache::read(req, &related_cookie_name(&self.config, "session_data"));
+        if cache.is_none() && cache_value.is_some() {
+            cookie_cache::clear(req, &self.config)?;
+        }
+        let Some(token) = token else {
+            return Ok(none());
+        };
+        let disable_cache =
+            matches!(read, SessionRead::Authoritative) || query_flag(req, "disableCookieCache");
+        if !disable_cache && let (Some(cache), Some(value)) = (cache, cache_value.as_deref()) {
+            if let Some((payload, expires)) = cookie_cache::decode(value, &self.config, cache)
+                && payload.data.session.token == token
+                && payload.version == cache.version
+                && expires >= Utc::now().timestamp_millis()
+                && payload.data.session.expires_at >= Utc::now()
+            {
+                return Ok(SessionResolution {
+                    data: Some(payload.data),
+                    needs_refresh: None,
+                });
+            }
+            cookie_cache::clear(req, &self.config)?;
+        }
+        let is_post = req.path().ends_with("/get-session") && req.method() == &HttpMethod::Post;
+        let stored = self.database.get_session(&token).await?;
+        let Some(session) = stored else {
+            self.clear_cookies(req)?;
+            return Ok(none());
+        };
+        if session.expires_at() < Utc::now() || !session.active() {
+            self.clear_cookies(req)?;
+            if !self.config.session.defer_session_refresh || is_post {
+                self.database.delete_session(&token).await?;
+            }
+            return Ok(none());
+        }
+        let Some(user) = self.database.get_user_by_id(&session.user_id()).await? else {
+            self.clear_cookies(req)?;
+            return Ok(none());
+        };
+        let mut data = SessionData {
+            session: SessionView::with_fields(&session, &self.config.session)?,
+            user: UserView::from(&user),
+        };
+        let dont_remember = self.dont_remember(req);
+        if dont_remember || query_flag(req, "disableRefresh") {
+            return Ok(SessionResolution {
+                data: Some(data),
+                needs_refresh: None,
+            });
+        }
+        let needs_refresh = self.needs_refresh(&session);
+        if self.config.session.defer_session_refresh && !is_post {
+            self.write_cache(req, &data, false)?;
+            return Ok(SessionResolution {
+                data: Some(data),
+                needs_refresh: Some(needs_refresh),
+            });
+        }
+        if needs_refresh {
             match self
                 .database
-                .update_session_expiry(token, new_expires_at)
+                .update_session_expiry(&token, Utc::now() + self.config.session.expires_in)
                 .await
             {
-                Ok(()) => {
-                    // Re-read so the returned session reflects the new expiry.
-                    // Both failure modes fall back to the pre-refresh session:
-                    // a concurrent revoke (re-read returns None) shouldn't log
-                    // the user out mid-request, and a second DB hiccup
-                    // shouldn't turn a successful refresh into a 500.
-                    match self.database.get_session(token).await {
-                        Ok(Some(refreshed)) => session = Some(refreshed),
-                        Ok(None) => {
-                            tracing::warn!(
-                                "Session re-read after refresh returned None (concurrent revoke?); returning pre-refresh value"
-                            );
-                        }
-                        Err(err) => {
-                            tracing::warn!(
-                                error = %err,
-                                "Session re-read after refresh failed; returning pre-refresh value"
-                            );
-                        }
-                    }
+                Err(AuthError::SessionNotFound) => {
+                    self.clear_cookies(req)?;
+                    return Err(failed_session_update());
                 }
-                Err(err) => {
-                    // Transient write failure (connection reset, contention,
-                    // etc.) must not fail the whole request. Keep the
-                    // pre-refresh session — auth still works, the refresh
-                    // window will be retried on the next call.
-                    tracing::warn!(
-                        error = %err,
-                        "Failed to refresh session expiry; returning pre-refresh session"
-                    );
-                }
+                result => result?,
             }
+            let Some(updated) = self.database.get_session(&token).await? else {
+                self.clear_cookies(req)?;
+                return Err(failed_session_update());
+            };
+            data.session = SessionView::with_fields(&updated, &self.config.session)?;
+            req.append_response_header("Set-Cookie", create_session_cookie(&token, &self.config))?;
         }
+        self.write_cache(req, &data, false)?;
+        Ok(SessionResolution {
+            data: Some(data),
+            needs_refresh: None,
+        })
+    }
 
-        Ok(session)
+    /// Write the configured cache from authenticated session data.
+    pub fn write_cache(
+        &self,
+        req: &AuthRequest,
+        data: &SessionData,
+        dont_remember: bool,
+    ) -> AuthResult<()> {
+        cookie_cache::write(req, data, &self.config, dont_remember)
+    }
+
+    /// Read the signed marker for a browser-session-only login.
+    pub fn dont_remember(&self, req: &AuthRequest) -> bool {
+        get_cookie(req, &related_cookie_name(&self.config, "dont_remember"))
+            .and_then(|value| verify_cookie_value(&value, &self.config.secret))
+            .is_some()
+    }
+
+    /// Expire session credentials and every cache chunk received on the request.
+    pub fn clear_cookies(&self, req: &AuthRequest) -> AuthResult<()> {
+        req.append_response_header(
+            "Set-Cookie",
+            create_clear_cookie(&self.config.session.cookie_name, &self.config),
+        )?;
+        cookie_cache::clear(req, &self.config)?;
+        for suffix in ["dont_remember", "oauth_state", "account_data"] {
+            if suffix == "account_data" && !self.config.account.store_account_cookie {
+                continue;
+            }
+            if suffix == "oauth_state"
+                && self.config.account.store_state_strategy
+                    != crate::config::OAuthStateStrategy::Cookie
+            {
+                continue;
+            }
+            req.append_response_header(
+                "Set-Cookie",
+                create_clear_cookie(&related_cookie_name(&self.config, suffix), &self.config),
+            )?;
+        }
+        Ok(())
     }
 
     /// Delete a session
@@ -231,29 +391,39 @@ impl<S: AuthSchema> SessionManager<S> {
         token.starts_with("session_") && token.len() > 40
     }
 
-    /// Extract session token from a request.
-    ///
-    /// Tries Bearer token from Authorization header first, then falls back
-    /// to parsing the configured cookie from the Cookie header.
-    pub fn extract_session_token(&self, req: &crate::types::AuthRequest) -> Option<String> {
-        // Try Bearer token first
-        if let Some(auth_header) = req.headers.get("authorization")
-            && let Some(token) = auth_header.strip_prefix("Bearer ")
+    /// Extract and verify a session cookie or an explicitly enabled Bearer token.
+    pub fn extract_session_token(&self, req: &AuthRequest) -> Option<String> {
+        if let Some(bearer) = &self.config.session.bearer
+            && let Some(header) = req.headers.get("authorization")
+            && header
+                .get(..7)
+                .is_some_and(|scheme| scheme.eq_ignore_ascii_case("bearer "))
         {
-            return Some(token.to_string());
-        }
-
-        // Fall back to cookie (using the `cookie` crate for correct parsing)
-        if let Some(cookie_header) = req.headers.get("cookie") {
-            let cookie_name = &self.config.session.cookie_name;
-            for c in cookie::Cookie::split_parse(cookie_header).flatten() {
-                if c.name() == cookie_name && !c.value().is_empty() {
-                    return Some(c.value().to_string());
+            let token = header.get(7..)?.trim();
+            if !token.is_empty() {
+                if token.contains('.') {
+                    if let Some(value) = verify_cookie_value(token, &self.config.secret) {
+                        return Some(value);
+                    }
+                } else if !bearer.require_signature {
+                    return Some(token.to_string());
                 }
             }
         }
+        get_cookie(req, &self.config.session.cookie_name)
+            .and_then(|value| verify_cookie_value(&value, &self.config.secret))
+    }
+}
 
-        None
+fn query_flag(req: &AuthRequest, name: &str) -> bool {
+    req.query.get(name).is_some_and(|value| !value.is_empty())
+}
+
+fn failed_session_update() -> AuthError {
+    AuthError::Upstream {
+        status: 401,
+        code: "FAILED_TO_GET_SESSION",
+        message: "Failed to get session",
     }
 }
 
@@ -264,6 +434,7 @@ mod tests {
     use crate::test_store::{BundledSchema, test_config, test_database};
     use crate::types::AuthRequest;
     use crate::types::HttpMethod;
+    use crate::utils::cookie_utils::sign_cookie_value;
     use crate::wire::SessionView;
     use chrono::Duration;
 
@@ -316,7 +487,10 @@ mod tests {
         let mut req = AuthRequest::new(HttpMethod::Get, "/test");
         let _ = req.headers.insert(
             "cookie".into(),
-            "better-auth.session_token=tok123; other=val".into(),
+            format!(
+                "better-auth.session_token={}; other=val",
+                sign_cookie_value("tok123", &mgr.config.secret)
+            ),
         );
         assert_eq!(mgr.extract_session_token(&req), Some("tok123".into()));
     }
@@ -331,7 +505,10 @@ mod tests {
             .insert("authorization".into(), "Bearer bearer-tok".into());
         let _ = req.headers.insert(
             "cookie".into(),
-            "better-auth.session_token=cookie-tok".into(),
+            format!(
+                "better-auth.session_token={}",
+                sign_cookie_value("cookie-tok", &mgr.config.secret)
+            ),
         );
         assert_eq!(mgr.extract_session_token(&req), Some("bearer-tok".into()));
     }
@@ -378,6 +555,7 @@ mod tests {
             impersonated_by: None,
             active_organization_id: None,
             active: true,
+            additional_fields: Default::default(),
         };
         assert!(mgr.is_session_fresh(&session));
     }
@@ -402,6 +580,7 @@ mod tests {
             impersonated_by: None,
             active_organization_id: None,
             active: true,
+            additional_fields: Default::default(),
         };
         assert!(!mgr.is_session_fresh(&session));
     }
@@ -422,6 +601,7 @@ mod tests {
             impersonated_by: None,
             active_organization_id: None,
             active: true,
+            additional_fields: Default::default(),
         };
         assert!(!mgr.is_session_fresh(&session));
     }

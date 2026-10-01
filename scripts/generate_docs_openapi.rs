@@ -27,6 +27,49 @@ const PASSKEY_TAG: &str = "Passkey";
 const ADMIN_TAG: &str = "Admin";
 const TWO_FACTOR_TAG: &str = "Two-factor";
 
+const V1_DOCS_TAGS: &[(&str, &str, &str)] = &[
+    (
+        DEFAULT_TAG,
+        "Default",
+        "Core v1 endpoints plus the default account and OAuth surfaces.",
+    ),
+    (
+        USERNAME_TAG,
+        "Username",
+        "Username-based authentication endpoints.",
+    ),
+    (
+        DEVICE_AUTHORIZATION_TAG,
+        "Device Authorization",
+        "Device authorization endpoints from the v1 compatibility surface.",
+    ),
+    (
+        API_KEY_TAG,
+        "Api key",
+        "API Key plugin endpoints for creating, managing, and verifying API keys.",
+    ),
+    (
+        ORGANIZATION_TAG,
+        "Organization",
+        "Organization endpoints for multi-tenant management, members, invitations, and RBAC.",
+    ),
+    (
+        PASSKEY_TAG,
+        "Passkey",
+        "Passkey plugin endpoints for WebAuthn/FIDO2 passwordless authentication.",
+    ),
+    (
+        ADMIN_TAG,
+        "Admin",
+        "Admin plugin endpoints for user management, banning, and impersonation.",
+    ),
+    (
+        TWO_FACTOR_TAG,
+        "Two factor",
+        "Two-Factor Authentication plugin endpoints for TOTP, OTP, and backup codes.",
+    ),
+];
+
 const V1_DOCS_PATHS: &[(&str, &str)] = &[
     ("/ok", DEFAULT_TAG),
     ("/error", DEFAULT_TAG),
@@ -45,6 +88,7 @@ const V1_DOCS_PATHS: &[(&str, &str)] = &[
     ("/refresh-token", DEFAULT_TAG),
     ("/account-info", DEFAULT_TAG),
     ("/get-session", DEFAULT_TAG),
+    ("/update-session", DEFAULT_TAG),
     ("/sign-out", DEFAULT_TAG),
     ("/list-sessions", DEFAULT_TAG),
     ("/revoke-session", DEFAULT_TAG),
@@ -74,6 +118,7 @@ const V1_DOCS_PATHS: &[(&str, &str)] = &[
     ("/organization/update", ORGANIZATION_TAG),
     ("/organization/delete", ORGANIZATION_TAG),
     ("/organization/get-full-organization", ORGANIZATION_TAG),
+    ("/organization/get-organization", ORGANIZATION_TAG),
     ("/organization/set-active", ORGANIZATION_TAG),
     ("/organization/list", ORGANIZATION_TAG),
     ("/organization/list-members", ORGANIZATION_TAG),
@@ -138,12 +183,13 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
     let cli = Cli::parse();
-    let spec = generate_docs_openapi().await?;
+    let mut spec = generate_docs_openapi().await?;
+    spec.sort_all_objects();
     let json = serde_json::to_string_pretty(&spec)?;
 
     if cli.check {
-        let existing = fs::read_to_string(&cli.output)?;
-        if normalize_newlines(&existing) != normalize_newlines(&json) {
+        let existing: Value = serde_json::from_str(&fs::read_to_string(&cli.output)?)?;
+        if existing != spec {
             return Err(format!(
                 "generated docs OpenAPI differs from {}. Re-run `cargo run --bin generate_docs_openapi --features seaorm2`.",
                 cli.output.display()
@@ -180,7 +226,11 @@ async fn build_docs_auth() -> Result<BetterAuth<BundledSchema>, DynError> {
 
     let auth = AuthBuilder::<BundledSchema>::new(config)
         .store(store)
-        .plugin(EmailPasswordPlugin::new().enable_signup(true))
+        .plugin(
+            EmailPasswordPlugin::new()
+                .enable_signup(true)
+                .username(true),
+        )
         .plugin(SessionManagementPlugin::new())
         .plugin(PasswordManagementPlugin::new())
         .plugin(AccountManagementPlugin::new())
@@ -252,6 +302,21 @@ fn rewrite_for_docs(spec: &mut Value) -> Result<(), DynError> {
     }
 
     _ = root.insert("paths".to_string(), Value::Object(filtered_paths));
+    _ = root.insert(
+        "tags".to_string(),
+        Value::Array(
+            V1_DOCS_TAGS
+                .iter()
+                .map(|(name, title, description)| {
+                    serde_json::json!({
+                        "name": name,
+                        "x-displayName": title,
+                        "description": description,
+                    })
+                })
+                .collect(),
+        ),
+    );
     Ok(())
 }
 
@@ -273,10 +338,6 @@ fn retag_path_item(path_item: &mut Value, tag: &str) -> Result<(), DynError> {
     Ok(())
 }
 
-fn normalize_newlines(input: &str) -> String {
-    input.replace("\r\n", "\n")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,17 +345,7 @@ mod tests {
     #[test]
     fn v1_route_groups_use_supported_doc_tags() {
         for (_, tag) in V1_DOCS_PATHS {
-            assert!(matches!(
-                *tag,
-                DEFAULT_TAG
-                    | USERNAME_TAG
-                    | DEVICE_AUTHORIZATION_TAG
-                    | API_KEY_TAG
-                    | ORGANIZATION_TAG
-                    | PASSKEY_TAG
-                    | ADMIN_TAG
-                    | TWO_FACTOR_TAG
-            ));
+            assert!(V1_DOCS_TAGS.iter().any(|(name, _, _)| name == tag));
         }
     }
 

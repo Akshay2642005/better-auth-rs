@@ -13,7 +13,7 @@ By default, Better Auth sets session cookies with the following attributes:
 |-----------|---------|-------------|
 | **Name** | `better-auth.session_token` | Cookie name |
 | **Path** | `/` | Available on all paths |
-| **Secure** | `true` | HTTPS only by default (disable for local HTTP development) |
+| **Secure** | Derived from `base_url` | Enabled for HTTPS, disabled for HTTP |
 | **HttpOnly** | `true` | Not accessible via JavaScript |
 | **SameSite** | `Lax` | CSRF protection with top-level navigation support |
 
@@ -94,7 +94,7 @@ config.session.expires_in = Duration::hours(24 * 7);
 The session cookie is set via the `Set-Cookie` HTTP header:
 
 ```
-Set-Cookie: better-auth.session_token=session_abc123...; Path=/; Expires=Thu, 08 Jan 2025 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax
+Set-Cookie: better-auth.session_token=session_abc123.signature; Path=/; Expires=Thu, 08 Jan 2025 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax
 ```
 
 ## Cross-Origin Usage
@@ -129,13 +129,23 @@ fetch('https://api.example.com/auth/get-session', {
 
 ## Alternative: Bearer Token
 
-If you prefer not to use cookies (e.g., for mobile apps or API clients), you can use the `Authorization` header instead:
+Enable Bearer transport for mobile apps or API clients:
+
+```rust
+use better_auth::config::BearerConfig;
+
+config.session.bearer = Some(BearerConfig::default());
+```
+
+Then send the raw token returned by sign-in or the signed token returned in `set-auth-token`:
 
 ```http
 Authorization: Bearer session_abc123...
 ```
 
-Both methods are supported simultaneously. The session token is extracted from the cookie or the Authorization header, whichever is present.
+A valid Bearer token takes precedence over the signed session cookie. Set `BearerConfig { require_signature: true }` to require a signed Bearer token. Without Bearer configuration, session authentication uses the signed cookie.
+
+Optional [cookie caching](/docs/authentication/sessions#cookie-cache) stores signed or encrypted session data in `better-auth.session_data`. The cache requires the matching session-token cookie.
 
 ## See Also
 

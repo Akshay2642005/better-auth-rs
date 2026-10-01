@@ -616,7 +616,13 @@ async fn test_cookie_based_auth() {
     let mut headers = HashMap::new();
     headers.insert(
         "cookie".to_string(),
-        format!("better-auth.session_token={}; other=value", session_token),
+        format!(
+            "better-auth.session_token={}; other=value",
+            better_auth_core::utils::cookie_utils::sign_cookie_value(
+                &session_token,
+                &auth.config().secret
+            )
+        ),
     );
 
     let request = AuthRequest::from_parts(
@@ -1008,8 +1014,16 @@ async fn test_unlink_account_success() {
         format!("Bearer {}", session_token),
     );
 
+    let google_account = auth
+        .store()
+        .get_user_accounts(&user_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|account| account.provider_id == "google")
+        .unwrap();
     let unlink_data = serde_json::json!({
-        "providerId": "google"
+        "accountId": google_account.id
     });
 
     let request = AuthRequest::from_parts(
@@ -1077,7 +1091,7 @@ async fn test_unlink_last_account_fails() {
         scope: None,
         password: None,
     };
-    auth.store().create_account(create_account).await.unwrap();
+    let account = auth.store().create_account(create_account).await.unwrap();
 
     let mut headers = HashMap::new();
     headers.insert("content-type".to_string(), "application/json".to_string());
@@ -1087,7 +1101,7 @@ async fn test_unlink_last_account_fails() {
     );
 
     let unlink_data = serde_json::json!({
-        "providerId": "google"
+        "accountId": account.id
     });
 
     let request = AuthRequest::from_parts(
@@ -1292,14 +1306,16 @@ mod postgres_tests {
             .await
             .ok()?;
 
-        let config = AuthConfig::new("postgres-test-secret-key-32-chars-long")
+        let mut config = AuthConfig::new("postgres-test-secret-key-32-chars-long")
             .base_url("http://localhost:3000")
             .password_min_length(6);
+
+        config.session.bearer = Some(Default::default());
 
         let store = SeaOrmStore::<TestSchema>::new(config.clone(), database);
         let auth = BetterAuth::<TestSchema>::new(config)
             .store(store)
-            .plugin(EmailPasswordPlugin::new().enable_signup(true))
+            .plugin(EmailPasswordPlugin::new().enable_signup(true).username(true))
             .build()
             .await
             .ok()?;

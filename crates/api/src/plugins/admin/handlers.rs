@@ -245,13 +245,16 @@ pub(crate) async fn update_user_core(
     {
         update.email_verified = Some(value);
     }
-    if let Some(value) = body.data.get("username").and_then(|value| value.as_str()) {
+    if ctx.get_metadata("username.enabled") == Some(&serde_json::Value::Bool(true))
+        && let Some(value) = body.data.get("username").and_then(|value| value.as_str())
+    {
         update.username = Some(value.to_string());
     }
-    if let Some(value) = body
-        .data
-        .get("displayUsername")
-        .and_then(|value| value.as_str())
+    if ctx.get_metadata("username.enabled") == Some(&serde_json::Value::Bool(true))
+        && let Some(value) = body
+            .data
+            .get("displayUsername")
+            .and_then(|value| value.as_str())
     {
         update.display_username = Some(value.to_string());
     }
@@ -319,7 +322,10 @@ pub(crate) async fn list_user_sessions_core(
     let session_manager = ctx.session_manager();
     let sessions = session_manager.list_user_sessions(&body.user_id).await?;
     Ok(ListSessionsResponse {
-        sessions: sessions.iter().map(SessionView::from).collect(),
+        sessions: sessions
+            .iter()
+            .map(|session| SessionView::with_fields(session, &ctx.config.session))
+            .collect::<AuthResult<_>>()?,
     })
 }
 
@@ -452,7 +458,7 @@ pub(crate) async fn impersonate_user_core(
     let session = ctx.database.create_session(create_session).await?;
     let token = session.token().to_string();
     let response = SessionUserResponse {
-        session: SessionView::from(&session),
+        session: SessionView::with_fields(&session, &ctx.config.session)?,
         user: UserView::from(&target),
     };
 
@@ -491,7 +497,7 @@ pub(crate) async fn stop_impersonating_core(
 
     let token = admin_session.token().to_string();
     let response = SessionUserResponse {
-        session: SessionView::from(&admin_session),
+        session: SessionView::with_fields(&admin_session, &ctx.config.session)?,
         user: UserView::from(&admin_user),
     };
 

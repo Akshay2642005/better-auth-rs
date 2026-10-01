@@ -1,19 +1,20 @@
+import { expect } from "bun:test";
 import { compatScenario } from "../../support/scenario";
 
 compatScenario("account info returns provider user info for a linked account", async (ctx) => {
   const primary = ctx.actor();
   const email = ctx.uniqueEmail("phase7-account-info");
-  const accountId = ctx.uniqueToken("phase7-account-id");
+  const providerAccountId = ctx.uniqueToken("phase7-account-id");
 
   const signup = await primary.client.signUp.email({
     email,
     password: "password123",
     name: "Account Info User",
   });
-  await ctx.seedOAuthAccount({
+  const accountId = await ctx.seedOAuthAccount({
     email,
     providerId: "mock",
-    accountId,
+    accountId: providerAccountId,
     accessToken: "stored-access-token",
     refreshToken: "stored-refresh-token",
     accessTokenExpiresAt: "2099-01-01T00:00:00Z",
@@ -24,13 +25,16 @@ compatScenario("account info returns provider user info for a linked account", a
     path: `/api/auth/account-info?accountId=${encodeURIComponent(accountId)}`,
   });
 
+  expect(accountInfo.status).toBe(200);
+  expect((accountInfo.body as { account: { id: string } }).account.id).toBe(accountId);
+
   return {
     signup: ctx.snapshot(signup),
     accountInfo: ctx.snapshot(accountInfo),
   };
 });
 
-compatScenario("account info without an account cookie returns account not found", async (ctx) => {
+compatScenario("account info requires an explicit account selector", async (ctx) => {
   const primary = ctx.actor();
   const email = ctx.uniqueEmail("phase7-account-info-no-cookie");
 
@@ -52,6 +56,8 @@ compatScenario("account info without an account cookie returns account not found
   const accountInfo = await ctx.rawRequest({
     path: "/api/auth/account-info",
   });
+  expect(accountInfo.status).toBe(400);
+  expect((accountInfo.body as { code: string }).code).toBe("VALIDATION_ERROR");
 
   return {
     signup: ctx.snapshot(signup),

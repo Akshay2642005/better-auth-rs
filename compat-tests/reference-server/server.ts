@@ -5,7 +5,7 @@ import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { apiKey } from "@better-auth/api-key";
-import { admin, deviceAuthorization, twoFactor, username } from "better-auth/plugins";
+import { admin, bearer, deviceAuthorization, twoFactor, username } from "better-auth/plugins";
 import { organization } from "better-auth/plugins/organization";
 import { genericOAuth } from "better-auth/plugins/generic-oauth";
 
@@ -42,6 +42,8 @@ const resetPasswordOutbox = new Map<string, { url: string; token: string }>();
 const verificationEmailOutbox = new Map<string, { url: string; token: string }>();
 const changeEmailOutbox = new Map<string, { newEmail: string; url: string; token: string }>();
 const twoFactorOtpOutbox = new Map<string, { otp: string }>();
+const invitationEmailOutbox: { id: string; email: string; role: string }[] = [];
+let invitationSenderFails = false;
 let resetPasswordMode: "capture" | "throw" = "capture";
 let oauthRefreshMode: "success" | "error" = "success";
 type SocialProfile = {
@@ -121,7 +123,7 @@ const oauthServer = Bun.serve({
       return jsonResponse({
         access_token: "new-access-token",
         refresh_token: "new-refresh-token",
-        id_token: "google-id-token",
+        id_token: "mock-id-token",
         expires_in: 3600,
         refresh_token_expires_in: 7200,
         scope: "openid,email,profile",
@@ -143,6 +145,49 @@ const oauthServer = Bun.serve({
   },
 });
 const oauthBaseURL = `http://127.0.0.1:${oauthServer.port}`;
+const oauthAuthorizationURL = `http://localhost:${PORT}/__test/oauth/authorize`;
+const oidcBaseURL = process.env.COMPAT_OIDC_URL;
+const oidcProviders = oidcBaseURL ? [
+  { providerId: "oidc", discoveryUrl: `${oidcBaseURL}/discovery/valid` },
+  { providerId: "oidc-rotation", discoveryUrl: `${oidcBaseURL}/discovery/valid` },
+  { providerId: "oidc-no-nonce", discoveryUrl: `${oidcBaseURL}/discovery/valid`, disableIdTokenNonceBinding: true },
+  { providerId: "oidc-idp", discoveryUrl: `${oidcBaseURL}/discovery/valid`, allowIdpInitiated: true },
+  { providerId: "oidc-basic", discoveryUrl: `${oidcBaseURL}/discovery/valid`, authentication: "basic" as const },
+  { providerId: "oidc-public", discoveryUrl: `${oidcBaseURL}/discovery/valid`, clientSecret: undefined, tokenEndpointAuth: { method: "none" as const } },
+  { providerId: "oidc-no-signup", discoveryUrl: `${oidcBaseURL}/discovery/valid`, disableSignUp: true },
+  {
+    providerId: "oidc-email-required", discoveryUrl: `${oidcBaseURL}/discovery/valid`,
+    requireEmailVerification: true,
+    accountSubject: ({ profile }: { profile: Record<string, unknown> }) => String(profile.external_subject),
+    mapProfileToUser: () => ({ name: "Mapped OIDC User", emailVerified: false, image: null }),
+  },
+  {
+    providerId: "oidc-mapped", discoveryUrl: `${oidcBaseURL}/discovery/valid`,
+    accountSubject: ({ profile }: { profile: Record<string, unknown> }) => String(profile.external_subject),
+    mapProfileToUser: () => ({ name: "Mapped OIDC User", emailVerified: false, image: null }),
+  },
+  {
+    providerId: "oidc-parameters", discoveryUrl: `${oidcBaseURL}/discovery/headers`,
+    discoveryHeaders: { "x-compat-discovery": "allowed" },
+    pkce: false, prompt: "login", accessType: "offline", responseMode: "query",
+    authorizationUrlParams: { prompt: "consent", tenant: "configured", state: "ignored", nonce: "ignored" },
+    tokenUrlParams: { audience: "fleet-api" },
+  },
+  { providerId: "oidc-unavailable", discoveryUrl: `${oidcBaseURL}/discovery/unavailable` },
+  { providerId: "oidc-missing-jwks", discoveryUrl: `${oidcBaseURL}/discovery/missing-jwks` },
+  { providerId: "oidc-invalid-issuer", discoveryUrl: `${oidcBaseURL}/discovery/invalid-issuer` },
+  {
+    providerId: "oauth-fallback", discoveryUrl: `${oidcBaseURL}/discovery/unavailable`,
+    authorizationUrl: `${oidcBaseURL}/authorize`, tokenUrl: `${oidcBaseURL}/token`,
+    userInfoUrl: `${oidcBaseURL}/userinfo`, requireIdTokenVerification: false,
+  },
+].map((provider) => ({
+  clientId: "oidc-client",
+  clientSecret: "oidc-secret",
+  scopes: ["email", "profile"],
+  requireIdTokenVerification: true,
+  ...provider,
+})) : [];
 
 const originalFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -266,19 +311,19 @@ const authOptions = {
     },
   },
   rateLimit: {
-    enabled: false,
+    enabled: ["device-rate-limit", "device-rate-window"].includes(process.env.COMPAT_PROFILE ?? ""),
   },
   socialProviders: {
     github: {
       clientId: "github-client-id",
       clientSecret: "github-client-secret",
-      authorizationEndpoint: `${oauthBaseURL}/oauth/authorize`,
+      authorizationEndpoint: oauthAuthorizationURL,
     },
     google: {
       clientId: "google-client-id",
       clientSecret: "google-client-secret",
       enabled: true,
-      authorizationEndpoint: `${oauthBaseURL}/oauth/authorize`,
+      authorizationEndpoint: oauthAuthorizationURL,
       async verifyIdToken() {
         return socialIdTokenValid;
       },
@@ -317,10 +362,34 @@ const authOptions = {
     },
   },
   plugins: [
+    ...(process.env.COMPAT_PROFILE === "device-bearer" ? [bearer()] : []),
     admin(),
-    apiKey({ enableMetadata: true }),
-    deviceAuthorization(),
-    organization(),
+    apiKey([
+      { configId: "default", enableMetadata: true, defaultKeyLength: process.env.COMPAT_PROFILE === "api-key-zero" ? 0 : 64 },
+      { configId: "secondary", enableMetadata: true },
+      { configId: "session", enableSessionForAPIKeys: true, apiKeyHeaders: ["x-api-key", "x-machine-key"] },
+      { configId: "shared-first", enableSessionForAPIKeys: true, apiKeyHeaders: "x-shared-key" },
+      { configId: "shared-second", enableSessionForAPIKeys: true, apiKeyHeaders: "x-shared-key" },
+      { configId: "organization", references: "organization", enableMetadata: true },
+    ]),
+    deviceAuthorization({
+      expiresIn: process.env.COMPAT_PROFILE === "device-rate-window" ? "2s" : "30m",
+      generateUserCode: process.env.COMPAT_PROFILE === "device-custom"
+        ? () => "custom-code"
+        : process.env.COMPAT_PROFILE === "device-collision"
+          ? (() => {
+              let issued = 0;
+              return () => ++issued <= 2 ? "same-code" : issued <= 6 ? "next-code" : "after-code";
+            })()
+          : undefined,
+    }),
+    organization({
+      async sendInvitationEmail({ id, email, role }) {
+        await Promise.resolve();
+        if (invitationSenderFails) throw new Error("compat invitation sender failure");
+        invitationEmailOutbox.push({ id, email, role });
+      },
+    }),
     passkey(),
     twoFactor({
       otpOptions: {
@@ -334,9 +403,11 @@ const authOptions = {
     username(),
     genericOAuth({
       config: [
+        ...oidcProviders,
         {
           providerId: "mock",
-          authorizationUrl: `${oauthBaseURL}/oauth/authorize`,
+          endSessionEndpoint: "https://idp.example.test/logout",
+          authorizationUrl: oauthAuthorizationURL,
           tokenUrl: `${oauthBaseURL}/oauth/token`,
           userInfoUrl: `${oauthBaseURL}/oauth/userinfo`,
           clientId: "mock-client-id",
@@ -395,18 +466,55 @@ const server = Bun.serve({
         return jsonResponse({ ok: true });
       }
 
+      if (url.pathname === "/__test/oauth/authorize" && request.method === "GET") {
+        return originalFetch(`${oauthBaseURL}/oauth/authorize${url.search}`, { redirect: "manual" });
+      }
+
+      if (url.pathname === "/__test/api-key/create" && request.method === "POST") {
+        return jsonResponse(await auth.api.createApiKey({ body: await readJson(request) }));
+      }
+      if (url.pathname === "/__test/api-key/update" && request.method === "POST") {
+        return jsonResponse(await auth.api.updateApiKey({ body: await readJson(request) }));
+      }
+      if (url.pathname === "/__test/api-key/verify" && request.method === "POST") {
+        return jsonResponse(await auth.api.verifyApiKey({ body: await readJson(request) }));
+      }
+
       if (url.pathname === "/__test/reset-state" && request.method === "POST") {
         await resetDatabaseState();
         resetPasswordOutbox.clear();
         verificationEmailOutbox.clear();
         changeEmailOutbox.clear();
         twoFactorOtpOutbox.clear();
+        invitationEmailOutbox.length = 0;
+        invitationSenderFails = false;
         resetPasswordMode = "capture";
         oauthRefreshMode = "success";
         socialProfile = defaultSocialProfile();
         socialIdTokenValid = true;
         githubProfile = defaultGitHubProfile();
         return jsonResponse({ status: true });
+      }
+
+      if (url.pathname === "/__test/invitation-emails" && request.method === "GET") {
+        return jsonResponse(invitationEmailOutbox.filter((record) => record.email === url.searchParams.get("email")));
+      }
+
+      if (url.pathname === "/__test/invitation-sender-mode" && request.method === "POST") {
+        const body = await readJson(request) as { fail: boolean };
+        invitationSenderFails = body.fail;
+        return jsonResponse({ status: true });
+      }
+
+      if (url.pathname === "/__test/shorten-invitation-expiry" && request.method === "POST") {
+        const body = await readJson(request) as { id: string };
+        const expiresAt = new Date(Date.now() + 3600_000);
+        await authContext.adapter.update({
+          model: "invitation",
+          where: [{ field: "id", value: body.id }],
+          update: { expiresAt },
+        });
+        return jsonResponse({ expiresAt });
       }
 
       if (url.pathname === "/__test/verification-email" && request.method === "GET") {
@@ -656,18 +764,20 @@ const server = Bun.serve({
           scope: hasOwn(body, "scope") ? body?.scope ?? null : "openid,email,profile",
         };
 
+        let localAccountId = existing?.id;
         if (existing?.id) {
           await authContext.internalAdapter.updateAccount(existing.id, accountData);
         } else {
-          await authContext.internalAdapter.createAccount({
+          const account = await authContext.internalAdapter.createAccount({
             userId: user.user.id,
             providerId,
             accountId,
             ...accountData,
           });
+          localAccountId = account.id;
         }
 
-        return jsonResponse({ status: true });
+        return jsonResponse({ status: true, accountId: localAccountId });
       }
 
       return auth.handler(request);

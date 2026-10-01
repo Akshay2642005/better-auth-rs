@@ -1,5 +1,5 @@
 import { parseSetCookie } from "set-cookie-parser";
-import { jsonShape } from "./normalize";
+import { jsonShape, normalizeUrl } from "./normalize";
 
 export type TraceEntry = {
   actor: string;
@@ -20,7 +20,7 @@ function normalizeTracePath(url: URL) {
       key === "state" ||
       key === "user_code" ||
       key === "id" ||
-      key.endsWith("Id")
+      ["userId", "accountId", "organizationId", "invitationId", "keyId"].includes(key)
     ) {
       normalized.searchParams.set(key, `<${key}>`);
     }
@@ -75,7 +75,7 @@ async function normalizeResponseBody(response: Response) {
   }
 }
 
-function pickHeaders(headers: Headers) {
+function pickHeaders(headers: Headers, baseURL: string) {
   const selected = ["content-type", "location"];
   return Object.fromEntries(
     selected.flatMap((header) => {
@@ -85,31 +85,7 @@ function pickHeaders(headers: Headers) {
       }
 
       const normalized = header === "location"
-        ? (() => {
-            try {
-              const url = new URL(value, "http://compat.local");
-              for (const key of ["token", "state", "code_challenge"]) {
-                if (url.searchParams.has(key)) {
-                  url.searchParams.set(key, `<${key}>`);
-                }
-              }
-              for (const key of ["redirect_uri", "callbackURL", "errorCallbackURL", "newUserCallbackURL"]) {
-                const nested = url.searchParams.get(key);
-                if (!nested) {
-                  continue;
-                }
-                try {
-                  const nestedUrl = new URL(nested);
-                  url.searchParams.set(key, `${nestedUrl.pathname}${nestedUrl.search}${nestedUrl.hash}`);
-                } catch {
-                  // leave relative or invalid values as-is
-                }
-              }
-              return `${url.pathname}${url.search}${url.hash}`;
-            } catch {
-              return value;
-            }
-          })()
+        ? normalizeUrl(value, baseURL)
         : value.split(";")[0]!.trim();
 
       return [[header, normalized]];
@@ -127,6 +103,7 @@ function normalizeCookies(response: Response) {
     Object.entries(cookies).map(([name, cookie]) => [
       name,
       {
+        domain: cookie.domain ?? null,
         path: cookie.path ?? null,
         httpOnly: cookie.httpOnly === true,
         secure: cookie.secure === true,
@@ -193,7 +170,7 @@ export function createTracingFetch(
       path: normalizeTracePath(url),
       requestBodyShape: normalizeRequestBody(init?.body),
       responseStatus: response.status,
-      responseHeaders: pickHeaders(response.headers),
+      responseHeaders: pickHeaders(response.headers, baseURL),
       responseCookies: normalizeCookies(response),
       responseBodyShape: await normalizeResponseBody(response),
     });

@@ -12,11 +12,9 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
-// Only include the fields your plugins need.
-// Core fields (id, name, email, etc.) are always required.
-// Plugin fields (username, banned, etc.) are optional — the AuthEntity
-// macro returns sensible defaults for any missing plugin field.
-// Extra app-specific fields are also supported.
+// Core fields are required. Include each registered plugin's required fields.
+// Auth initialization rejects missing plugin fields.
+// Extra application fields are also supported.
 
 mod user {
     use super::*;

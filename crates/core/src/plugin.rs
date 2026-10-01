@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use crate::config::AuthConfig;
 use crate::email::EmailProvider;
-use crate::entity::AuthSession;
 use crate::error::{AuthError, AuthResult};
 use crate::schema::AuthSchema;
 #[cfg(test)]
@@ -26,20 +25,24 @@ pub enum BeforeRequestAction {
     Respond(AuthResponse),
     /// Inject a virtual session so downstream handlers see it as authenticated.
     InjectSession {
-        user_id: String,
-        session_token: String,
+        session: Box<crate::wire::SessionView>,
     },
 }
 
 /// Plugin trait that all authentication plugins must implement.
 ///
 #[async_trait]
-pub trait AuthPlugin<S: AuthSchema>: Send + Sync {
+pub trait AuthPlugin<S: AuthSchema>: Send + Sync + std::any::Any {
     /// Plugin name - should be unique
     fn name(&self) -> &'static str;
 
     /// Routes that this plugin handles
     fn routes(&self) -> Vec<AuthRoute>;
+
+    /// Default endpoint limits, overridden by explicit application limits.
+    fn rate_limits(&self) -> AuthResult<Vec<(String, crate::middleware::EndpointRateLimit)>> {
+        Ok(Vec::new())
+    }
 
     /// Called when the plugin is initialized
     async fn on_init(&self, ctx: &mut AuthInitContext<S>) -> AuthResult<()> {
@@ -67,38 +70,6 @@ pub trait AuthPlugin<S: AuthSchema>: Send + Sync {
         req: &AuthRequest,
         ctx: &AuthContext<S>,
     ) -> AuthResult<Option<AuthResponse>>;
-
-    /// Called after a user is created
-    async fn on_user_created(&self, user: &S::User, ctx: &AuthContext<S>) -> AuthResult<()> {
-        let _ = (user, ctx);
-        Ok(())
-    }
-
-    /// Called after a session is created
-    async fn on_session_created(
-        &self,
-        session: &S::Session,
-        ctx: &AuthContext<S>,
-    ) -> AuthResult<()> {
-        let _ = (session, ctx);
-        Ok(())
-    }
-
-    /// Called before a user is deleted
-    async fn on_user_deleted(&self, user_id: &str, ctx: &AuthContext<S>) -> AuthResult<()> {
-        let _ = (user_id, ctx);
-        Ok(())
-    }
-
-    /// Called before a session is deleted
-    async fn on_session_deleted(
-        &self,
-        session_token: &str,
-        ctx: &AuthContext<S>,
-    ) -> AuthResult<()> {
-        let _ = (session_token, ctx);
-        Ok(())
-    }
 }
 
 /// Generates the [`AuthPlugin`] impl for a plugin with static route dispatch.
@@ -296,17 +267,33 @@ impl<S: AuthSchema> AuthContext<S> {
     ///
     /// This centralises the pattern previously duplicated across many plugins
     /// (`get_authenticated_user`, `require_session`, etc.).
-    pub async fn require_session(&self, req: &AuthRequest) -> AuthResult<(S::User, S::Session)> {
-        let session_manager = self.session_manager();
+    pub async fn require_session(
+        &self,
+        req: &AuthRequest,
+    ) -> AuthResult<(crate::wire::UserView, crate::wire::SessionView)> {
+        self.require_session_with_read(req, crate::session::SessionRead::Cached)
+            .await
+    }
 
-        if let Some(token) = session_manager.extract_session_token(req)
-            && let Some(session) = session_manager.get_session(&token).await?
-            && let Some(user) = self.database.get_user_by_id(&session.user_id()).await?
-        {
-            return Ok((user, session));
-        }
+    /// Require a session read from the server store for sensitive work.
+    pub async fn require_authoritative_session(
+        &self,
+        req: &AuthRequest,
+    ) -> AuthResult<(crate::wire::UserView, crate::wire::SessionView)> {
+        self.require_session_with_read(req, crate::session::SessionRead::Authoritative)
+            .await
+    }
 
-        Err(AuthError::Unauthenticated)
+    async fn require_session_with_read(
+        &self,
+        req: &AuthRequest,
+        read: crate::session::SessionRead,
+    ) -> AuthResult<(crate::wire::UserView, crate::wire::SessionView)> {
+        let resolved = self.session_manager().resolve(req, read).await?;
+        resolved
+            .data
+            .map(|data| (data.user, data.session))
+            .ok_or(AuthError::Unauthenticated)
     }
 }
 
@@ -408,7 +395,10 @@ mod tests {
         let mut req = AuthRequest::new(HttpMethod::Get, "/test");
         let _ = req.headers.insert(
             "cookie".into(),
-            format!("better-auth.session_token={}", session.token()),
+            format!(
+                "better-auth.session_token={}",
+                crate::utils::cookie_utils::sign_cookie_value(&session.token, &config.secret)
+            ),
         );
 
         let (found_user, _found_session) = ctx.require_session(&req).await.unwrap();

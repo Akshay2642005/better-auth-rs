@@ -13,9 +13,20 @@ pub struct TwoFactor {
     pub backup_codes: String,
     #[serde(rename = "userId")]
     pub user_id: String,
+    /// Whether the authenticator secret has completed enrollment.
+    pub verified: bool,
+    /// Consecutive failed sign-in verifications across factors and challenges.
+    #[serde(rename = "failedVerificationCount")]
+    pub failed_verification_count: i64,
+    /// End of the account-level verification lock.
+    #[serde(rename = "lockedUntil")]
+    #[serde(serialize_with = "crate::utils::date::serialize_option")]
+    pub locked_until: Option<DateTime<Utc>>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -25,6 +36,19 @@ pub struct CreateTwoFactor {
     pub user_id: String,
     pub secret: String,
     pub backup_codes: String,
+    /// Whether enrollment verification may be skipped.
+    pub verified: bool,
+}
+
+/// Fields changed when an existing authenticator enrollment is completed or replaced.
+#[derive(Debug, Default)]
+pub struct UpdateTwoFactor {
+    /// Replacement encrypted authenticator secret.
+    pub secret: Option<String>,
+    /// Replacement encrypted backup codes.
+    pub backup_codes: Option<String>,
+    /// Enrollment verification state.
+    pub verified: Option<bool>,
 }
 
 /// Passkey response shape.
@@ -47,8 +71,10 @@ pub struct Passkey {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transports: Option<String>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aaguid: Option<String>,
@@ -97,9 +123,11 @@ pub struct DeviceCode {
     #[serde(rename = "userId", skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
     #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub expires_at: DateTime<Utc>,
     pub status: String,
     #[serde(rename = "lastPolledAt", skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "crate::utils::date::serialize_option")]
     pub last_polled_at: Option<DateTime<Utc>>,
     #[serde(rename = "pollingInterval", skip_serializing_if = "Option::is_none")]
     pub polling_interval: Option<i64>,
@@ -151,21 +179,21 @@ pub struct ApiKey {
     #[serde(rename = "configId")]
     pub config_id: String,
     #[serde(rename = "refillInterval")]
-    pub refill_interval: Option<i64>,
+    pub refill_interval: Option<f64>,
     #[serde(rename = "refillAmount")]
-    pub refill_amount: Option<i64>,
+    pub refill_amount: Option<f64>,
     #[serde(rename = "lastRefillAt")]
     pub last_refill_at: Option<String>,
     pub enabled: bool,
     #[serde(rename = "rateLimitEnabled")]
     pub rate_limit_enabled: bool,
     #[serde(rename = "rateLimitTimeWindow")]
-    pub rate_limit_time_window: Option<i64>,
+    pub rate_limit_time_window: Option<f64>,
     #[serde(rename = "rateLimitMax")]
-    pub rate_limit_max: Option<i64>,
+    pub rate_limit_max: Option<f64>,
     #[serde(rename = "requestCount")]
-    pub request_count: Option<i64>,
-    pub remaining: Option<i64>,
+    pub request_count: Option<f64>,
+    pub remaining: Option<f64>,
     #[serde(rename = "lastRequest")]
     pub last_request: Option<String>,
     #[serde(rename = "expiresAt")]
@@ -191,12 +219,12 @@ pub struct CreateApiKey {
     pub key_hash: String,
     pub start: Option<String>,
     pub expires_at: Option<String>,
-    pub remaining: Option<i64>,
+    pub remaining: Option<f64>,
     pub rate_limit_enabled: bool,
-    pub rate_limit_time_window: Option<i64>,
-    pub rate_limit_max: Option<i64>,
-    pub refill_interval: Option<i64>,
-    pub refill_amount: Option<i64>,
+    pub rate_limit_time_window: Option<f64>,
+    pub rate_limit_max: Option<f64>,
+    pub refill_interval: Option<f64>,
+    pub refill_amount: Option<f64>,
     pub permissions: Option<String>,
     pub metadata: Option<String>,
     pub enabled: bool,
@@ -207,12 +235,12 @@ pub struct CreateApiKey {
 pub struct UpdateApiKey {
     pub name: Option<String>,
     pub enabled: Option<bool>,
-    pub remaining: Option<i64>,
+    pub remaining: Option<f64>,
     pub rate_limit_enabled: Option<bool>,
-    pub rate_limit_time_window: Option<i64>,
-    pub rate_limit_max: Option<i64>,
-    pub refill_interval: Option<i64>,
-    pub refill_amount: Option<i64>,
+    pub rate_limit_time_window: Option<f64>,
+    pub rate_limit_max: Option<f64>,
+    pub refill_interval: Option<f64>,
+    pub refill_amount: Option<f64>,
     pub permissions: Option<String>,
     pub metadata: Option<String>,
     /// Update the expiration time. `Some(Some("..."))` sets a new value,
@@ -221,7 +249,7 @@ pub struct UpdateApiKey {
     /// Last request timestamp (updated during verify).
     pub last_request: Option<Option<String>>,
     /// Request count within the current rate-limit window.
-    pub request_count: Option<i64>,
+    pub request_count: Option<f64>,
     /// Last refill timestamp (updated during verify).
     pub last_refill_at: Option<Option<String>>,
 }
@@ -239,6 +267,15 @@ impl AuthTwoFactor for TwoFactor {
     fn user_id(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.user_id)
     }
+    fn verified(&self) -> bool {
+        self.verified
+    }
+    fn failed_verification_count(&self) -> i64 {
+        self.failed_verification_count
+    }
+    fn locked_until(&self) -> Option<DateTime<Utc>> {
+        self.locked_until
+    }
     fn created_at(&self) -> DateTime<Utc> {
         self.created_at
     }
@@ -254,6 +291,9 @@ impl<T: AuthTwoFactor> From<&T> for TwoFactor {
             secret: two_factor.secret().to_owned(),
             backup_codes: two_factor.backup_codes().to_owned(),
             user_id: two_factor.user_id().into_owned(),
+            verified: two_factor.verified(),
+            failed_verification_count: two_factor.failed_verification_count(),
+            locked_until: two_factor.locked_until(),
             created_at: two_factor.created_at(),
             updated_at: two_factor.updated_at(),
         }
@@ -282,10 +322,10 @@ impl AuthApiKey for ApiKey {
     fn config_id(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.config_id)
     }
-    fn refill_interval(&self) -> Option<i64> {
+    fn refill_interval(&self) -> Option<f64> {
         self.refill_interval
     }
-    fn refill_amount(&self) -> Option<i64> {
+    fn refill_amount(&self) -> Option<f64> {
         self.refill_amount
     }
     fn last_refill_at(&self) -> Option<&str> {
@@ -297,16 +337,16 @@ impl AuthApiKey for ApiKey {
     fn rate_limit_enabled(&self) -> bool {
         self.rate_limit_enabled
     }
-    fn rate_limit_time_window(&self) -> Option<i64> {
+    fn rate_limit_time_window(&self) -> Option<f64> {
         self.rate_limit_time_window
     }
-    fn rate_limit_max(&self) -> Option<i64> {
+    fn rate_limit_max(&self) -> Option<f64> {
         self.rate_limit_max
     }
-    fn request_count(&self) -> Option<i64> {
+    fn request_count(&self) -> Option<f64> {
         self.request_count
     }
-    fn remaining(&self) -> Option<i64> {
+    fn remaining(&self) -> Option<f64> {
         self.remaining
     }
     fn last_request(&self) -> Option<&str> {

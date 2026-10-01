@@ -146,7 +146,22 @@ static PLUGINS: &[PluginSchema] = &[
         name: "two-factor",
         user_fields: &[f!("two_factor_enabled", "bool")],
         session_fields: &[],
-        extra_entities: &[],
+        extra_entities: &[ExtraEntitySchema {
+            mod_name: "two_factor",
+            table_name: "two_factor",
+            role: None,
+            fields: &[
+                pk!("id", "String"),
+                f!("secret", "String"),
+                f!("backup_codes", "String"),
+                f!("user_id", "String"),
+                f!("verified", "bool"),
+                f!("failed_verification_count", "i64"),
+                f!("locked_until", "Option<DateTimeUtc>"),
+                f!("created_at", "DateTimeUtc"),
+                f!("updated_at", "DateTimeUtc"),
+            ],
+        }],
     },
     PluginSchema {
         name: "device-authorization",
@@ -244,16 +259,17 @@ static PLUGINS: &[PluginSchema] = &[
                 f!("start", "Option<String>"),
                 f!("prefix", "Option<String>"),
                 f_col!("key_hash", "String", "key"),
-                f!("user_id", "String"),
-                f!("refill_interval", "Option<i32>"),
-                f!("refill_amount", "Option<i32>"),
+                f!("reference_id", "String"),
+                f!("config_id", "String"),
+                f!("refill_interval", "Option<f64>"),
+                f!("refill_amount", "Option<f64>"),
                 f!("last_refill_at", "Option<DateTimeUtc>"),
                 f!("enabled", "bool"),
                 f!("rate_limit_enabled", "bool"),
-                f!("rate_limit_time_window", "Option<i32>"),
-                f!("rate_limit_max", "Option<i32>"),
-                f!("request_count", "Option<i32>"),
-                f!("remaining", "Option<i32>"),
+                f!("rate_limit_time_window", "Option<f64>"),
+                f!("rate_limit_max", "Option<f64>"),
+                f!("request_count", "Option<f64>"),
+                f!("remaining", "Option<f64>"),
                 f!("last_request", "Option<DateTimeUtc>"),
                 f!("expires_at", "Option<DateTimeUtc>"),
                 f!("created_at", "DateTimeUtc"),
@@ -311,4 +327,56 @@ pub fn plugin_field_names(role: EntityRole) -> Vec<&'static str> {
 /// Core field names only (convenience for the macro).
 pub fn core_field_names(role: EntityRole) -> Vec<&'static str> {
     core_fields(role).iter().map(|f| f.name).collect()
+}
+
+/// Database index required by an auth entity.
+pub struct IndexDef {
+    /// Database columns in index order.
+    pub columns: &'static [&'static str],
+    /// Whether the index rejects duplicate column values.
+    pub unique: bool,
+}
+
+macro_rules! index {
+    ($($column:literal),+) => { IndexDef { columns: &[$($column),+], unique: false } };
+}
+
+macro_rules! unique {
+    ($($column:literal),+) => { IndexDef { columns: &[$($column),+], unique: true } };
+}
+
+/// Index definitions use database column names. Omit absent plugin columns.
+pub fn entity_indexes(table: &str) -> &'static [IndexDef] {
+    match table {
+        "users" => &[unique!("email"), unique!("username")],
+        "sessions" => &[unique!("token"), index!("user_id"), index!("expires_at")],
+        "accounts" => &[unique!("provider_id", "account_id"), index!("user_id")],
+        "verifications" => &[index!("identifier")],
+        "two_factor" => &[unique!("user_id")],
+        "device_code" => &[
+            unique!("device_code"),
+            unique!("user_code"),
+            index!("user_id"),
+            index!("expires_at"),
+        ],
+        "organization" => &[unique!("slug")],
+        "member" => &[unique!("organization_id", "user_id"), index!("user_id")],
+        "invitation" => &[index!("organization_id"), index!("email"), index!("status")],
+        "api_keys" => &[unique!("key"), index!("reference_id"), index!("config_id")],
+        "passkeys" => &[unique!("credential_id"), index!("user_id")],
+        _ => &[],
+    }
+}
+
+/// Cascading foreign keys from a column to another entity's primary key.
+pub fn entity_foreign_keys(table: &str) -> &'static [(&'static str, &'static str)] {
+    match table {
+        "sessions" | "accounts" | "two_factor" | "device_code" | "passkeys" => {
+            &[("user_id", "users")]
+        }
+        "member" => &[("organization_id", "organization"), ("user_id", "users")],
+        "invitation" => &[("organization_id", "organization"), ("inviter_id", "users")],
+        // API key references can identify either users or organizations.
+        _ => &[],
+    }
 }

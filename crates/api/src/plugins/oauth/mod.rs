@@ -1,14 +1,39 @@
 use async_trait::async_trait;
+use std::{collections::HashMap, sync::Arc};
+
+use super::email_verification::EmailVerificationPlugin;
+use tokio::sync::OnceCell;
 
 use better_auth_core::AuthResult;
 use better_auth_core::{AuthContext, AuthPlugin, AuthRoute};
 use better_auth_core::{AuthRequest, AuthResponse, HttpMethod};
 
+mod account;
+mod authorization;
+mod callback;
 pub mod encryption;
+mod generic;
+mod generic_profile;
 mod handlers;
+mod logout;
+mod oidc;
+mod provider_tokens;
 mod providers;
+mod resolved;
+mod signin;
 mod state;
+mod token;
 mod types;
+
+pub use generic::{
+    GenericOAuthConfig, GenericOAuthUserInfoHandler, OAuthAccountSubject, OAuthCodeExchange,
+    OAuthProfile, OAuthProfileMapper, OAuthRefreshParameters, OAuthTokenHandler,
+    RefreshTokenParameters,
+};
+pub use token::{
+    ClientAssertion, ClientAssertionContext, TokenEndpointAuth, TokenEndpointRequestContext,
+    TokenEndpointSecretAuthentication, TokenGrantType, TokenRequestHook,
+};
 
 pub use providers::{
     OAuthCallbackUserName, OAuthCallbackUserPayload, OAuthConfig, OAuthIdTokenVerifier,
@@ -18,22 +43,68 @@ pub use providers::{
 
 pub struct OAuthPlugin {
     config: OAuthConfig,
+    generic: HashMap<String, GenericOAuthConfig>,
+    email_verification: Option<Arc<EmailVerificationPlugin>>,
+    resolved: OnceCell<resolved::ResolvedOAuthConfig>,
 }
 
 impl OAuthPlugin {
     pub fn new() -> Self {
         Self {
             config: OAuthConfig::default(),
+            generic: HashMap::new(),
+            email_verification: None,
+            resolved: OnceCell::new(),
         }
     }
 
     pub fn with_config(config: OAuthConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            ..Self::new()
+        }
     }
 
     pub fn add_provider(mut self, name: &str, provider: OAuthProvider) -> Self {
         let _ = self.config.providers.insert(name.to_string(), provider);
+        self.resolved = OnceCell::new();
         self
+    }
+
+    /// Register a generic OAuth/OIDC provider, resolving discovery during initialization.
+    pub fn add_generic_provider(mut self, name: &str, config: GenericOAuthConfig) -> Self {
+        let _ = self.generic.insert(name.to_owned(), config);
+        self.resolved = OnceCell::new();
+        self
+    }
+
+    /// Attach the email verification sender and OAuth sign-up/sign-in policy.
+    pub fn with_email_verification(mut self, plugin: Arc<EmailVerificationPlugin>) -> Self {
+        self.email_verification = Some(plugin);
+        self.resolved = OnceCell::new();
+        self
+    }
+
+    /// Resolve discovery and report whether a provider is available for authentication.
+    ///
+    /// Discovery results are cached and reused during auth initialization. Providers
+    /// skipped after discovery failure return `false`; invalid static configuration
+    /// returns an error. This does not contact token, userinfo, or JWKS endpoints.
+    /// Configuring the plugin after this call invalidates the cached resolution.
+    pub async fn has_provider(&self, name: &str) -> AuthResult<bool> {
+        Ok(self.resolved_config().await?.providers.contains_key(name))
+    }
+
+    async fn resolved_config(&self) -> AuthResult<&resolved::ResolvedOAuthConfig> {
+        self.resolved
+            .get_or_try_init(|| {
+                resolved::ResolvedOAuthConfig::new(
+                    &self.config,
+                    &self.generic,
+                    self.email_verification.clone(),
+                )
+            })
+            .await
     }
 }
 
@@ -49,6 +120,11 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for OAuthPlugin {
         "oauth"
     }
 
+    async fn on_init(&self, _ctx: &mut better_auth_core::AuthInitContext<S>) -> AuthResult<()> {
+        let _ = self.resolved_config().await?;
+        Ok(())
+    }
+
     fn routes(&self) -> Vec<AuthRoute> {
         vec![
             AuthRoute::post("/sign-in/social", "social_sign_in"),
@@ -61,33 +137,47 @@ impl<S: better_auth_core::AuthSchema> AuthPlugin<S> for OAuthPlugin {
         ]
     }
 
+    async fn before_request(
+        &self,
+        req: &AuthRequest,
+        ctx: &AuthContext<S>,
+    ) -> AuthResult<Option<better_auth_core::BeforeRequestAction>> {
+        if req.method() == &HttpMethod::Post && req.path() == "/sign-out" {
+            return Ok(Some(better_auth_core::BeforeRequestAction::Respond(
+                logout::handle_sign_out(self.resolved_config().await?, req, ctx).await?,
+            )));
+        }
+        Ok(None)
+    }
+
     async fn on_request(
         &self,
         req: &AuthRequest,
         ctx: &AuthContext<S>,
     ) -> AuthResult<Option<AuthResponse>> {
+        let config = self.resolved_config().await?;
         match (req.method(), req.path()) {
             (HttpMethod::Post, "/sign-in/social") => Ok(Some(
-                handlers::handle_social_sign_in(&self.config, req, ctx).await?,
+                handlers::handle_social_sign_in(config, req, ctx).await?,
             )),
             (HttpMethod::Get | HttpMethod::Post, path) if path_matches_callback(path) => {
                 let provider = extract_provider_from_callback(path);
                 Ok(Some(
-                    handlers::handle_callback(&self.config, &provider, req, ctx).await?,
+                    callback::handle_callback(config, &provider, req, ctx).await?,
                 ))
             }
-            (HttpMethod::Post, "/link-social") => Ok(Some(
-                handlers::handle_link_social(&self.config, req, ctx).await?,
-            )),
+            (HttpMethod::Post, "/link-social") => {
+                Ok(Some(handlers::handle_link_social(config, req, ctx).await?))
+            }
             (HttpMethod::Post, "/get-access-token") => Ok(Some(
-                handlers::handle_get_access_token(&self.config, req, ctx).await?,
+                account::handle_get_access_token(config, req, ctx).await?,
             )),
-            (HttpMethod::Post, "/refresh-token") => Ok(Some(
-                handlers::handle_refresh_token(&self.config, req, ctx).await?,
-            )),
-            (HttpMethod::Get, "/account-info") => Ok(Some(
-                handlers::handle_account_info(&self.config, req, ctx).await?,
-            )),
+            (HttpMethod::Post, "/refresh-token") => {
+                Ok(Some(account::handle_refresh_token(config, req, ctx).await?))
+            }
+            (HttpMethod::Get, "/account-info") => {
+                Ok(Some(account::handle_account_info(config, req, ctx).await?))
+            }
             _ => Ok(None),
         }
     }
@@ -104,3 +194,9 @@ fn extract_provider_from_callback(path: &str) -> String {
     let path_without_query = path.split('?').next().unwrap_or(path);
     path_without_query["/callback/".len()..].to_string()
 }
+
+#[cfg(test)]
+mod generic_signin_tests;
+
+#[cfg(test)]
+mod readiness_tests;

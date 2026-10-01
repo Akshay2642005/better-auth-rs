@@ -20,12 +20,12 @@ When sources disagree, trust them in this order:
 
 1. Runtime behavior of the TypeScript reference server in
    `compat-tests/reference-server/`
-2. TypeScript source in a local checkout of `better-auth@1.6.29` when
+2. TypeScript source in a local checkout of `better-auth@1.7.6` when
    available
 3. Generated upstream OpenAPI profiles from the pinned published package
 4. Better Auth documentation
 
-The pinned reference version is `better-auth@1.6.29`.
+The pinned reference version is `better-auth@1.7.6`.
 
 ## Non-Negotiables
 
@@ -36,18 +36,24 @@ The pinned reference version is `better-auth@1.6.29`.
 - Rust-native integration APIs are allowed when they preserve the same
   client-observable contract
 - If TS looks buggy, match it anyway and document that choice in code
+- If a test conflicts with verified upstream behavior, update the test and
+  implementation to match upstream
 
 ## Before You Change Code
 
-Install the Bun workspaces used by the compatibility harness:
+Install [devenv](https://devenv.sh/getting-started/). The committed
+`devenv.lock` pins Rust, Bun, Node.js, pnpm, and native build dependencies.
+
+Run tools through the development shell:
 
 ```bash
-cd compat-tests/reference-server && bun install
-cd ../client-tests && bun install
+devenv shell -- bun install --cwd compat-tests/reference-server --frozen-lockfile
+devenv shell -- bun install --cwd compat-tests/client-tests --frozen-lockfile
+devenv shell -- cargo test --workspace
 ```
 
-You should have a local checkout of `better-auth@1.6.29` to inspect
-upstream behavior and source.
+Inspect upstream behavior in the installed `better-auth@1.7.6` and
+`@better-auth/api-key@1.7.6` packages or the matching upstream tag.
 
 ## Workflow
 
@@ -69,15 +75,17 @@ When the documented v1 route surface changes, regenerate the docs OpenAPI
 artifacts with:
 
 ```bash
-cargo run --bin generate_docs_openapi --features seaorm2
-cd docs && bun scripts/generate-openapi.mts
+devenv shell -- pnpm --dir docs install --frozen-lockfile
+devenv shell -- cargo run --bin generate_docs_openapi --features seaorm2
+devenv shell -- pnpm --dir docs exec biome format --write better-auth.json
+devenv shell -- bun run --cwd docs scripts/generate-openapi.mts
 ```
 
 ## Testing Strategy
 
 There are three layers:
 
-1. Rust unit/integration tests: `cargo test --workspace --lib`
+1. Rust unit/integration tests and the generated public consumer: `cargo test --workspace --features axum,seaorm2,redis-cache` and `./scripts/consumer-check.sh`
 2. Raw wire smoke tests:
    `cargo test --test wire_compat_smoke_tests -- --nocapture`
 3. Dual-server client compatibility tests using the real
@@ -90,14 +98,21 @@ contract. For more detail, see
 
 ## Required Checks
 
-Before committing, these must pass:
+Before committing, run the full check:
 
 ```bash
-cargo fmt --check
-cargo clippy --workspace
-cargo clippy --workspace --features axum
-cargo test --workspace --lib
+devenv test
 ```
 
-Then run the phase-appropriate compatibility checks for the behavior you
-changed.
+Local checks and CI use `scripts/check.sh`. The script installs locked compatibility dependencies, checks formatting and Clippy, runs workspace tests with Axum, SeaORM, and Redis features, checks the alternative Rustls configuration, builds Rustdoc, and tests a freshly generated schema in an independent consumer. The dual-server suite compares all supported phases against the pinned TypeScript runtime.
+
+For a focused check, run the applicable command through `devenv shell --`:
+
+```bash
+devenv shell -- cargo fmt --all -- --check
+devenv shell -- cargo clippy --workspace --locked -- -D warnings
+devenv shell -- cargo clippy --workspace --locked --features axum,seaorm2,redis-cache -- -D warnings
+devenv shell -- cargo test --workspace --locked --features axum,seaorm2,redis-cache
+devenv shell -- ./scripts/consumer-check.sh
+devenv shell -- cargo test --test client_compat_tests phase5_client_compat -- --ignored --nocapture
+```

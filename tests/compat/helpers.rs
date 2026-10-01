@@ -10,9 +10,10 @@ use std::sync::{Mutex, Once, OnceLock};
 use better_auth::{
     AuthBuilder, AuthConfig, BetterAuth,
     plugins::{
-        AccountManagementPlugin, AdminPlugin, ApiKeyPlugin, EmailPasswordPlugin,
-        EmailVerificationPlugin, OAuthPlugin, OrganizationPlugin, PasskeyPlugin,
-        PasswordManagementPlugin, SessionManagementPlugin, TwoFactorPlugin, UserManagementPlugin,
+        AccountManagementPlugin, AdminPlugin, ApiKeyPlugin, DeviceAuthorizationPlugin,
+        EmailPasswordPlugin, EmailVerificationPlugin, OAuthPlugin, OrganizationPlugin,
+        PasskeyPlugin, PasswordManagementPlugin, SessionManagementPlugin, TwoFactorPlugin,
+        UserManagementPlugin,
         oauth::{
             OAuthProvider, OAuthUserInfo, OAuthUserInfoHandler, OAuthUserInfoRequest,
             OAuthUserInfoResponse,
@@ -208,9 +209,11 @@ pub fn test_secret() -> String {
 }
 
 pub fn test_config() -> AuthConfig {
-    AuthConfig::new(test_secret())
+    let mut config = AuthConfig::new(test_secret())
         .base_url("http://localhost:3000")
-        .password_min_length(8)
+        .password_min_length(8);
+    config.session.bearer = Some(Default::default());
+    config
 }
 
 fn mock_oauth_plugin() -> OAuthPlugin {
@@ -249,6 +252,8 @@ fn mock_oauth_plugin() -> OAuthPlugin {
             auth_url: format!("{MOCK_OAUTH_BASE_URL}/__test/oauth/authorize"),
             token_url: format!("{MOCK_OAUTH_BASE_URL}/__test/oauth/token"),
             user_info_url: Some(format!("{MOCK_OAUTH_BASE_URL}/__test/oauth/userinfo")),
+            end_session_endpoint: None,
+            post_logout_redirect_uri: None,
             scopes: vec![
                 "openid".to_string(),
                 "email".to_string(),
@@ -304,7 +309,11 @@ pub async fn create_test_auth_with_options(options: TestAuthOptions) -> TestAuth
 
     AuthBuilder::<TestSchema>::new(config)
         .store(store)
-        .plugin(EmailPasswordPlugin::new().enable_signup(true))
+        .plugin(
+            EmailPasswordPlugin::new()
+                .enable_signup(true)
+                .username(true),
+        )
         .plugin(SessionManagementPlugin::new())
         .plugin(
             PasswordManagementPlugin::new()
@@ -322,6 +331,7 @@ pub async fn create_test_auth_with_options(options: TestAuthOptions) -> TestAuth
                 .require_delete_verification(false),
         )
         .plugin(ApiKeyPlugin::builder().build())
+        .plugin(DeviceAuthorizationPlugin::new())
         .plugin(mock_oauth_plugin())
         .plugin(TwoFactorPlugin::new())
         .plugin(organization_plugin)
@@ -405,20 +415,9 @@ pub fn delete_with_auth(path: &str, token: &str) -> AuthRequest {
     req
 }
 
-/// Build an authenticated POST request with an empty `{}` body (no content-type).
-///
-/// Matches the pattern used by many integration tests for action endpoints
-/// like `/sign-out`, `/revoke-sessions`, `/delete-user`, etc.
+/// Build an authenticated JSON POST request with an empty object.
 pub fn post_with_auth(path: &str, token: &str) -> AuthRequest {
-    let mut req = AuthRequest::new(HttpMethod::Post, path);
-    req.body = Some(b"{}".to_vec());
-    let _ = req
-        .headers
-        .insert("authorization".to_string(), format!("Bearer {}", token));
-    let _ = req
-        .headers
-        .insert("origin".to_string(), "http://localhost:3000".to_string());
-    req
+    post_json_with_auth(path, serde_json::json!({}), token)
 }
 
 // ---------------------------------------------------------------------------
@@ -648,13 +647,18 @@ impl TestHarness {
     /// `integration_tests.rs` conventions (EmailPassword, SessionManagement,
     /// PasswordManagement, AccountManagement, ApiKey).
     pub async fn minimal() -> Self {
-        let config = AuthConfig::new("test-secret-key-that-is-at-least-32-characters-long")
+        let mut config = AuthConfig::new("test-secret-key-that-is-at-least-32-characters-long")
             .base_url("http://localhost:3000")
             .password_min_length(6);
+        config.session.bearer = Some(Default::default());
         let store = test_store(&config).await;
         let auth = AuthBuilder::<TestSchema>::new(config)
             .store(store)
-            .plugin(EmailPasswordPlugin::new().enable_signup(true))
+            .plugin(
+                EmailPasswordPlugin::new()
+                    .enable_signup(true)
+                    .username(true),
+            )
             .plugin(SessionManagementPlugin::new())
             .plugin(
                 PasswordManagementPlugin::new().send_reset_password(Arc::new(TestResetSender {

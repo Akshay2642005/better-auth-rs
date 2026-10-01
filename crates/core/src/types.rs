@@ -14,6 +14,7 @@ pub use super::types_org::{
 pub use super::types_plugin::{
     ApiKey, CreateApiKey, CreateDeviceCode, CreatePasskey, CreateTwoFactor, DeviceCode, Passkey,
     TwoFactor, UpdateApiKey, UpdateDeviceCode, UpdatePasskey, UpdatePasskeyAuthentication,
+    UpdateTwoFactor,
 };
 
 /// HTTP method enumeration
@@ -36,26 +37,10 @@ pub struct AuthRequest {
     pub headers: HashMap<String, String>,
     pub body: Option<Vec<u8>>,
     pub query: HashMap<String, String>,
-    /// Virtual user ID injected by a `BeforeRequestAction::InjectSession`.
-    ///
-    /// When set, downstream handlers treat the request as authenticated for
-    /// this user **without** a real database session.  This mirrors the
-    /// TypeScript `ctx.context.session` virtual-session approach.
-    ///
-    /// # Security
-    ///
-    /// This field **must only** be set by the internal request pipeline
-    /// (via [`set_virtual_user_id`](AuthRequest::set_virtual_user_id)) after
-    /// a plugin's `before_request` hook returns
-    /// `BeforeRequestAction::InjectSession`.  Application code constructing
-    /// an `AuthRequest` should always leave this as `None`; setting it to
-    /// `Some(…)` externally bypasses normal authentication.
-    ///
-    /// **`pub(crate)`** — external crates must use [`AuthRequest::from_parts`]
-    /// or [`AuthRequest::new`] (which initialise this to `None`) and then
-    /// [`set_virtual_user_id`](AuthRequest::set_virtual_user_id) only from
-    /// the trusted request pipeline.
-    pub(crate) virtual_user_id: Option<String>,
+    /// Session authenticated by a trusted plugin hook for the current request.
+    pub(crate) virtual_session: Option<crate::wire::SessionView>,
+    /// Cookie updates from session middleware, shared by normalized request clones.
+    response_headers: std::sync::Arc<std::sync::Mutex<Headers>>,
 }
 
 /// Metadata extracted from an incoming request for session creation.
@@ -155,6 +140,11 @@ impl Headers {
     /// Iterate over stored header pairs in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> {
         self.0.iter().map(|(name, value)| (name, value))
+    }
+
+    /// Remove all values of a header.
+    pub fn remove(&mut self, name: &str) {
+        self.0.retain(|(key, _)| !key.eq_ignore_ascii_case(name));
     }
 }
 
@@ -332,7 +322,8 @@ impl AuthRequest {
             headers: HashMap::new(),
             body: None,
             query: HashMap::new(),
-            virtual_user_id: None,
+            virtual_session: None,
+            response_headers: Default::default(),
         }
     }
 
@@ -352,7 +343,8 @@ impl AuthRequest {
             headers,
             body,
             query,
-            virtual_user_id: None,
+            virtual_session: None,
+            response_headers: Default::default(),
         }
     }
 
@@ -368,21 +360,42 @@ impl AuthRequest {
         self.headers.get(name)
     }
 
-    /// Returns the virtual user ID injected by a `before_request` hook, if any.
+    /// Return the user ID authenticated by a trusted plugin hook.
     pub fn virtual_user_id(&self) -> Option<&str> {
-        self.virtual_user_id.as_deref()
+        self.virtual_session
+            .as_ref()
+            .map(|session| session.user_id.as_str())
     }
 
-    /// Set the virtual user ID on this request.
+    /// Return the session authenticated by a trusted plugin hook.
+    pub fn virtual_session(&self) -> Option<&crate::wire::SessionView> {
+        self.virtual_session.as_ref()
+    }
+
+    /// Attach a session authenticated by a trusted plugin hook.
     ///
-    /// # Safety contract
-    ///
-    /// This **must only** be called from the internal request pipeline
-    /// (i.e. `handle_request_inner`) after a plugin's `before_request` hook
-    /// returns `BeforeRequestAction::InjectSession`.  Calling it from
-    /// application code would bypass normal authentication.
-    pub fn set_virtual_user_id(&mut self, user_id: String) {
-        self.virtual_user_id = Some(user_id);
+    /// Call this method only from the request pipeline after a plugin returns
+    /// `BeforeRequestAction::InjectSession`. Never populate the session from client input.
+    pub fn set_virtual_session(&mut self, session: crate::wire::SessionView) {
+        self.virtual_session = Some(session);
+    }
+
+    /// Queue a response header from request-scoped authentication middleware.
+    pub fn append_response_header(&self, name: &str, value: String) -> crate::AuthResult<()> {
+        self.response_headers
+            .lock()
+            .map_err(|_| crate::AuthError::internal("Session response headers lock poisoned"))?
+            .append(name, value);
+        Ok(())
+    }
+
+    /// Drain response headers queued by authentication middleware.
+    pub fn take_response_headers(&self) -> crate::AuthResult<Headers> {
+        let mut headers = self
+            .response_headers
+            .lock()
+            .map_err(|_| crate::AuthError::internal("Session response headers lock poisoned"))?;
+        Ok(std::mem::take(&mut *headers))
     }
 
     pub fn body_as_json<T: for<'de> Deserialize<'de>>(&self) -> Result<T, serde_json::Error> {
@@ -663,7 +676,8 @@ mod tests {
             headers: HashMap::new(),
             body: Some(br#"{"name":"test"}"#.to_vec()),
             query: HashMap::new(),
-            virtual_user_id: None,
+            virtual_session: None,
+            response_headers: Default::default(),
         };
         let val: serde_json::Value = req.body_as_json().expect("parse");
         assert_eq!(val["name"], "test");
@@ -682,7 +696,21 @@ mod tests {
     fn auth_request_virtual_user_id() {
         let mut req = AuthRequest::new(HttpMethod::Get, "/test");
         assert!(req.virtual_user_id().is_none());
-        req.set_virtual_user_id("user-123".into());
+        let now = Utc::now();
+        req.set_virtual_session(crate::wire::SessionView {
+            id: "key-123".into(),
+            token: "key-token".into(),
+            user_id: "user-123".into(),
+            created_at: now,
+            updated_at: now,
+            expires_at: now,
+            ip_address: None,
+            user_agent: None,
+            impersonated_by: None,
+            active_organization_id: None,
+            active: true,
+            additional_fields: Default::default(),
+        });
         assert_eq!(req.virtual_user_id(), Some("user-123"));
     }
 

@@ -1,6 +1,26 @@
+import { expect } from "bun:test";
 import { compatScenario } from "../../support/scenario";
 
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
+
+compatScenario("pre-bound device requests retain their owner and restrict review details", async (ctx) => {
+  const owner = await ctx.actor("owner").client.signUp.email({ email: ctx.uniqueEmail("device-owner"), password: "password123", name: "Owner" });
+  const other = await ctx.actor("other").client.signUp.email({ email: ctx.uniqueEmail("device-other"), password: "password123", name: "Other" });
+  expect(owner.error).toBeNull();
+  expect(other.error).toBeNull();
+  const code = await ctx.rawRequest({ path: "/api/auth/device/code", method: "POST", json: { client_id: "bound-client", user_id: owner.data!.user.id, scope: "read write" } });
+  expect(code.status).toBe(200);
+  const userCode = asString(asRecord(code.body).user_code, "user_code");
+  const outsiderReview = await ctx.rawRequest({ actor: "other", path: `/api/auth/device?user_code=${userCode}` });
+  expect(outsiderReview.body).toEqual({ user_code: userCode, status: "pending" });
+  const denied = await ctx.rawRequest({ actor: "other", path: "/api/auth/device/approve", method: "POST", json: { userCode } });
+  expect(denied.status).toBe(403);
+  const ownerReview = await ctx.rawRequest({ actor: "owner", path: `/api/auth/device?user_code=${userCode}` });
+  expect(ownerReview.body).toEqual({ user_code: userCode, status: "pending", client_id: "bound-client", scope: "read write" });
+  const approved = await ctx.rawRequest({ actor: "owner", path: "/api/auth/device/approve", method: "POST", json: { userCode } });
+  expect(approved.status).toBe(200);
+  return { denied: ctx.snapshot(denied), approved: ctx.snapshot(approved) };
+});
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -32,6 +52,9 @@ function normalizeApprovedTokenResponse(response: {
     snapshot.body.expires_in =
       Math.abs(expiresIn - 604800) <= 5 ? "<week-session-ttl>" : expiresIn;
   }
+  expect(typeof snapshot.body?.access_token).toBe("string");
+  expect((snapshot.body?.access_token as string).length).toBeGreaterThan(0);
+  snapshot.body!.access_token = "<access-token>";
 
   return snapshot;
 }
@@ -116,12 +139,13 @@ compatScenario("device verify accepts a hyphenated user code", async (ctx) => {
     },
   });
   const userCode = asString(asRecord(code.body).user_code, "user_code");
-  const formattedUserCode = `${userCode.slice(0, 4)}-${userCode.slice(4)}`;
+  const formattedUserCode = `${userCode.slice(0, 4)}-${userCode.slice(4)}`.toLowerCase();
 
   const verify = await ctx.rawRequest({
     path: `/api/auth/device?user_code=${encodeURIComponent(formattedUserCode)}`,
   });
   const verifyBody = asRecord(verify.body);
+  expect(verify.status).toBe(200);
 
   return {
     verify: {
@@ -157,6 +181,10 @@ compatScenario("device approve flow returns a bearer token", async (ctx) => {
   const deviceCode = asString(codeBody.device_code, "device_code");
   const userCode = asString(codeBody.user_code, "user_code");
 
+  const review = await ctx.rawRequest({ actor: "primary", path: `/api/auth/device?user_code=${userCode}` });
+  expect(review.status).toBe(200);
+  expect(review.body).toEqual({ user_code: userCode, status: "pending", client_id: "compat-device-client", scope: "read write" });
+
   const approve = await ctx.rawRequest({
     actor: "primary",
     path: "/api/auth/device/approve",
@@ -165,6 +193,7 @@ compatScenario("device approve flow returns a bearer token", async (ctx) => {
       userCode,
     },
   });
+  expect(approve.status).toBe(200);
 
   const token = await ctx.rawRequest({
     path: "/api/auth/device/token",
@@ -175,6 +204,7 @@ compatScenario("device approve flow returns a bearer token", async (ctx) => {
       client_id: "compat-device-client",
     },
   });
+  expect(token.status).toBe(200);
 
   return {
     signup: ctx.snapshot(signup),
@@ -204,6 +234,8 @@ compatScenario("device deny flow returns access_denied", async (ctx) => {
   const deviceCode = asString(codeBody.device_code, "device_code");
   const userCode = asString(codeBody.user_code, "user_code");
 
+  expect((await ctx.rawRequest({ actor: "primary", path: `/api/auth/device?user_code=${userCode}` })).status).toBe(200);
+
   const deny = await ctx.rawRequest({
     actor: "primary",
     path: "/api/auth/device/deny",
@@ -212,6 +244,7 @@ compatScenario("device deny flow returns access_denied", async (ctx) => {
       userCode,
     },
   });
+  expect(deny.status).toBe(200);
 
   const token = await ctx.rawRequest({
     path: "/api/auth/device/token",
@@ -222,6 +255,7 @@ compatScenario("device deny flow returns access_denied", async (ctx) => {
       client_id: "compat-device-client",
     },
   });
+  expect(asRecord(token.body).error).toBe("access_denied");
 
   return {
     signup: ctx.snapshot(signup),
@@ -249,6 +283,8 @@ compatScenario("device approve blocks already-processed codes", async (ctx) => {
   });
   const userCode = asString(asRecord(code.body).user_code, "user_code");
 
+  expect((await ctx.rawRequest({ actor: "primary", path: `/api/auth/device?user_code=${userCode}` })).status).toBe(200);
+
   const firstApprove = await ctx.rawRequest({
     actor: "primary",
     path: "/api/auth/device/approve",
@@ -257,6 +293,7 @@ compatScenario("device approve blocks already-processed codes", async (ctx) => {
       userCode,
     },
   });
+  expect(firstApprove.status).toBe(200);
 
   const secondApprove = await ctx.rawRequest({
     actor: "primary",
@@ -266,6 +303,7 @@ compatScenario("device approve blocks already-processed codes", async (ctx) => {
       userCode,
     },
   });
+  expect(secondApprove.status).toBe(400);
 
   return {
     signup: ctx.snapshot(signup),

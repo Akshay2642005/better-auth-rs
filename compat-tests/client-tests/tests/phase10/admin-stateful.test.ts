@@ -1,3 +1,4 @@
+import { expect } from "bun:test";
 import { compatScenario } from "../../support/scenario";
 import { adminActor, signUpAndPromoteAdmin } from "../phase9/helpers";
 
@@ -115,6 +116,9 @@ compatScenario("banned users are denied email and social session creation", asyn
   });
   const targetId = signUp.data?.user.id ?? "";
 
+  const socialSubject = ctx.uniqueToken("phase10-banned-social");
+  await ctx.seedOAuthAccount({ email: targetEmail, providerId: "google", accountId: socialSubject });
+
   await admin.adminClient.admin.banUser({
     userId: targetId,
     banReason: "phase10 banned",
@@ -124,10 +128,11 @@ compatScenario("banned users are denied email and social session creation", asyn
     email: targetEmail,
     password: targetPassword,
   });
+  expect(emailSignIn.error?.code).toBe("BANNED_USER");
 
   await ctx.setSocialProfile({
     email: targetEmail,
-    sub: ctx.uniqueToken("phase10-banned-social"),
+    sub: socialSubject,
     name: "Banned Social User",
     emailVerified: true,
     idTokenValid: true,
@@ -145,6 +150,9 @@ compatScenario("banned users are denied email and social session creation", asyn
   });
   const callbackLocation = summarizeLocation(callback.location);
   const session = await target.client.getSession();
+  expect(callback.status).toBe(302);
+  expect(callbackLocation.params.error).toBe("BANNED_USER");
+  expect(session.data).toBeNull();
 
   return {
     emailSignIn: ctx.snapshot(emailSignIn),
@@ -183,6 +191,15 @@ compatScenario("admin impersonation restores the original admin session and hide
     password: targetPassword,
   });
   const listedSessions = await target.client.listSessions();
+  expect(signUp.error).toBeNull();
+  expect(directSignIn.error).toBeNull();
+  expect(impersonate.error).toBeNull();
+  expect(listedSessions.error).toBeNull();
+  expect(listedSessions.data?.map((session) => session.token)).toEqual([
+    signUp.data?.token,
+    directSignIn.data?.token,
+  ]);
+  expect(listedSessions.data?.some((session) => session.token === impersonatedSession.data?.session.token)).toBe(false);
 
   const stopImpersonating = await admin.adminClient.admin.stopImpersonating({});
   const restoredSession = await admin.client.getSession();

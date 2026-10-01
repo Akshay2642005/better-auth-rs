@@ -1,7 +1,6 @@
 import { test } from "bun:test";
 import diff from "microdiff";
 import { createAuthClient } from "better-auth/client";
-import { RAW_DIFF_ALLOWLIST } from "./allowlist";
 import { RUST_BASE_URL, TS_BASE_URL, requireHealthy } from "./config";
 import {
   type GitHubEmailRecord,
@@ -19,7 +18,7 @@ import {
   setResetPasswordMode,
   setSocialProfile,
 } from "./controls";
-import { normalizeClientValue } from "./normalize";
+import { clientDiffs as compareClientValues, normalizeClientValue } from "./normalize";
 import { createTracingFetch, type TraceEntry } from "./trace";
 
 type ScenarioServerContext = {
@@ -110,19 +109,6 @@ function formatDiffPath(path: Array<string | number>) {
   return path.map((segment) => String(segment)).join(".");
 }
 
-function filterRawDiffs(
-  scenarioName: string,
-  diffs: ReturnType<typeof diff>,
-) {
-  return diffs.filter((entry) => {
-    const path = formatDiffPath(entry.path);
-    return !RAW_DIFF_ALLOWLIST.some(
-      (allowance) =>
-        allowance.scenario.test(scenarioName) && allowance.path.test(path),
-    );
-  });
-}
-
 async function runScenario(
   label: string,
   baseURL: string,
@@ -172,7 +158,7 @@ async function runScenario(
       return `${prefix}-${shortSeed}`;
     },
     snapshot(value) {
-      return normalizeClientValue(value);
+      return structuredClone(value);
     },
     async rawRequest({
       actor = "primary",
@@ -253,7 +239,7 @@ async function runScenario(
   };
 
   return {
-    observation: normalizeClientValue(await scenario(context)),
+    observation: normalizeClientValue(await scenario(context), "", baseURL),
     traces,
   };
 }
@@ -268,15 +254,14 @@ function formatDiffs(title: string, diffs: ReturnType<typeof diff>) {
 export function compatScenario(
   scenarioName: string,
   scenario: (ctx: ScenarioServerContext) => Promise<unknown>,
+  timeout?: number,
 ) {
   test.serial(scenarioName, async () => {
     const seed = `${Date.now()}-${crypto.randomUUID()}`;
     const ts = await runScenario("TS", TS_BASE_URL, seed, scenario);
     const rust = await runScenario("Rust", RUST_BASE_URL, seed, scenario);
 
-    const clientDiffs = diff(ts.observation, rust.observation, {
-      cyclesFix: false,
-    });
+    const clientDiffs = compareClientValues(ts.observation, rust.observation);
     if (clientDiffs.length > 0) {
       throw new Error(
         `${formatDiffs(`Client-visible drift in scenario: ${scenarioName}`, clientDiffs)}\n\nTS:\n${JSON.stringify(
@@ -287,12 +272,9 @@ export function compatScenario(
       );
     }
 
-    const rawDiffs = filterRawDiffs(
-      scenarioName,
-      diff(ts.traces, rust.traces, {
-        cyclesFix: false,
-      }),
-    );
+    const rawDiffs = diff(ts.traces, rust.traces, {
+      cyclesFix: false,
+    });
 
     if (rawDiffs.length > 0) {
       throw new Error(
@@ -303,5 +285,5 @@ export function compatScenario(
         )}\n\nRust traces:\n${JSON.stringify(rust.traces, null, 2)}`,
       );
     }
-  });
+  }, timeout);
 }

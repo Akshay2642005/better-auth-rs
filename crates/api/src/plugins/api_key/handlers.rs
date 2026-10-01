@@ -95,15 +95,51 @@ pub(super) fn check_permissions(key_permissions_json: &str, required: &serde_jso
 // Core functions -- framework-agnostic business logic
 // ---------------------------------------------------------------------------
 
+impl ApiKeyPlugin {
+    /// Create a key on behalf of `body.user_id` from trusted server code.
+    /// Organization configurations still require the user's organization permission.
+    pub async fn create_key(
+        &self,
+        ctx: &AuthContext<impl better_auth_core::AuthSchema>,
+        body: &CreateKeyRequest,
+    ) -> AuthResult<CreateKeyResponse> {
+        use validator::Validate as _;
+        body.validate()
+            .map_err(|error| better_auth_core::AuthError::Validation(error.to_string()))?;
+        let user_id = body
+            .user_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| super::api_key_error(super::ApiKeyErrorCode::UnauthorizedSession))?;
+        create_key_for_user(body, user_id, self, ctx).await
+    }
+
+    /// Update a key on behalf of `body.user_id` from trusted server code.
+    /// The caller must authorize access before invoking this server-only method.
+    pub async fn update_key(
+        &self,
+        ctx: &AuthContext<impl better_auth_core::AuthSchema>,
+        body: &UpdateKeyRequest,
+    ) -> AuthResult<ApiKeyView> {
+        use validator::Validate as _;
+        body.validate()
+            .map_err(|error| better_auth_core::AuthError::Validation(error.to_string()))?;
+        let user_id = body
+            .user_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| super::api_key_error(super::ApiKeyErrorCode::UnauthorizedSession))?;
+        update_key_for_user(body, user_id, self, ctx).await
+    }
+}
+
 pub(crate) async fn create_key_core(
     body: &CreateKeyRequest,
     user_id: impl AsRef<str>,
     plugin: &ApiKeyPlugin,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<CreateKeyResponse> {
-    // Reject server-only properties from HTTP clients (matches TS behavior).
-    // In the TS implementation, these fields can only be set from the server
-    // auth instance; HTTP requests always count as "client" calls.
+    let _ = plugin.resolve_configuration(body.config_id.as_deref())?;
     if body.refill_amount.is_some()
         || body.refill_interval.is_some()
         || body.rate_limit_max.is_some()
@@ -116,57 +152,56 @@ pub(crate) async fn create_key_core(
             super::ApiKeyErrorCode::ServerOnlyProperty,
         ));
     }
+    if body.user_id.is_some() {
+        return Err(super::api_key_error(
+            super::ApiKeyErrorCode::UnauthorizedSession,
+        ));
+    }
+    create_key_for_user(body, user_id.as_ref(), plugin, ctx).await
+}
 
+async fn create_key_for_user(
+    body: &CreateKeyRequest,
+    user_id: &str,
+    plugin: &ApiKeyPlugin,
+    ctx: &AuthContext<impl better_auth_core::AuthSchema>,
+) -> AuthResult<CreateKeyResponse> {
     let config = plugin.resolve_configuration(body.config_id.as_deref())?;
-
-    // Validations
-    ApiKeyPlugin::validate_prefix(config, body.prefix.as_deref())?;
-    ApiKeyPlugin::validate_name(config, body.name.as_deref(), true)?;
-    ApiKeyPlugin::validate_metadata(config, &body.metadata)?;
-    ApiKeyPlugin::validate_refill(body.refill_interval, body.refill_amount)?;
-
-    let effective_expires_in = ApiKeyPlugin::validate_expires_in(config, body.expires_in)?;
-
-    // Who the key belongs to: the caller, or the organization they named when
-    // this configuration references organizations.
     let reference_id = match config.references {
-        super::ApiKeyReferences::User => user_id.as_ref().to_string(),
+        super::ApiKeyReferences::User => user_id.to_string(),
         super::ApiKeyReferences::Organization => {
-            let organization_id = body.organization_id.as_deref().ok_or_else(|| {
-                super::api_key_error(super::ApiKeyErrorCode::OrganizationIdRequired)
-            })?;
-            helpers::require_org_api_key_permission(
-                ctx,
-                user_id.as_ref(),
-                organization_id,
-                "create",
-            )
-            .await?;
+            let organization_id = body
+                .organization_id
+                .as_deref()
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| {
+                    super::api_key_error(super::ApiKeyErrorCode::OrganizationIdRequired)
+                })?;
+            helpers::require_org_api_key_permission(ctx, user_id, organization_id, "create")
+                .await?;
             organization_id.to_string()
         }
     };
 
+    ApiKeyPlugin::validate_metadata(config, &body.metadata)?;
+    ApiKeyPlugin::validate_refill(
+        body.refill_interval.filter(|value| *value != 0.0),
+        body.refill_amount.filter(|value| *value != 0.0),
+    )?;
+    let effective_expires_in = ApiKeyPlugin::validate_expires_in(config, body.expires_in)?;
+    ApiKeyPlugin::validate_prefix(config, body.prefix.as_deref())?;
+    ApiKeyPlugin::validate_name(config, body.name.as_deref(), true)?;
+
     let (full_key, hash, start) = ApiKeyPlugin::generate_key(config, body.prefix.as_deref());
-
-    let expires_at = helpers::expires_in_to_at(effective_expires_in)?;
-
-    let remaining = body.remaining.or(config.default_remaining);
-
-    let store_start = if config.store_starting_characters {
-        Some(start)
-    } else {
-        None
-    };
-
     let input = CreateApiKey {
         reference_id,
         config_id: config.config_id.clone(),
         name: body.name.clone(),
         prefix: body.prefix.clone().or_else(|| config.prefix.clone()),
         key_hash: hash,
-        start: store_start,
-        expires_at,
-        remaining,
+        start: config.store_starting_characters.then_some(start),
+        expires_at: expiration_date(effective_expires_in)?,
+        remaining: body.remaining,
         rate_limit_enabled: body.rate_limit_enabled.unwrap_or(config.rate_limit.enabled),
         rate_limit_time_window: body
             .rate_limit_time_window
@@ -177,23 +212,54 @@ pub(crate) async fn create_key_core(
         permissions: body
             .permissions
             .as_ref()
-            .map(|v| serde_json::to_string(v).unwrap_or_default()),
+            .or(config.default_permissions.as_ref())
+            .map(serde_json::to_string)
+            .transpose()?,
         metadata: body
             .metadata
             .as_ref()
-            .map(|v| serde_json::to_string(v).unwrap_or_default()),
+            .filter(|value| json_truthy(value))
+            .map(ToString::to_string),
         enabled: true,
     };
-
     let api_key = ctx.database.create_api_key(input).await?;
-
-    // Throttled cleanup
     plugin.maybe_delete_expired(ctx).await;
-
+    let mut api_key = ApiKeyView::from(&api_key);
+    // Upstream returns supplied falsy metadata at creation, but stores null.
+    api_key.metadata = body.metadata.clone();
     Ok(CreateKeyResponse {
         key: full_key,
-        api_key: ApiKeyView::from(&api_key),
+        api_key,
     })
+}
+
+fn json_truthy(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(value) => *value,
+        serde_json::Value::Number(value) => value.as_f64().is_some_and(|value| value != 0.0),
+        serde_json::Value::String(value) => !value.is_empty(),
+        _ => true,
+    }
+}
+
+fn expiration_date(seconds: Option<f64>) -> AuthResult<Option<String>> {
+    let Some(seconds) = seconds.filter(|seconds| *seconds != 0.0) else {
+        return Ok(None);
+    };
+    let milliseconds = seconds * 1000.0;
+    if !milliseconds.is_finite() || milliseconds.abs() > i64::MAX as f64 {
+        return Err(better_auth_core::AuthError::bad_request(
+            "expiresIn is out of range",
+        ));
+    }
+    let duration = chrono::Duration::milliseconds(milliseconds as i64);
+    let date = chrono::Utc::now()
+        .checked_add_signed(duration)
+        .ok_or_else(|| better_auth_core::AuthError::bad_request("expiresIn is out of range"))?;
+    Ok(Some(
+        date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+    ))
 }
 
 pub(crate) async fn get_key_core(
@@ -215,37 +281,44 @@ pub(crate) async fn list_keys_core(
     plugin: &ApiKeyPlugin,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<ListKeysResponse> {
-    let config = plugin.resolve_configuration(query.config_id.as_deref())?;
-
-    // Organization-referencing configurations list the organization's keys, and
-    // only for a member who may read them.
-    let reference_id = match config.references {
-        super::ApiKeyReferences::User => user_id.as_ref().to_string(),
-        super::ApiKeyReferences::Organization => {
-            let organization_id = query.organization_id.as_deref().ok_or_else(|| {
-                super::api_key_error(super::ApiKeyErrorCode::OrganizationIdRequired)
-            })?;
-            helpers::require_org_api_key_permission(ctx, user_id.as_ref(), organization_id, "read")
-                .await?;
-            organization_id.to_string()
-        }
+    let organization_id = query.organization_id.as_deref().filter(|id| !id.is_empty());
+    if let Some(organization_id) = organization_id {
+        helpers::require_org_api_key_permission(ctx, user_id.as_ref(), organization_id, "read")
+            .await?;
+    }
+    let reference_id = query.organization_id.as_deref().unwrap_or(user_id.as_ref());
+    let references = if organization_id.is_some() {
+        super::ApiKeyReferences::Organization
+    } else {
+        super::ApiKeyReferences::User
     };
+    let config_id = query.config_id.as_deref().filter(|id| !id.is_empty());
+    if config_id.is_some() {
+        let _ = plugin.resolve_configuration(config_id)?;
+    }
 
     let keys = ctx
         .database
-        .list_api_keys_by_reference(&reference_id)
+        .list_api_keys_by_reference(reference_id)
         .await?;
     let mut views: Vec<ApiKeyView> = keys
         .iter()
+        .filter(|key| {
+            let key_references = plugin
+                .configurations
+                .iter()
+                .find(|config| super::config_id_matches(&key.config_id, &config.config_id))
+                .map(|config| config.references)
+                .unwrap_or_default();
+            key_references == references
+                && config_id.is_none_or(|id| super::config_id_matches(&key.config_id, id))
+        })
         .map(ApiKeyView::from)
-        .filter(|view| super::config_id_matches(&view.config_id, &config.config_id))
         .collect();
 
     if let Some(sort_by) = query.sort_by.as_deref() {
         sort_views(&mut views, sort_by, query.sort_direction.as_deref());
     }
-
-    // `total` counts the filtered set, before the window is applied.
     let total = views.len();
     if let Some(offset) = query.offset {
         views = views.split_off(offset.min(views.len()));
@@ -253,7 +326,6 @@ pub(crate) async fn list_keys_core(
     if let Some(limit) = query.limit {
         views.truncate(limit);
     }
-
     plugin.maybe_delete_expired(ctx).await;
     Ok(ListKeysResponse {
         api_keys: views,
@@ -263,19 +335,47 @@ pub(crate) async fn list_keys_core(
     })
 }
 
-/// Sort in place by a client-supplied field name, ignoring unknown fields the
-/// way a permissive query layer would.
+fn compare_numbers(left: Option<f64>, right: Option<f64>) -> std::cmp::Ordering {
+    match (left, right) {
+        (Some(left), Some(right)) => left.total_cmp(&right),
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Less,
+        (Some(_), None) => std::cmp::Ordering::Greater,
+    }
+}
+
 fn sort_views(views: &mut [ApiKeyView], sort_by: &str, direction: Option<&str>) {
-    match sort_by {
-        "createdAt" => views.sort_by(|a, b| a.created_at.cmp(&b.created_at)),
-        "updatedAt" => views.sort_by(|a, b| a.updated_at.cmp(&b.updated_at)),
-        "name" => views.sort_by(|a, b| a.name.cmp(&b.name)),
-        "expiresAt" => views.sort_by(|a, b| a.expires_at.cmp(&b.expires_at)),
-        _ => return,
-    }
-    if direction == Some("desc") {
-        views.reverse();
-    }
+    views.sort_by(|a, b| {
+        let ordering = match sort_by {
+            "id" => a.id.cmp(&b.id),
+            "name" => a.name.cmp(&b.name),
+            "start" => a.start.cmp(&b.start),
+            "prefix" => a.prefix.cmp(&b.prefix),
+            "referenceId" => a.reference_id.cmp(&b.reference_id),
+            "configId" => a.config_id.cmp(&b.config_id),
+            "enabled" => a.enabled.cmp(&b.enabled),
+            "rateLimitEnabled" => a.rate_limit_enabled.cmp(&b.rate_limit_enabled),
+            "createdAt" => a.created_at.cmp(&b.created_at),
+            "updatedAt" => a.updated_at.cmp(&b.updated_at),
+            "expiresAt" => a.expires_at.cmp(&b.expires_at),
+            "lastRequest" => a.last_request.cmp(&b.last_request),
+            "lastRefillAt" => a.last_refill_at.cmp(&b.last_refill_at),
+            "remaining" => compare_numbers(a.remaining, b.remaining),
+            "requestCount" => compare_numbers(a.request_count, b.request_count),
+            "rateLimitMax" => compare_numbers(a.rate_limit_max, b.rate_limit_max),
+            "rateLimitTimeWindow" => {
+                compare_numbers(a.rate_limit_time_window, b.rate_limit_time_window)
+            }
+            "refillAmount" => compare_numbers(a.refill_amount, b.refill_amount),
+            "refillInterval" => compare_numbers(a.refill_interval, b.refill_interval),
+            _ => std::cmp::Ordering::Equal,
+        };
+        if direction == Some("desc") {
+            ordering.reverse()
+        } else {
+            ordering
+        }
+    });
 }
 
 pub(crate) async fn update_key_core(
@@ -284,7 +384,15 @@ pub(crate) async fn update_key_core(
     plugin: &ApiKeyPlugin,
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<ApiKeyView> {
-    // Reject server-only properties from HTTP clients (matches TS behavior).
+    if body
+        .user_id
+        .as_deref()
+        .is_some_and(|id| !id.is_empty() && id != user_id.as_ref())
+    {
+        return Err(super::api_key_error(
+            super::ApiKeyErrorCode::UnauthorizedSession,
+        ));
+    }
     if body.refill_amount.is_some()
         || body.refill_interval.is_some()
         || body.rate_limit_max.is_some()
@@ -297,36 +405,19 @@ pub(crate) async fn update_key_core(
             super::ApiKeyErrorCode::ServerOnlyProperty,
         ));
     }
+    update_key_for_user(body, user_id.as_ref(), plugin, ctx).await
+}
 
-    // Check that at least one client-allowed field is provided.
-    // expires_in is Option<Option<i64>>: None = not sent.
-    if body.name.is_none()
-        && body.enabled.is_none()
-        && body.expires_in.is_none()
-        && body.metadata.is_none()
-    {
-        return Err(super::api_key_error(
-            super::ApiKeyErrorCode::NoValuesToUpdate,
-        ));
-    }
-
-    // Validations
+async fn update_key_for_user(
+    body: &UpdateKeyRequest,
+    user_id: &str,
+    plugin: &ApiKeyPlugin,
+    ctx: &AuthContext<impl better_auth_core::AuthSchema>,
+) -> AuthResult<ApiKeyView> {
     let config = plugin.resolve_configuration(body.config_id.as_deref())?;
+    let _ = helpers::get_owned_api_key(ctx, config, &body.key_id, user_id, "update").await?;
     ApiKeyPlugin::validate_name(config, body.name.as_deref(), false)?;
-    ApiKeyPlugin::validate_metadata(config, &body.metadata)?;
 
-    // Ownership check via shared helper
-    let _existing =
-        helpers::get_owned_api_key(ctx, config, &body.key_id, user_id.as_ref(), "update").await?;
-
-    // Build expires_at from expiresIn:
-    //   None         = not sent → don't touch expires_at
-    //   Some(None)   = sent as null → clear expires_at
-    //   Some(Some(n)) = sent with value → set expires_at
-    //
-    // TS checks disableCustomExpiresTime before distinguishing null vs
-    // value, so any expiresIn (including null) is rejected when custom
-    // expiration is disabled.
     let expires_at = match body.expires_in {
         None => None,
         Some(_) if config.key_expiration.disable_custom_expires_time => {
@@ -335,12 +426,36 @@ pub(crate) async fn update_key_core(
             ));
         }
         Some(None) => Some(None),
-        Some(Some(secs)) => {
-            let validated = ApiKeyPlugin::validate_expires_in(config, Some(secs))?;
-            helpers::expires_in_to_at(validated)?.map(Some)
+        Some(Some(seconds)) => {
+            let validated = ApiKeyPlugin::validate_expires_in(config, Some(seconds))?;
+            Some(expiration_date(validated)?)
         }
     };
-
+    let metadata = body.metadata.as_ref().filter(|_| config.enable_metadata);
+    if let Some(metadata) = metadata
+        && !(metadata.is_null() || metadata.is_object() || metadata.is_array())
+    {
+        return Err(super::api_key_error(
+            super::ApiKeyErrorCode::InvalidMetadataType,
+        ));
+    }
+    ApiKeyPlugin::validate_refill(body.refill_interval, body.refill_amount)?;
+    if body.name.is_none()
+        && body.enabled.is_none()
+        && expires_at.is_none()
+        && metadata.is_none()
+        && body.remaining.is_none()
+        && body.refill_amount.is_none()
+        && body.refill_interval.is_none()
+        && body.rate_limit_enabled.is_none()
+        && body.rate_limit_time_window.is_none()
+        && body.rate_limit_max.is_none()
+        && body.permissions.is_none()
+    {
+        return Err(super::api_key_error(
+            super::ApiKeyErrorCode::NoValuesToUpdate,
+        ));
+    }
     let update = UpdateApiKey {
         name: body.name.clone(),
         enabled: body.enabled,
@@ -353,21 +468,14 @@ pub(crate) async fn update_key_core(
         permissions: body
             .permissions
             .as_ref()
-            .map(|v| serde_json::to_string(v).unwrap_or_default()),
-        metadata: body
-            .metadata
-            .as_ref()
-            .map(|v| serde_json::to_string(v).unwrap_or_default()),
+            .map(serde_json::to_string)
+            .transpose()?,
+        metadata: metadata.map(ToString::to_string),
         expires_at,
-        last_request: None,
-        request_count: None,
-        last_refill_at: None,
+        ..Default::default()
     };
-
     let updated = ctx.database.update_api_key(&body.key_id, update).await?;
-
     plugin.maybe_delete_expired(ctx).await;
-
     Ok(ApiKeyView::from(&updated))
 }
 
@@ -378,11 +486,9 @@ pub(crate) async fn delete_key_core(
     ctx: &AuthContext<impl better_auth_core::AuthSchema>,
 ) -> AuthResult<serde_json::Value> {
     let config = plugin.resolve_configuration(body.config_id.as_deref())?;
-    // Ownership check via shared helper
-    let _existing =
+    let _ =
         helpers::get_owned_api_key(ctx, config, &body.key_id, user_id.as_ref(), "delete").await?;
-
     ctx.database.delete_api_key(&body.key_id).await?;
-
+    plugin.maybe_delete_expired(ctx).await;
     Ok(serde_json::json!({ "success": true }))
 }

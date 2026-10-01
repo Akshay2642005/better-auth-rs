@@ -56,6 +56,16 @@ mod user {
     impl ActiveModelBehavior for ActiveModel {}
 
     impl AuthUser for Model {
+        const PLUGIN_FIELDS: &'static [&'static str] = &[
+            "username",
+            "display_username",
+            "two_factor_enabled",
+            "role",
+            "banned",
+            "ban_reason",
+            "ban_expires",
+            "metadata",
+        ];
         fn id(&self) -> Cow<'_, str> {
             Cow::Owned(self.id.to_string())
         }
@@ -248,6 +258,8 @@ mod session {
     impl ActiveModelBehavior for ActiveModel {}
 
     impl AuthSession for Model {
+        const PLUGIN_FIELDS: &'static [&'static str] =
+            &["impersonated_by", "active_organization_id"];
         fn id(&self) -> Cow<'_, str> {
             Cow::Owned(self.id.to_string())
         }

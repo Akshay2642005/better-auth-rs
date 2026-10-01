@@ -49,6 +49,10 @@ let auth = BetterAuth::<AppAuthSchema>::new(config)
 | `invitation_limit` | `Option<usize>` | `Some(100)` | Max pending invitations per org |
 | `disable_organization_deletion` | `bool` | `false` | Prevent organization deletion |
 
+Configure invitation delivery with `OrganizationPlugin::custom_send_invitation_email(Arc<dyn SendInvitationEmail>)`. Implement `SendInvitationEmail::send` using the invitation, organization, member, and inviter in `InvitationEmail`. The plugin logs delivery failures and still returns the stored invitation, matching upstream behavior.
+
+Inviting an email with a pending invitation returns `USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION`. Send `resend: true` to renew that invitation and send the email again. Resending preserves the invitation ID, role, and original inviter.
+
 ## RBAC (Role-Based Access Control)
 
 ### Default Roles
@@ -97,7 +101,7 @@ let auth = BetterAuth::<AppAuthSchema>::new(auth_config)
 
 ## API Endpoints
 
-The Organization plugin exposes 21 endpoints. For full request/response details, see the [OpenAPI Reference](/docs/reference/openapi/organization).
+For full request/response details, see the [OpenAPI Reference](/docs/reference/openapi/organization).
 
 ### Organization CRUD
 
@@ -107,6 +111,7 @@ The Organization plugin exposes 21 endpoints. For full request/response details,
 | `/organization/update` | POST | Update organization details |
 | `/organization/delete` | POST | Delete an organization |
 | `/organization/list` | GET | List user's organizations |
+| `/organization/get-organization` | GET | Get organization metadata without members or invitations |
 | `/organization/get-full-organization` | GET | Get organization with members and invitations |
 | `/organization/check-slug` | POST | Check slug availability |
 | `/organization/set-active` | POST | Set active organization on session |

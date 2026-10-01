@@ -24,8 +24,10 @@ pub struct UserView {
     pub email_verified: bool,
     pub image: Option<String>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
     pub username: Option<String>,
     #[serde(rename = "displayUsername")]
@@ -38,6 +40,7 @@ pub struct UserView {
     #[serde(rename = "banReason")]
     pub ban_reason: Option<String>,
     #[serde(rename = "banExpires")]
+    #[serde(serialize_with = "crate::utils::date::serialize_option")]
     pub ban_expires: Option<DateTime<Utc>>,
     #[serde(skip)]
     pub metadata: serde_json::Value,
@@ -48,11 +51,14 @@ pub struct UserView {
 pub struct SessionView {
     pub id: String,
     #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub expires_at: DateTime<Utc>,
     pub token: String,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
     #[serde(rename = "ipAddress")]
     pub ip_address: Option<String>,
@@ -66,6 +72,8 @@ pub struct SessionView {
     pub active_organization_id: Option<String>,
     #[serde(skip)]
     pub active: bool,
+    #[serde(flatten)]
+    pub additional_fields: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Public account response shape.
@@ -85,15 +93,19 @@ pub struct AccountView {
     #[serde(rename = "idToken")]
     pub id_token: Option<String>,
     #[serde(rename = "accessTokenExpiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize_option")]
     pub access_token_expires_at: Option<DateTime<Utc>>,
     #[serde(rename = "refreshTokenExpiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize_option")]
     pub refresh_token_expires_at: Option<DateTime<Utc>>,
     pub scope: Option<String>,
     #[serde(skip_serializing)]
     pub password: Option<String>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -104,10 +116,13 @@ pub struct VerificationView {
     pub identifier: String,
     pub value: String,
     #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub expires_at: DateTime<Utc>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -147,7 +162,32 @@ impl<T: AuthSession> From<&T> for SessionView {
             impersonated_by: session.impersonated_by().map(str::to_owned),
             active_organization_id: session.active_organization_id().map(str::to_owned),
             active: session.active(),
+            additional_fields: Default::default(),
         }
+    }
+}
+
+impl SessionView {
+    /// Apply configured field visibility to a serialized application session model.
+    pub fn with_fields<T: AuthSession>(
+        session: &T,
+        config: &crate::config::SessionConfig,
+    ) -> crate::AuthResult<Self> {
+        let mut view = Self::from(session);
+        if !config.additional_fields.is_empty() {
+            let model = serde_json::to_value(session)?;
+            for (name, field) in &config.additional_fields {
+                if field.returned {
+                    let value = model
+                        .get(field.field_name.as_deref().unwrap_or(name))
+                        .or_else(|| model.get(name))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    let _ = view.additional_fields.insert(name.clone(), value);
+                }
+            }
+        }
+        Ok(view)
     }
 }
 
@@ -185,6 +225,16 @@ impl<T: AuthVerification> From<&T> for VerificationView {
 }
 
 impl AuthUser for UserView {
+    const PLUGIN_FIELDS: &'static [&'static str] = &[
+        "username",
+        "display_username",
+        "two_factor_enabled",
+        "role",
+        "banned",
+        "ban_reason",
+        "ban_expires",
+        "metadata",
+    ];
     fn id(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.id)
     }
@@ -233,6 +283,7 @@ impl AuthUser for UserView {
 }
 
 impl AuthSession for SessionView {
+    const PLUGIN_FIELDS: &'static [&'static str] = &["impersonated_by", "active_organization_id"];
     fn id(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.id)
     }
@@ -362,8 +413,10 @@ pub struct OrganizationView {
     )]
     pub metadata: Option<serde_json::Value>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -393,8 +446,10 @@ pub struct InvitationView {
     #[serde(rename = "inviterId")]
     pub inviter_id: String,
     #[serde(rename = "expiresAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub expires_at: DateTime<Utc>,
     #[serde(rename = "createdAt")]
+    #[serde(serialize_with = "crate::utils::date::serialize")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -434,8 +489,6 @@ pub struct PasskeyView {
     pub transports: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: String,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aaguid: Option<String>,
 }
@@ -452,8 +505,9 @@ impl<T: AuthPasskey> From<&T> for PasskeyView {
             device_type: pk.device_type().to_owned(),
             backed_up: pk.backed_up(),
             transports: pk.transports().map(str::to_owned),
-            created_at: pk.created_at().to_rfc3339(),
-            updated_at: pk.updated_at().to_rfc3339(),
+            created_at: pk
+                .created_at()
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             aaguid: pk.aaguid().map(str::to_owned),
         }
     }
@@ -474,21 +528,27 @@ pub struct ApiKeyView {
     #[serde(rename = "configId")]
     pub config_id: String,
     #[serde(rename = "refillInterval")]
-    pub refill_interval: Option<i64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub refill_interval: Option<f64>,
     #[serde(rename = "refillAmount")]
-    pub refill_amount: Option<i64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub refill_amount: Option<f64>,
     #[serde(rename = "lastRefillAt")]
     pub last_refill_at: Option<String>,
     pub enabled: bool,
     #[serde(rename = "rateLimitEnabled")]
     pub rate_limit_enabled: bool,
     #[serde(rename = "rateLimitTimeWindow")]
-    pub rate_limit_time_window: Option<i64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub rate_limit_time_window: Option<f64>,
     #[serde(rename = "rateLimitMax")]
-    pub rate_limit_max: Option<i64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub rate_limit_max: Option<f64>,
     #[serde(rename = "requestCount")]
-    pub request_count: Option<i64>,
-    pub remaining: Option<i64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub request_count: Option<f64>,
+    #[serde(serialize_with = "serialize_api_key_number")]
+    pub remaining: Option<f64>,
     #[serde(rename = "lastRequest")]
     pub last_request: Option<String>,
     #[serde(rename = "expiresAt")]
@@ -499,6 +559,19 @@ pub struct ApiKeyView {
     pub updated_at: String,
     pub permissions: Option<serde_json::Value>,
     pub metadata: Option<serde_json::Value>,
+}
+
+// JSON.stringify emits safe integral JavaScript numbers without a decimal suffix.
+fn serialize_api_key_number<S: Serializer>(
+    value: &Option<f64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match value {
+        Some(value) if value.fract() == 0.0 && value.abs() <= 9_007_199_254_740_991.0 => {
+            serializer.serialize_i64(*value as i64)
+        }
+        value => value.serialize(serializer),
+    }
 }
 
 impl<T: AuthApiKey> From<&T> for ApiKeyView {
@@ -573,6 +646,7 @@ mod tests {
             impersonated_by: Some("admin-1".to_string()),
             active_organization_id: Some("org-1".to_string()),
             active: true,
+            additional_fields: Default::default(),
         };
 
         let json =
