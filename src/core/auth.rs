@@ -430,8 +430,7 @@ impl<S: AuthSchema> BetterAuth<S> {
         let two_factor_enabled = better_auth_api::plugins::two_factor::is_enabled(&self.context);
 
         for (key, value) in body.iter() {
-            let core_denied =
-                UpdateUserRequest::NON_WRITABLE_CORE_FIELDS.contains(&key.as_str());
+            let core_denied = UpdateUserRequest::NON_WRITABLE_CORE_FIELDS.contains(&key.as_str());
             let plugin_denied = UpdateUserRequest::is_denied_by_plugin(
                 key.as_str(),
                 admin_enabled,
@@ -453,9 +452,7 @@ impl<S: AuthSchema> BetterAuth<S> {
                 && !UpdateUserRequest::is_plugin_non_writable(key)
         });
 
-        if self.context.get_metadata("username.enabled")
-            != Some(&serde_json::Value::Bool(true))
-        {
+        if self.context.get_metadata("username.enabled") != Some(&serde_json::Value::Bool(true)) {
             _ = clean_body.remove("username");
             _ = clean_body.remove("displayUsername");
         }
