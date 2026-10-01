@@ -51,8 +51,7 @@ async fn create_test_auth() -> Arc<BetterAuth<TestSchema>> {
     .await
 }
 
-async fn create_test_auth_with_config(mut config: AuthConfig) -> Arc<BetterAuth<TestSchema>> {
-    config.session.bearer = Some(better_auth::config::BearerConfig::default());
+async fn create_test_auth_with_config(config: AuthConfig) -> Arc<BetterAuth<TestSchema>> {
     build_test_auth(config, false, false).await
 }
 
@@ -86,7 +85,7 @@ async fn create_two_factor_test_auth() -> Arc<BetterAuth<TestSchema>> {
 }
 
 async fn build_test_auth(
-    config: AuthConfig,
+    mut config: AuthConfig,
     admin: bool,
     two_factor: bool,
 ) -> Arc<BetterAuth<TestSchema>> {
@@ -103,6 +102,10 @@ async fn build_test_auth(
             Ok(())
         }
     }
+
+    // Bearer auth is opt-in; every builder variant must enable it, otherwise
+    // `Authorization: Bearer` requests silently get 401.
+    config.session.bearer = Some(Default::default());
 
     let store = SeaOrmStore::<TestSchema>::new(config.clone(), test_database().await);
     let builder = AuthBuilder::<TestSchema>::new(config)
